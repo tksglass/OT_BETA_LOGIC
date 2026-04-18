@@ -1141,7 +1141,9 @@ if(rareCount === 2 || rareCount === 3){
   return;
 }
 
-if(filled >= 4){
+let placedTiles = grid.filter(x => x !== null).length;
+
+if(placedTiles >= 4){
   runExactSolver();
   return;
 }
