@@ -92,6 +92,9 @@ width: auto;
 }
 
 .sharebar {
+  max-width: 720px;
+  width: 100%;
+  box-sizing: border-box;
   margin-top: 15px;
   padding: 15px;
   border-radius: 12px;
@@ -598,9 +601,27 @@ history.push({
   currentMode
 });
 
-  grid[i]=grid[i]===selectedColor?null:selectedColor;
-  placementsCache = {};
-  if(!isStateValid()){grid[i]=null;return;}
+let old = grid[i];
+grid[i] = (grid[i] === selectedColor ? null : selectedColor);
+
+placementsCache = {};
+
+if(!isStateValid()){
+  grid[i] = old;
+  return;
+}
+
+for(let s of getShipList()){
+  if(getPlacementsCached(s).length === 0){
+    grid[i] = old;
+    return;
+  }
+}
+
+if(!hasAnyValidBoard()){
+  grid[i] = old;
+  return;
+}
   render();
   
   appState = {
@@ -766,6 +787,41 @@ function getDirectionConstraint(cells){
   if(rows.every(r=>r===rows[0])) return 'horizontal';
   if(cols.every(c=>c===cols[0])) return 'vertical';
   return 'any';
+}
+
+function hasAnyValidBoard(){
+  let ships = getShipList();
+
+  let placementsMap = {};
+  for(let s of ships){
+    let p = getPlacementsCached(s);
+    if(p.length === 0) return false;
+    placementsMap[s] = p;
+  }
+
+  let board = Array(25).fill(null);
+
+  function dfs(index){
+    if(index === ships.length){
+      return isBoardValid(board, true);
+    }
+
+    let ship = ships[index];
+
+    for(let opt of placementsMap[ship]){
+      if(opt.some(i => board[i] && board[i] !== ship)) continue;
+
+      opt.forEach(i => board[i] = ship);
+
+      if(dfs(index + 1)) return true;
+
+      opt.forEach(i => board[i] = null);
+    }
+
+    return false;
+  }
+
+  return dfs(0);
 }
 
 function getValidPlacements(color){
