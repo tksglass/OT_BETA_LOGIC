@@ -1050,8 +1050,6 @@ if(!hasStarted){
   return;
 }
 
-placementsCache = {};
-
 let isFull = grid.every(cell => cell !== null);
 
 if(isFull){
@@ -1136,7 +1134,7 @@ let filled = grid.filter(x => x && x !== 'miss').length;
 let valid=0;
 let attempts=0;
 let seen = new Set();
-const NUM_CHAINS = 6;
+const NUM_CHAINS = 4;
 
 if(rareCount === 2 || rareCount === 3){
   runExactSolver();
@@ -1194,7 +1192,7 @@ while(attempts < 15000 && valid < 5000){
 
   let burnIn = 20;
 
-  for(let step=0; step<60; step++){
+  for(let step=0; step<30; step++){
 
     for(let chain of chains){
 
@@ -1220,7 +1218,7 @@ while(attempts < 15000 && valid < 5000){
 
     let board = chain.board;
 
-    if(!isBoardValid(board, true)) continue;
+    if(valid % 200 === 0 && !isBoardValid(board, true)) continue;
 
     let key = board.join(',');
     if(seen.has(key)) continue;
