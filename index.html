@@ -44,6 +44,12 @@
   margin-bottom: 10px;
 }
 
+.action-group {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
 .boards {
   display: flex;
   flex-direction: column;
@@ -256,7 +262,12 @@ width: auto;
 }
 
 #undoBtn {
-  margin-right: 30px;
+  background: #374151;
+  color: #f9fafb;
+}
+
+#undoBtn:hover {
+  background: #4b5563;
 }
 
 #hashInput {
@@ -275,14 +286,8 @@ width: auto;
 }
 
 #resetBtn {
-  padding: 10px 20px;
-  font-size: 14px;
   background: #ef4444;
   color: white;
-  border-radius: 8px;
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.2);
 }
 
 #resetBtn:hover {
@@ -379,6 +384,11 @@ width: auto;
       <button onclick="setRare(4,this)">8</button>
       <button onclick="setRare(5,this)">9</button>
     </div>
+	
+	<div class="action-group">
+  <button id="undoBtn" onclick="undoMove()">Undo</button>
+  <button id="resetBtn" onclick="resetAll()">Reset</button>
+</div>
 
     <div class="section">
       <span class="label">Extra Chance Risk Level:</span>
@@ -388,11 +398,6 @@ width: auto;
 
   </div>
   
-  <div class="reset-container">
-  <button id="undoBtn" onclick="undoMove()">Undo</button>
-  <button id="resetBtn" onclick="resetAll()">Reset</button>
- 
-</div>
 </div>
 
 <div class="layout">
