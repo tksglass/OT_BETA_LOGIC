@@ -440,12 +440,12 @@ width: auto;
     <div id="modeLabel" class="confidence"></div>
   </div>
   
-    </div> <!-- end left-column -->
+    </div>
 
 </div> 
 <div id="infoBox"></div>
 
-</div> <!-- end layout -->
+</div> 
 
 </div>
 
@@ -2331,21 +2331,29 @@ appState.isGuaranteed = true;
 return;
 }
 
-  if(!huntMode){
-    candidates.forEach(c=>{
-      const p = c.p;
-      const entropy = (p === 0 || p === 1)
-		? 0
-		: -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
+ if(!huntMode){
+  candidates.forEach(c=>{
+    const p = c.p;
 
-      const [r,col] = indexToCoord(c.i);
-      const checker = (r + col) % 2 === 0 ? 1 : 0.8;
+    const entropy = (p === 0 || p === 1)
+      ? 0
+      : -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
 
-      c.score = entropy * checker;
-    });
+    const asymmetry = Math.abs(p - 0.5);
 
-    candidates.sort((a,b)=> b.score - a.score);
-  } else {
+    const collapseBonus = Math.max(p, 1 - p);
+
+    const [r,col] = indexToCoord(c.i);
+    const checker = (r + col) % 2 === 0 ? 1 : 0.8;
+
+    c.score =
+      entropy * 0.7 +       
+      asymmetry * 0.6 +       
+      collapseBonus * 0.3;    
+  });
+
+  candidates.sort((a,b)=> b.score - a.score);
+} else {
     candidates.sort((a,b)=> b.p - a.p);
   }
 
