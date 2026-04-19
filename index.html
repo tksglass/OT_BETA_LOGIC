@@ -180,6 +180,39 @@ width: auto;
   font-weight: bold;
 }
 
+@keyframes alertPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.7);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 14px rgba(168, 85, 247, 0);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0);
+    transform: scale(1);
+  }
+}
+
+.info-alert {
+  animation: alertPulse 1.2s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    #1f2937,
+    #2a1f3d,
+    #1f2937
+  );
+  background-size: 200% 100%;
+  animation: alertPulse 1.2s ease-in-out infinite,
+             shimmer 2.5s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .info-card {
   margin-top: 10px;
   padding: 12px;
@@ -276,6 +309,8 @@ width: auto;
   box-shadow: 0 0 10px 4px rgba(34,197,94,0.8);
 }
 
+
+
 .recommended-avoid {
   outline: 3px solid #ef4444;
   position: relative;
@@ -294,8 +329,16 @@ width: auto;
 }
 
 .recommended-equal::after {
-  content: "●";
+  content: attr(data-label); 
   color: #22c55e;
+  font-weight: bold;
+  position: absolute;
+  font-size: 16px;
+}
+
+.recommended-size2::after {
+  content: "2";
+  color: orange;
   font-weight: bold;
   position: absolute;
   font-size: 16px;
@@ -1352,10 +1395,19 @@ let groupData = groups.map(group => {
 let maxP = Math.max(...groupData.map(g => g.p));
 
 let bestGroups = groupData.filter(g => g.p === maxP);
-
 let bestGroup = bestGroups.flatMap(g => g.group);
 
-let isSymmetric = huntMode && bestGroup.length >= 3;
+const tileShipSizes = getTileShipSizes(allBoards);
+
+let size2Tiles = Object.keys(tileShipSizes)
+  .map(i => parseInt(i))
+.filter(i =>
+  grid[i] === null &&  
+  tileShipSizes[i].includes(2) &&
+  !bestGroup.includes(i)
+);
+
+let isSymmetric = huntMode && (bestGroup.length + size2Tiles.length >= 3);
 
 function getTileShipSizes(allBoards){
   let tileMap = {};
@@ -1385,10 +1437,12 @@ if(isSymmetric){
   appState.topMoves = null;
   appState.isTrueEndgame = false;
   appState.isGuaranteed = false;
-  appState.specialGroup = {
-    tiles: bestGroup,
-    shipMap: tileShipSizes
-  };
+appState.specialGroup = {
+  tiles: bestGroup,
+  size2Tiles: size2Tiles,
+  shipMap: tileShipSizes,
+  probs: probs
+};
 } else {
   appState.probs = probs;
   appState.topMoves = null;
@@ -1525,9 +1579,30 @@ function renderUI(){
 
 function updateInfoBox(){
 
- if(appState.specialGroup){
-    return;
+let hits = grid.filter(x => x && x !== 'miss').length;
+let misses = grid.filter(x => x === 'miss').length;
+
+let missEndsGameState = (hits >= 5) && (misses >= 3);
+
+let missCard = missEndsGameState
+  ? `
+    <div class="info-card info-purple info-alert">
+      <div class="info-card-title">Miss Ends The Game</div>
+      <div>Any blue tile will end the run.</div>
+    </div>
+  `
+  : "";
+
+if(appState.specialGroup){
+  renderEquivalenceInfo(appState.specialGroup);
+
+  if(missEndsGameState){
+    const box = document.getElementById('infoBox');
+    box.innerHTML += missCard;
   }
+
+  return;
+}
 
 const {
   probs,
@@ -1573,6 +1648,10 @@ box.innerHTML = makeCard(
   } 
 
 const hasStarted = grid.some(c => c !== null);
+
+if(missEndsGameState){
+  messages.push(missCard);
+}
 
 if(!hasStarted){
   if(!selectedColor){
@@ -1658,9 +1737,6 @@ messages.push(
     const describeMove = (move, label, color) => {
 	let riskText = "";
 
-if(move.missEndsGame){
-  riskText = "<br><span style='color:#ff6b6b'>Miss ends the game</span>";
-}
 const p = move.p;
 const hitChance = huntMode ? p : (1 - p);
 const hitLabel = huntMode ? "Non-blue chance" : "Blue chance";
@@ -1696,7 +1772,6 @@ messages.push(
     ${coordText}
     → Statistically safest option
     → ${((huntMode ? safeMove.p : (1 - safeMove.p)) * 100).toFixed(1)}% ${huntMode ? "non-blue chance" : "blue chance"}
-    ${safeMove.missEndsGame ? "<br><span style='color:#ff6b6b'>Miss ends the game</span>" : ""}
     `,
     "info-green"
   )
@@ -1803,7 +1878,9 @@ function clearRecommendations(){
     c.classList.remove('recommended-safe');
 	c.classList.remove('recommended-avoid'); 
 	c.classList.remove('recommended-equal');
+	c.classList.remove('recommended-size2');
 	c.classList.remove('recommended-final');
+	c.removeAttribute("data-label");
     c.textContent = "";
   }
 }
@@ -2117,18 +2194,29 @@ function highlightAvoidGroup(data){
   const play = document.getElementById('playBoard').children;
   clearRecommendations();
 
-  let bestSet = new Set(data.tiles);
+let bestSet = new Set(data.tiles);
+let size2Set = new Set(data.size2Tiles || []);
 
-  for(let i=0;i<25;i++){
-    if(grid[i]) continue;
+for(let i=0;i<25;i++){
+  if(grid[i]) continue;
 
-    if(bestSet.has(i)){
-      play[i].classList.add('recommended-equal');
-    } else {
-      play[i].classList.add('recommended-avoid');
-      play[i].textContent = "✕";
-    }
+if(bestSet.has(i)){
+  play[i].classList.add('recommended-equal');
+
+  let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
+
+  if(sizes.length){
+    play[i].setAttribute("data-label", sizes.join("/"));
   }
+}
+  else if(size2Set.has(i)){
+	play[i].classList.add('recommended-size2');
+  }
+  else {
+    play[i].classList.add('recommended-avoid');
+    play[i].textContent = "✕";
+  }
+}
 
   renderEquivalenceInfo(data);
 }
@@ -2136,40 +2224,50 @@ function highlightAvoidGroup(data){
 function renderEquivalenceInfo(data){
   const box = document.getElementById('infoBox');
 
-  let grouped = {};
+  const bestTiles = data.tiles || [];
+  const size2Tiles = data.size2Tiles || [];
+  const probs = data.probs || [];
 
-  data.tiles.forEach(i=>{
-    let sizes = data.shipMap[i] || [];
+  let content = `
+    Best move tiles are statistically identical and have a green border.<br>
+    Choose an unbordered size 2 ship instead for higher expected return, but lower chance.<br><br>
+  `;
 
-    sizes.forEach(size=>{
-      if(!grouped[size]) grouped[size] = [];
-      grouped[size].push(i);
-    });
-  });
+  if(bestTiles.length){
+    const bestProb = (probs[bestTiles[0]] * 100).toFixed(1);
 
- let content = `
-  These tiles are statistically identical.<br>
-  Choose based on ship size preference.<br><br>
-`;
-
-Object.keys(grouped)
-  .sort((a,b)=>a-b)
-  .forEach(size=>{
-    let coords = grouped[size].map(i=>{
+    let coords = bestTiles.map(i=>{
       let [r,c] = indexToCoord(i);
       return `<span class="coord-good">Row ${r+1}, Col ${c+1}</span>`;
     }).join("<br>");
 
-    content += `<b>Size ${size} Ship:</b><br>${coords}<br><br>`;
-  });
+    content += `
+      <b>Best Moves (~${bestProb}%)</b><br>
+      ${coords}<br><br>
+    `;
+  }
 
-content += `<span style="color:#ff6b6b">Avoid all tiles marked ✕</span>`;
+  if(size2Tiles.length){
+    let coords = size2Tiles.map(i=>{
+      let [r,c] = indexToCoord(i);
+      let p = (probs[i] * 100).toFixed(1);
 
-box.innerHTML = makeCard(
-  "Equivalent Best Moves",
-  content,
-  "info-green"
-);
+      return `<span style="color:gold">Row ${r+1}, Col ${c+1}</span> (${p}%)`;
+    }).join("<br>");
+
+    content += `
+      <b>Other Size 2 Ships (tiles numbered 2 in orange)</b><br>
+      ${coords}<br><br>
+    `;
+  }
+
+  content += `<span style="color:#ff6b6b">Avoid all tiles marked ✕</span>`;
+
+  box.innerHTML = makeCard(
+    "Equivalent Best Moves",
+    content,
+    "info-green"
+  );
 }
 
 function highlightStartingCorners(){
@@ -2201,7 +2299,6 @@ let candidates = probs
   .map((p,i)=>({
     p,
     i,
-    missEndsGame: missEndsGame
   }))
   .filter(x=>!grid[x.i]);
 	
