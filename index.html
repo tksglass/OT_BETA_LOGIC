@@ -1863,7 +1863,8 @@ if(rareCount !== null && !hasStarted){
       border:1px solid #374151;
     ">
       <b style="color:#22c55e">Optimal Opening</b><br>
-      All four corners are equally optimal starting moves.
+      All four corners are equally optimal starting moves.<br>
+	  You could also click dead center to immediately eliminate the most number of possible boards, but this has lower blue chance.
     </div>
   `);
 }
@@ -2248,12 +2249,17 @@ function renderEquivalenceInfo(data){
   }
 
   if(size2Tiles.length){
-    let coords = size2Tiles.map(i=>{
-      let [r,c] = indexToCoord(i);
-      let p = (probs[i] * 100).toFixed(1);
-
-      return `<span style="color:gold">Row ${r+1}, Col ${c+1}</span> (${p}%)`;
-    }).join("<br>");
+let coords = size2Tiles
+  .map(i => ({
+    i,
+    p: probs[i]
+  }))
+  .sort((a,b) => b.p - a.p)  
+  .map(({i,p}) => {
+    let [r,c] = indexToCoord(i);
+    return `<span style="color:gold">Row ${r+1}, Col ${c+1}</span> (${(p*100).toFixed(1)}%)`;
+  })
+  .join("<br>");
 
     content += `
       <b>Other Size 2 Ships (tiles numbered 2 in orange)</b><br>
