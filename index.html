@@ -1419,7 +1419,7 @@ let size2Tiles = Object.keys(tileShipSizes)
   !bestGroup.includes(i)
 );
 
-let isSymmetric = huntMode && (bestGroup.length + size2Tiles.length >= 3);
+let isSymmetric = huntMode && bestGroup.length >= 2;
 
 function getTileShipSizes(allBoards){
   let tileMap = {};
