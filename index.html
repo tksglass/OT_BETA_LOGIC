@@ -19,7 +19,7 @@
   min-height: 100vh;
 }
   h2, h3 { margin: 5px 0; }
-  .topbar { background: #d1d5db; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+  .topbar { background: #d1d5db; flex-wrap: nowrap; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
   .section { margin-bottom: 12px; }
   .label { font-weight: bold; margin-right: 10px; }
 
@@ -384,13 +384,14 @@ width: auto;
       <button onclick="setRare(5,this)">9</button>
     </div>
 	
-	<div class="action-group">
+<div class="action-group">
   <button id="undoBtn" onclick="undoMove()">Undo</button>
+  <button onclick="redoMove()">Redo</button>
   <button id="resetBtn" onclick="resetAll()">Reset</button>
 </div>
 
     <div class="section">
-      <span class="label">Extra Chance Risk Level:</span>
+      <span class="label">Extra Chance Level:</span>
       <button id="th4" onclick="setThreshold(4,this)">4</button>
       <button id="th5" class="active-btn" onclick="setThreshold(5,this)">5</button>
     </div>
@@ -474,6 +475,8 @@ const MODE = {
 
 let currentMode = MODE.NORMAL;
 
+let moves = [];
+let redoStack = [];
 let history = [];
 let rareCount=null;
 let selectedColor=null;
@@ -652,25 +655,35 @@ history.push({
   currentMode
 });
 
-let old = grid[i];
-grid[i] = (grid[i] === selectedColor ? null : selectedColor);
+let prevColor = grid[i];
+let newColor = (grid[i] === selectedColor ? null : selectedColor);
+
+grid[i] = newColor;
+
+moves.push({
+  index: i,
+  prevColor,
+  newColor
+});
+
+redoStack = [];
 
 placementsCache = {};
 
 if(!isStateValid()){
-  grid[i] = old;
+  grid[i] = prevColor;
   return;
 }
 
 for(let s of getShipList()){
   if(getPlacementsCached(s).length === 0){
-    grid[i] = old;
+    grid[i] = prevColor;
     return;
   }
 }
 
 if(!hasAnyValidBoard()){
-  grid[i] = old;
+  grid[i] = prevColor;
   return;
 }
   render();
@@ -1912,31 +1925,56 @@ function showError(msg){
 window.undoMove = function(){
   if(history.length === 0) return;
 
+  const lastMove = moves.pop();
+  if(!lastMove) return;
+
+  redoStack.push(lastMove);
+
   const prev = history.pop();
 
-  grid = [...prev.grid];
-  rareCount = prev.rareCount;
-  threshold = prev.threshold;
-  appState = JSON.parse(JSON.stringify(prev.appState));
-  currentMode = prev.currentMode;
+  grid = prev ? [...prev.grid] : Array(25).fill(null);
+  rareCount = prev?.rareCount ?? null;
+  threshold = prev?.threshold ?? 5;
+  appState = prev?.appState ? JSON.parse(JSON.stringify(prev.appState)) : {
+    probs: null,
+    topMoves: null,
+    isTrueEndgame: false,
+    isGuaranteed: false,
+    specialGroup: null
+  };
+  currentMode = prev?.currentMode ?? MODE.NORMAL;
 
   placementsCache = {};
 
-  document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
-    b.classList.remove('active-btn');
-  });
-  if(rareCount !== null){
-    document
-      .querySelector(`[onclick="setRare(${rareCount},this)"]`)
-      ?.classList.add('active-btn');
-  }
+  render();
+  updateColorAvailability();
+  runSimulation();
+  renderUI();
+  updateBoardLock();
+};
 
-  document.getElementById('th4').classList.remove('active-btn');
-  document.getElementById('th5').classList.remove('active-btn');
-  document.getElementById('th' + threshold)?.classList.add('active-btn');
+window.redoMove = function(){
+  if(redoStack.length === 0) return;
+
+  const move = redoStack.pop();
+
+  history.push({
+    grid: [...grid],
+    rareCount,
+    threshold,
+    appState: JSON.parse(JSON.stringify(appState)),
+    currentMode
+  });
+
+  grid[move.index] = move.newColor;
+
+  moves.push(move);
+
+  placementsCache = {};
 
   render();
   updateColorAvailability();
+  runSimulation();
   renderUI();
   updateBoardLock();
 };
@@ -1991,6 +2029,8 @@ clearRecommendations();
 
 lastProbs = null;
 lastTopMoves = null;
+moves = [];
+redoStack = [];
 
 configLocked = false;
 
@@ -2036,58 +2076,22 @@ function createBitWriter(){
     toBase64(){
       let bytes = [];
 	  
-for(let i = 0; i < bits.length; i += 8){
-  let byte = 0;
-  for(let j = 0; j < 8; j++){
-    byte <<= 1;
-    if(i + j < bits.length && bits[i + j]) byte |= 1;
-  }
-  bytes.push(byte);
-}
+      for(let i = 0; i < bits.length; i += 8){
+        let byte = 0;
+        for(let j = 0; j < 8; j++){
+          byte <<= 1;
+          if(i + j < bits.length && bits[i + j]) byte |= 1;
+        }
+        bytes.push(byte);
+      }
 
       return btoa(String.fromCharCode(...bytes));
     }
   };
 }
 
-function extractMovesFromHistory(){
-  let moves = [];
-
-  for(let i = 1; i < history.length; i++){
-    let prev = history[i-1].grid;
-    let curr = history[i].grid;
-
-    for(let j = 0; j < 25; j++){
-      if(prev[j] !== curr[j]){
-        moves.push({
-          index: j,
-          color: curr[j]
-        });
-        break;
-      }
-    }
-  }
-
-  if(history.length > 0){
-    let prev = history[history.length - 1].grid;
-    let curr = grid;
-
-    for(let j = 0; j < 25; j++){
-      if(prev[j] !== curr[j]){
-        moves.push({
-          index: j,
-          color: curr[j]
-        });
-        break;
-      }
-    }
-  }
-
-  return moves;
-}
-
 function encodeGame(){
-  const moves = extractMovesFromHistory();
+  const movesToEncode = moves;
   const writer = createBitWriter();
 
   writer.write(1, 3);
@@ -2095,12 +2099,12 @@ function encodeGame(){
   writer.write(rareCount, 3);
   writer.write(threshold === 5 ? 1 : 0, 1);
 
-  writer.write(moves.length, 5);
+  writer.write(movesToEncode.length, 5);
 
-  moves.forEach(m => {
-    writer.write(m.index, 5);
-    writer.write(COLOR_TO_ID[m.color], 4);
-  });
+movesToEncode.forEach(m => {
+  writer.write(m.index, 5);
+  writer.write(COLOR_TO_ID[m.newColor], 4);
+});
 
   return writer.toBase64();
 }
@@ -2151,11 +2155,14 @@ function loadFromHash(hash){
     document.getElementById('th4').classList.remove('active-btn');
     document.getElementById('th5').classList.remove('active-btn');
     document.getElementById('th' + thresholdVal).classList.add('active-btn');
+	
+moves.forEach(m => {
+  selectedColor = m.color;
 
-    moves.forEach(m => {
-      selectedColor = m.color;
-      placeColor(m.index);
-    });
+  placeColor(m.index);
+});
+
+redoStack = [];
 
     isLoadingHash = false;
 
