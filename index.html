@@ -1184,14 +1184,21 @@ let attempts=0;
 let seen = new Set();
 const NUM_CHAINS = 4;
 
-if(rareCount === 2 || rareCount === 3){
-  runExactSolver();
-  return;
-}
-
 let placedTiles = grid.filter(x => x !== null).length;
 
-if(placedTiles >= 4){
+let exactThreshold = 4;
+
+if(rareCount === 4){
+  exactThreshold = 3;
+}
+else if(rareCount === 3){ 
+  exactThreshold = 2;
+}
+else if(rareCount <= 2){
+  exactThreshold = 0; 
+}
+
+if(placedTiles >= exactThreshold){
   runExactSolver();
   return;
 }
@@ -1797,8 +1804,7 @@ if(!huntMode && safest && safest.i !== best.i){
 
   explanation = `<br>
     <i style="color:#9ca3af">
-      Chosen over safest tile because it eliminates more possibilities 
-      (${(bestE*100).toFixed(1)}% vs ${(safeE*100).toFixed(1)}%).
+      Chosen over safest tile because it eliminates more possible boards 
     </i>`;
 }
 
