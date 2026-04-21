@@ -1423,13 +1423,21 @@ let bestGroup = bestGroups.flatMap(g => g.group);
 
 const tileShipSizes = getTileShipSizes(allBoards);
 
+const partialTiles = getPartialShipTiles();
+
 let size2Tiles = Object.keys(tileShipSizes)
   .map(i => parseInt(i))
-.filter(i =>
-  grid[i] === null &&  
-  tileShipSizes[i].includes(2) &&
-  !bestGroup.includes(i)
-);
+  .filter(i => {
+    if(grid[i] !== null) return false;
+    if(bestGroup.includes(i)) return false;
+
+    const isSize2 = tileShipSizes[i].includes(2);
+    if(!isSize2) return false;
+
+    if(partialTiles.has(i)) return true;
+
+    return probs[i] >= 0.65;
+  });
 
 let isSymmetric = huntMode && bestGroup.length >= 2;
 
@@ -1497,6 +1505,30 @@ function render(){
     }
     if(grid[i]==='miss') play[i].style.background='#3b82f6';
   }
+}
+
+function getPartialShipTiles(){
+  let partialTiles = new Set();
+
+  for(let color in SHIPS){
+    if(getShipSize(color) !== 2) continue;
+
+    let known = getKnownCells(color);
+
+    if(known.length === 1){
+      let placements = getPlacementsCached(color);
+
+      placements.forEach(p => {
+        p.forEach(i => {
+          if(grid[i] === null){
+            partialTiles.add(i);
+          }
+        });
+      });
+    }
+  }
+
+  return partialTiles;
 }
 
 function getRemainingBlueTiles(){
@@ -2248,7 +2280,7 @@ function renderEquivalenceInfo(data){
 
   let content = `
     Best move tiles are statistically identical and have a green border.<br>
-    Choose an unbordered size 2 ship instead for higher expected return, but lower chance.<br><br>
+    Unbordered tiles labeled "2" may also be part of a rare ship with reasonably high certainty. See below.<br><br>
   `;
 
   if(bestTiles.length){
@@ -2265,24 +2297,56 @@ function renderEquivalenceInfo(data){
     `;
   }
 
-  if(size2Tiles.length){
-let coords = size2Tiles
-  .map(i => ({
-    i,
-    p: probs[i]
-  }))
-  .sort((a,b) => b.p - a.p)  
-  .map(({i,p}) => {
-    let [r,c] = indexToCoord(i);
-    return `<span style="color:gold">Row ${r+1}, Col ${c+1}</span> (${(p*100).toFixed(1)}%)`;
-  })
-  .join("<br>");
+if(size2Tiles.length){
+
+  const partialTilesSet = getPartialShipTiles();
+
+  let partialSize2 = size2Tiles
+    .filter(i => partialTilesSet.has(i))
+    .map(i => ({ i, p: probs[i] }))
+    .sort((a,b) => b.p - a.p);
+
+  let unknownSize2 = size2Tiles
+    .filter(i => !partialTilesSet.has(i))
+    .map(i => ({ i, p: probs[i] }))
+    .sort((a,b) => b.p - a.p);
+
+  if(partialSize2.length){
+    let coords = partialSize2.map(({i,p}) => {
+      let [r,c] = indexToCoord(i);
+
+      return `
+        <span style="color:gold">
+          Row ${r+1}, Col ${c+1}
+        </span>
+        (${(p*100).toFixed(1)}%)
+      `;
+    }).join("<br>");
 
     content += `
-      <b>Other Size 2 Ships (tiles numbered 2 in orange)</b><br>
+      <b>Incomplete Rare Ship(s)</b><br>
       ${coords}<br><br>
     `;
   }
+
+  if(unknownSize2.length){
+    let coords = unknownSize2.map(({i,p}) => {
+      let [r,c] = indexToCoord(i);
+
+      return `
+        <span style="color:gold">
+          Row ${r+1}, Col ${c+1}
+        </span>
+        (${(p*100).toFixed(1)}%)
+      `;
+    }).join("<br>");
+
+    content += `
+      <b>Unfound Rare Ship(s)</b><br>
+      ${coords}<br><br>
+    `;
+  }
+}
 
   content += `<span style="color:#ff6b6b">Avoid all tiles marked ✕</span>`;
 
