@@ -164,6 +164,8 @@ width: auto;
   cursor:pointer;
   font-size:11px;
   transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
 }
   .cell:hover { transform: scale(1.05); }
 
@@ -361,6 +363,41 @@ width: auto;
   position: absolute;
   font-size: 18px;
 }
+
+.cell.stripe-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--stripe-color) 0px,
+    var(--stripe-color) 3px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+
+.cell.stripe-rainbow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+
+  background-image: repeating-linear-gradient(
+    45deg,
+	transparent 0px 6px,
+    rgba(255,0,0,0.4) 6px 9px,
+	transparent 9px 15px,
+    rgba(255,165,0,0.4) 15px 18px,
+	transparent 18px 24px,
+    rgba(0,0,0,0.4) 24px 27px,
+	transparent 27px 33px,
+    rgba(255,255,255,0.4) 33px 36px
+  );
+}
+
 
   .confidence { margin-top: 10px; font-size: 14px; }
 </style>
@@ -1370,6 +1407,21 @@ return;
   dfs(0);
 let probs = counts.map(c => valid ? c/valid : 0); 
 
+let forcedTiles = {};
+
+for(let i = 0; i < 25; i++){
+  if(grid[i] !== null) continue;
+
+  let first = allBoards[0][i];
+  let allSame = allBoards.every(b => b[i] === first);
+
+  if(allSame){
+    forcedTiles[i] = first || 'miss';
+  }
+}
+
+appState.forcedTiles = forcedTiles;
+
 renderHeatmap(probs);
 
 if(valid === 2){
@@ -1629,6 +1681,10 @@ function renderUI(){
       highlightRecommendations(appState.probs);
     }
   }
+  
+  if(appState.forcedTiles){
+  renderForcedOverlays();
+}
 
   updateInfoBox();
 }
@@ -1938,6 +1994,9 @@ function clearRecommendations(){
 	c.classList.remove('recommended-final');
 	c.removeAttribute("data-label");
     c.textContent = "";
+c.classList.remove('stripe-overlay');
+c.classList.remove('stripe-rainbow');
+c.style.removeProperty('--stripe-color');
   }
 }
 
@@ -2370,6 +2429,42 @@ function highlightStartingCorners(){
     }
   });
 }
+
+function getStripeColor(color){
+  switch(color){
+    case 'teal': return 'rgba(79,209,197,0.4)';
+    case 'green': return 'rgba(0,128,0,0.4)';
+    case 'yellow': return 'rgba(255,255,0,0.4)';
+    case 'orange': return 'rgba(255,165,0,0.4)';
+    case 'red': return 'rgba(255,0,0,0.4)';
+    case 'black': return 'rgba(0,0,0,0.4)';
+    case 'white': return 'rgba(255,255,255,0.4)';
+    case 'miss': return 'rgba(59,130,246,0.4)';
+    default: return 'rgba(150,150,150,0.4)';
+  }
+}
+
+function renderForcedOverlays(){
+  if(!appState.forcedTiles) return;
+
+  const play = document.getElementById('playBoard').children;
+
+  for(let i in appState.forcedTiles){
+    i = parseInt(i);
+
+    if(grid[i] !== null) continue;
+
+    const color = appState.forcedTiles[i];
+    const cell = play[i];
+
+    if(color === 'rainbow'){
+      cell.classList.add('stripe-rainbow');
+    } else {
+      cell.classList.add('stripe-overlay');
+      cell.style.setProperty('--stripe-color', getStripeColor(color));
+    }
+	}
+  }
 
 function highlightRecommendations(probs){
 if(currentMode !== MODE.NORMAL) return;
