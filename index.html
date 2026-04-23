@@ -2527,7 +2527,7 @@ function renderForcedOverlays(){
 	}
   }
   
-  function handleCellClick(i){
+function handleCellClick(i){
   if(rareCount === null) return;
 
   const forced = appState.forcedTiles?.[i];
@@ -2535,16 +2535,23 @@ function renderForcedOverlays(){
   if(forced && grid[i] === null){
 
     const prevSelected = selectedColor;
+    const prevGrid = grid[i];
 
     selectedColor = forced;
 
     placeColor(i);
 
+    const success = grid[i] !== prevGrid;
+
     selectedColor = prevSelected;
+
+    if(!success){
+      placeColor(i);
+    }
 
     return;
   }
-  
+
   placeColor(i);
 }
 
