@@ -20,6 +20,7 @@
 }
   h2, h3 { margin: 5px 0; }
   .topbar { background: #d1d5db; flex-wrap: nowrap; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+  .reset-container { background: #d1d5db; flex-wrap: nowrap; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
   .section { margin-bottom: 12px; }
   .label { font-weight: bold; margin-right: 10px; }
 
@@ -265,6 +266,11 @@ width: auto;
 #undoBtn {
   background: #374151;
   color: #f9fafb;
+  margin-right: 100px;
+}
+
+#redoBtn {
+  margin-right: 100px;
 }
 
 #undoBtn:hover {
@@ -283,7 +289,6 @@ width: auto;
 .reset-container {
   display: flex;
   justify-content: center;
-  margin-top: 20px;
 }
 
 #resetBtn {
@@ -420,20 +425,20 @@ width: auto;
       <button onclick="setRare(4,this)">8</button>
       <button onclick="setRare(5,this)">9</button>
     </div>
-	
-<div class="action-group">
-  <button id="undoBtn" onclick="undoMove()">Undo</button>
-  <button onclick="redoMove()">Redo</button>
-  <button id="resetBtn" onclick="resetAll()">Reset</button>
-</div>
 
     <div class="section">
-      <span class="label">Extra Chance Level:</span>
+      <span class="label">Extra Chance Risk Level:</span>
       <button id="th4" onclick="setThreshold(4,this)">4</button>
       <button id="th5" class="active-btn" onclick="setThreshold(5,this)">5</button>
     </div>
 
   </div>
+  
+  <div class="reset-container">
+  <button id="undoBtn" onclick="undoMove()">Undo</button>
+  <button id="redoBtn" onclick="redoMove()">Redo</button>
+  <button id="resetBtn" onclick="resetAll()">Reset</button>
+</div>
   
 </div>
 
@@ -507,7 +512,8 @@ const MODE = {
   NORMAL: 0,
   ALL_HITS: 1,
   ALL_MISSES: 2,
-  TOUCH_GRASS: 3
+  TOUCH_GRASS: 3,
+  GAME_OVER: 4
 };
 
 let currentMode = MODE.NORMAL;
@@ -634,7 +640,7 @@ function createBoards(){
   for(let i=0;i<25;i++){
     let cell=document.createElement('div');
     cell.className='cell';
-    cell.onclick=()=>placeColor(i);
+    cell.onclick=()=>handleCellClick(i);
     play.appendChild(cell);
 
     let h=document.createElement('div');
@@ -696,6 +702,36 @@ let prevColor = grid[i];
 let newColor = (grid[i] === selectedColor ? null : selectedColor);
 
 grid[i] = newColor;
+
+let hits = grid.filter(x => x && x !== 'miss').length;
+let misses = grid.filter(x => x === 'miss').length;
+
+let missEndsGame = (hits >= 5) && (misses >= 3);
+
+if(newColor === 'miss' && hits >= 5 && misses > 3){
+  currentMode = MODE.GAME_OVER;
+  
+
+  selectedColor = null;
+
+  document.querySelectorAll('.color-btn').forEach(b=>{
+    b.classList.remove('selected');
+    b.classList.add('disabled');
+  });
+
+  appState = {
+    probs: null,
+    topMoves: null,
+    isTrueEndgame: false,
+    isGuaranteed: false,
+    specialGroup: null,
+    guaranteedColors: null
+  };
+
+  render();
+  renderUI();
+  return;
+}
 
 moves.push({
   index: i,
@@ -1140,6 +1176,8 @@ function scoreBoard(board){
 function runSimulation(){
 
   if(isLoadingHash) return;
+  
+  if(currentMode === MODE.GAME_OVER) return;
   
   const hasStarted = grid.some(c => c !== null);
 
@@ -1665,6 +1703,11 @@ function renderUI(){
   const hasStarted = grid.some(c => c !== null);
 
   clearRecommendations();
+  
+  if(currentMode === MODE.GAME_OVER){
+  updateInfoBox();
+  return;
+}
 
   if(rareCount !== null && !hasStarted){
     highlightStartingCorners();
@@ -1691,6 +1734,18 @@ function renderUI(){
 
 function updateInfoBox(){
 
+if(currentMode === MODE.GAME_OVER){
+  const box = document.getElementById('infoBox');
+
+  box.innerHTML = makeCard(
+    "Game Over",
+    "Just blame the solver. It's always the computer's fault.",
+    "info-purple"
+  );
+
+  return;
+}
+
 let hits = grid.filter(x => x && x !== 'miss').length;
 let misses = grid.filter(x => x === 'miss').length;
 
@@ -1704,6 +1759,7 @@ let missCard = missEndsGameState
     </div>
   `
   : "";
+  
 
 if(appState.specialGroup){
   renderEquivalenceInfo(appState.specialGroup);
@@ -1772,8 +1828,9 @@ if(!hasStarted){
   }
 
   if(rareCount === null || !selectedColor){
-    messages.push("$OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles. If you have found 5, then you risk losing in one click if you have also found 3 blues. You can change extra chance level to 4 to give yourself a 1 click safety net in this calculator, but you will eliminate fewer possible boards this way.");
+    messages.push("$OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles. If you have found 5, then you risk losing in one click if you have also found 3 blues. You can change extra chance risk level to 4 to give yourself a 1 click safety net in this calculator, but you will eliminate fewer possible boards this way.");
     messages.push("");
+	messages.push("Known tiles which you have not clicked yet will get diagonal stripes in their color. You need not click them until the solver tells you to.");
   }
 }
 
@@ -1819,6 +1876,10 @@ for(let i = 0; i < 25; i++){
 candidates.forEach(i=>{
   play[i].classList.add('recommended-final');
 });
+
+if(appState.forcedTiles){
+  renderForcedOverlays();
+}
 
 let coords = candidates.map(i=>{
   let [r,c2] = indexToCoord(i);
@@ -2465,6 +2526,27 @@ function renderForcedOverlays(){
     }
 	}
   }
+  
+  function handleCellClick(i){
+  if(rareCount === null) return;
+
+  const forced = appState.forcedTiles?.[i];
+
+  if(forced && grid[i] === null){
+
+    const prevSelected = selectedColor;
+
+    selectedColor = forced;
+
+    placeColor(i);
+
+    selectedColor = prevSelected;
+
+    return;
+  }
+  
+  placeColor(i);
+}
 
 function highlightRecommendations(probs){
 if(currentMode !== MODE.NORMAL) return;
