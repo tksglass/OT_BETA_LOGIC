@@ -710,7 +710,12 @@ let misses = grid.filter(x => x === 'miss').length;
 
 let missEndsGame = (hits >= 5) && (misses >= 3);
 
-if(newColor === 'miss' && hits >= 5 && misses > 3){
+if(
+  currentMode !== MODE.ALL_MISSES &&
+  newColor === 'miss' &&
+  hits >= 5 &&
+  misses > 3
+){
   currentMode = MODE.GAME_OVER;
   
 
