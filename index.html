@@ -680,6 +680,8 @@ function updateBoardLock(){
 }
 
 function placeColor(i){
+  if(currentMode === MODE.GAME_OVER) return;
+  
   if(!selectedColor || rareCount===null) return;
  
   currentMode = MODE.NORMAL;
@@ -716,7 +718,6 @@ if(newColor === 'miss' && hits >= 5 && misses > 3){
 
   document.querySelectorAll('.color-btn').forEach(b=>{
     b.classList.remove('selected');
-    b.classList.add('disabled');
   });
 
   appState = {
@@ -2528,6 +2529,7 @@ function renderForcedOverlays(){
   }
   
 function handleCellClick(i){
+if(currentMode === MODE.GAME_OVER) return;
   if(rareCount === null) return;
 
   const forced = appState.forcedTiles?.[i];
