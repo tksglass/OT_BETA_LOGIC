@@ -331,6 +331,12 @@
   border-radius: 12px;
 }
 
+.guaranteed-unknown {
+  font-size: 18px;
+  font-weight: bold;
+  color: #a855f7; /* purple */
+}
+
   .recommended-best {
   outline: 3px solid #a855f7;
   box-shadow: 0 0 10px 4px rgba(168,85,247,0.8);
@@ -2318,16 +2324,16 @@ function handleGuaranteedMove(probs) {
     return false;
   }
 
-  appState.probs = probs;
-  appState.topMoves = [guaranteed];
-  appState.isTrueEndgame = false;
-  appState.isGuaranteed = true;
-  appState.specialGroup = null;
+appState.probs = probs;
+appState.topMoves = [guaranteed];
+appState.isTrueEndgame = false;
+appState.isGuaranteed = true;
+appState.specialGroup = null;
 
-  clearRecommendations();
-  highlightRecommendations(probs);
+highlightRecommendations(probs);
+renderForcedOverlays();
 
-  return true;
+return true;
 }
 
 function analyzeEquivalence(allBoards, probs) {
@@ -2594,10 +2600,15 @@ if (context.missEndsGame) {
   messages.push(buildMissEndCard(context));
 }
 
-  if (appState.specialGroup) {
-    renderEquivalenceInfo(appState.specialGroup);
-    return;
+if (appState.specialGroup) {
+  renderEquivalenceInfo(appState.specialGroup);
+
+  if (context.missEndsGame) {
+    box.innerHTML = buildMissEndCard(context) + box.innerHTML;
   }
+
+  return;
+}
 
   if (handleStaticModes(box)) return;
 
@@ -3048,6 +3059,14 @@ function findGuaranteedMove(candidates, huntMode) {
 
 function applyGuaranteedMove(move, probs, play) {
   play[move.i].classList.add('recommended-best');
+  
+  const forcedColor = appState.forcedTiles?.[move.i];
+
+if(move.p === 1 && !forcedColor){
+const cell = play[move.i];
+cell.textContent = "?";
+cell.classList.add('guaranteed-unknown');
+}
 
   lastProbs = probs;
   lastTopMoves = [move];
