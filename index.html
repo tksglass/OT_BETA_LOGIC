@@ -452,9 +452,14 @@
     </div>
 
     <div class="section">
-      <span class="label">Extra Chance Risk Level:</span>
-      <button id="th4" onclick="setThreshold(4,this)">4</button>
-      <button id="th5" class="active-btn" onclick="setThreshold(5,this)">5</button>
+      <span class="label">8/9 Color Starting Mode:</span>
+<button id="modeSafe" onclick="setMode('safe', this)">
+  Safe
+</button>
+
+<button id="modeAggressive" onclick="setMode('aggressive', this)">
+  Aggressive
+</button>
     </div>
 
   </div>
@@ -598,11 +603,12 @@ function buildRawPlacements(size){
         }
 
         if(cells.length === size){
-          placements.push({
-			cells,
-			horiz,
-			key: cells[0]
-		  });
+		  placements.push({
+		  cells,
+		  horiz,
+		  key: cells[0],
+		  mask: cellsToMask(cells)
+		});
         }
       }
     }
@@ -623,6 +629,33 @@ const DIAGONALS = Array.from({ length: 25 }, (_, i) => {
    .map(([dr, dc]) => dr * 5 + dc);
 });
 
+const BIT_INDEX = {};
+
+for(let i = 0; i < 25; i++){
+  BIT_INDEX[1 << i] = i;
+}
+
+const DIAGONAL_MASKS = Array(25).fill(0);
+
+for(let i = 0; i < 25; i++){
+  let [r,c] = [Math.floor(i / 5), i % 5];
+
+  let mask = 0;
+
+  const dirs = [
+    [r-1,c-1],[r-1,c+1],
+    [r+1,c-1],[r+1,c+1]
+  ];
+
+  for(let [dr,dc] of dirs){
+    if(dr>=0 && dc>=0 && dr<5 && dc<5){
+      mask |= (1 << (dr * 5 + dc));
+    }
+  }
+
+  DIAGONAL_MASKS[i] = mask;
+}
+
 // ===============================
 // T.02 GLOBAL STATE
 // ===============================
@@ -639,13 +672,16 @@ let history = [];
 
 let rareCount = null;
 let selectedColor = null;
-let threshold = 5;
+let forcedStartMode = null;
 
 let lastProbs = null;
 let lastTopMoves = null;
 let lastSpecialGroup = null;
 
 let placementsCache = {};
+let knownCellsCache = {};
+let colorMaskCache = {};
+let gridMask = 0;
 
 let configLocked = false;
 let isLoadingHash = false;
@@ -740,7 +776,7 @@ window.undoMove = function(){
 
   grid = prev ? [...prev.grid] : Array(25).fill(null);
   rareCount = prev?.rareCount ?? null;
-  threshold = prev?.threshold ?? 5;
+  forcedStartMode = prev?.forcedStartMode ?? null;
   appState = prev?.appState ? JSON.parse(JSON.stringify(prev.appState)) : {
     probs: null,
     topMoves: null,
@@ -764,13 +800,13 @@ window.redoMove = function(){
 
   const move = redoStack.pop();
 
-  history.push({
-    grid: [...grid],
-    rareCount,
-    threshold,
-    appState: JSON.parse(JSON.stringify(appState)),
-    currentMode
-  });
+history.push({
+  grid: [...grid],
+  rareCount,
+  forcedStartMode,
+  appState: JSON.parse(JSON.stringify(appState)),
+  currentMode
+});
 
   grid[move.index] = move.newColor;
 
@@ -790,8 +826,9 @@ window.resetAll = function(){
   grid = Array(25).fill(null);
   selectedColor = null;
   rareCount = null;
-  threshold = 5;
+  forcedStartMode = null;
   history = [];
+  
 
   document.querySelectorAll('.color-btn').forEach(b=>{
     b.classList.remove('selected','disabled');
@@ -801,8 +838,8 @@ window.resetAll = function(){
     b.classList.remove('active-btn');
   });
 
-  document.getElementById('th4').classList.remove('active-btn');
-  document.getElementById('th5').classList.add('active-btn');
+document.getElementById('modeSafe')?.classList.remove('active-btn');
+document.getElementById('modeAggressive')?.classList.remove('active-btn');
 
   render();
   const heat = DOM.heatmap;
@@ -834,33 +871,16 @@ redoStack = [];
 
 configLocked = false;
 
+updateModeButtons();
+
 document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
   b.classList.remove('disabled');
 });
 
-document.querySelectorAll('[onclick^="setThreshold"]').forEach(b=>{
-  b.classList.remove('disabled');
+document.querySelectorAll('[onclick^="setMode"]').forEach(b=>{
+b.classList.add('disabled');
 });
 
-}
-
-function getEquivalenceGroups(allBoards){
-  let patterns = {};
-
-  for(let i=0;i<25;i++){
-    if(grid[i]) continue;
-
-    let key = "";
-
-    for(let b of allBoards){
-      key += b[i] ? "1" : "0";
-    }
-
-    if(!patterns[key]) patterns[key] = [];
-    patterns[key].push(i);
-  }
-
-  return Object.values(patterns);
 }
 
 // ===============================
@@ -898,7 +918,7 @@ function saveHistorySnapshot() {
   const snapshot = {
     grid: [...grid],
     rareCount,
-    threshold,
+    forcedStartMode,
     appState: deepClone(appState),
     currentMode
   };
@@ -1000,6 +1020,8 @@ function createEmptyAppState(){
 
 function clearPlacementsCache() {
   placementsCache = {};
+  clearKnownCellsCache();
+  clearColorMaskCache();
 }
 
 // ===============================
@@ -1173,8 +1195,9 @@ function hasAnyValidBoard(){
   }
 
   let board = Array(25).fill(null);
+  const knownMissMask = getKnownMissMask();
 
-  function dfs(index){
+  function dfs(index, occupiedMask = 0){
     if(index === ships.length){
       return isBoardValid(board, true);
     }
@@ -1182,13 +1205,18 @@ function hasAnyValidBoard(){
     let ship = ships[index];
 
     for(let opt of placementsMap[ship]){
-      if(opt.some(i => board[i] && board[i] !== ship)) continue;
+      const placementMask = getPlacementMask(opt);
 
-      opt.forEach(i => board[i] = ship);
+      if((placementMask & knownMissMask) !== 0) continue;
+      if((placementMask & occupiedMask) !== 0) continue;
 
-      if(dfs(index + 1)) return true;
+      const cells = placementCells(opt);
 
-      opt.forEach(i => board[i] = null);
+      cells.forEach(i => board[i] = ship);
+
+      if(dfs(index + 1, occupiedMask | placementMask)) return true;
+
+      cells.forEach(i => board[i] = null);
     }
 
     return false;
@@ -1221,6 +1249,18 @@ function getShipList(){
   return ships;
 }
 
+function isFirstAnonymousRareInList(ship, remainingShips){
+  if(!isAnonymousRareShip(ship)) return true;
+
+  for(const s of remainingShips){
+    if(isAnonymousRareShip(s)){
+      return s === ship;
+    }
+  }
+
+  return true;
+}
+
 function getKnownCells(color){
   if(color.startsWith('rare_')) return [];
   const cells = [];
@@ -1240,22 +1280,22 @@ function getDirectionConstraint(cells){
 }
 
 function getValidPlacements(color){
-  const size = getShipSize(color);
-  const known = getKnownCells(color);
-  const direction = getDirectionConstraint(known);
+const size = getShipSize(color);
+const known = getKnownCellsCached(color);
+const direction = getDirectionConstraint(known);
 
-  const placements = [];
+const placements = [];
 
-  for(const placement of RAW_PLACEMENTS[size]){
-    const { cells, horiz } = placement;
+for(const placement of RAW_PLACEMENTS[size]){
+  const { cells, horiz } = placement;
 
-    if(!respectsDirection(direction, horiz)) continue;
-    if(!respectsKnown(cells, known)) continue;
-    if(!isPlacementValid(cells, color)) continue;
-    if(!passesDiagonalRulePlacement(cells, color)) continue;
+  if(!respectsDirection(direction, horiz)) continue;
+  if(!respectsKnownMask(placement, color)) continue;
+  if(!isPlacementValid(cells, color)) continue;
+  if(!passesDiagonalRulePlacement(cells, color)) continue;
 
-    placements.push(cells);
-  }
+  placements.push(placement);
+}
 
   return placements;
 }
@@ -1281,10 +1321,6 @@ function buildPlacement(r, c, size, horiz){
   return cells;
 }
 
-function respectsKnown(cells, known){
-  return known.every(k => cells.includes(k));
-}
-
 function isPlacementValid(cells, color){
   for(let i of cells){
     if(grid[i] && grid[i] !== 'miss'){
@@ -1296,21 +1332,10 @@ function isPlacementValid(cells, color){
 }
 
 function passesDiagonalRulePlacement(cells, color){
-  for(let i of cells){
-    let [r,c] = indexToCoord(i);
+  const colorMask = getColorMaskCached(color);
+  const placementMask = cellsToMask(cells);
 
-    let diagonals = [
-      [r-1,c-1],[r-1,c+1],
-      [r+1,c-1],[r+1,c+1]
-    ];
-
-    for(let [dr,dc] of diagonals){
-      if(dr>=0 && dc>=0 && dr<5 && dc<5){
-        if(grid[coordToIndex(dr,dc)] === color) return false;
-      }
-    }
-  }
-  return true;
+  return !violatesDiagonalMask(placementMask, colorMask);
 }
 
 function getPlacementsCached(color){
@@ -1320,34 +1345,52 @@ function getPlacementsCached(color){
   return placementsCache[color];
 }
 
-function backtrackPlace(ships, placementsMap, index, board){
-  if(index===ships.length) return true;
-  let ship=ships[index];
-  let options=shuffle([...placementsMap[ship]]);
+function backtrackPlace(ships, placementsMap, index, board, occupiedMask = 0){
+  if(index === ships.length) return true;
+
+  let ship = ships[index];
+  let options = shuffle([...placementsMap[ship]]);
+
+  function getShipType(ship){
+    return ship.startsWith('rare_') ? 'rare' : ship;
+  }
+
   for(let opt of options){
-function getShipType(ship){
-  return ship.startsWith('rare_') ? 'rare' : ship;
-}
+    const cells = placementCells(opt);
+    const placementMask = getPlacementMask(opt);
 
-if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
-  let prevShip = ships[index-1];
+    if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
+      let prevShip = ships[index-1];
 
-  let prevCells = board
-    .map((c,i)=>c===prevShip?i:null)
-    .filter(x=>x!==null);
+      let prevCells = board
+        .map((c,i)=>c===prevShip?i:null)
+        .filter(x=>x!==null);
 
-  if(prevCells.length){
-    let minPrev = Math.min(...prevCells);
-    let minCurr = Math.min(...opt);
+      if(prevCells.length){
+        let minPrev = Math.min(...prevCells);
+        let minCurr = placementKey(opt);
 
-    if(minCurr < minPrev) continue;
+        if(minCurr < minPrev) continue;
+      }
+    }
+
+    if(placementMask & occupiedMask) continue;
+
+    cells.forEach(i=>board[i]=ship);
+
+    if(backtrackPlace(
+      ships,
+      placementsMap,
+      index + 1,
+      board,
+      occupiedMask | placementMask
+    )) {
+      return true;
+    }
+
+    cells.forEach(i=>board[i]=null);
   }
-}
-   if(opt.some(i => board[i])) continue;
-    opt.forEach(i=>board[i]=ship);
-    if(backtrackPlace(ships, placementsMap, index+1, board)) return true;
-    opt.forEach(i=>board[i]=null);
-  }
+
   return false;
 }
 
@@ -1358,7 +1401,7 @@ function mcmcStep(board, ships, placementsMap){
   let chosen = shuffle([...ships]).slice(0, k);
 
   for(let ship of chosen){
-    let known = getKnownCells(ship);
+    let known = getKnownCellsCached(ship);
 
     for(let i=0;i<25;i++){
       if(newBoard[i] === ship && !known.includes(i)){
@@ -1366,34 +1409,70 @@ function mcmcStep(board, ships, placementsMap){
       }
     }
 
-    let options = shuffle([...placementsMap[ship]]);
+  let options = shuffle([...placementsMap[ship]]);
 
-    for(let opt of options){
-      if(opt.some(i => newBoard[i] && newBoard[i] !== ship)) continue;
+let occupiedMask = boardToMask(newBoard);
+let shipMasks = buildShipMasks(newBoard);
 
-      opt.forEach(i => newBoard[i] = ship);
-      break;
-    }
+for(let opt of options){
+  if(
+    !canPlaceWithSameShipOverlap(
+      opt,
+      ship,
+      occupiedMask,
+      shipMasks
+    )
+  ){
+    continue;
+  }
+
+  const cells = placementCells(opt);
+  const placementMask = getPlacementMask(opt);
+
+  cells.forEach(i => newBoard[i] = ship);
+
+  occupiedMask |= placementMask;
+  shipMasks[ship] = (shipMasks[ship] || 0) | placementMask;
+
+  break;
+}
   }
 
   return newBoard;
 }
 
-function scoreBoard(board){
-  let score = 0;
-
-  for(let i=0;i<25;i++){
-    if(grid[i] && grid[i] !== 'miss'){
-      if(board[i] === grid[i]) score += 2;
-    }
-  }
-
-  return score;
-}
-
 // ===============================
 // T.07 GAME STATE
 // ===============================
+
+function getFoundColors(){
+  const found = new Set();
+
+  for(const cell of grid){
+    if(cell && cell !== 'miss'){
+      found.add(cell);
+    }
+  }
+
+  return found;
+}
+
+function isEarlyGame(){
+  const { hits, misses } = getHitMissCounts();
+  const foundColors = getFoundShipColorCount();
+
+  return hits < 5 && foundColors < 3;
+}
+
+function getFoundShipColorCount(){
+  return getFoundColors().size;
+}
+
+function isShipDiscoveryPhase(){
+  const { huntMode } = getGameContext();
+
+  return huntMode && getFoundShipColorCount() < 6;
+}
 
 function isNormalMode() {
   return currentMode === MODE.NORMAL;
@@ -1402,10 +1481,23 @@ function isNormalMode() {
 function getGameContext() {
   const { hits, misses } = getHitMissCounts();
 
+  const naturalAggressive = hits >= 5 && misses >= 3;
+
+  let huntMode = naturalAggressive;
+
+  if (rareCount >= 4) {
+    const defaultStartMode = rareCount >= 5 ? "aggressive" : "safe";
+    const startMode = forcedStartMode || defaultStartMode;
+
+    huntMode =
+      startMode === "aggressive" ||
+      naturalAggressive;
+  }
+
   return {
     hits,
     misses,
-    huntMode: hits >= threshold && misses >= 3
+    huntMode
   };
 }
 
@@ -1489,18 +1581,18 @@ function getPartialShipTiles(){
   for(let color in SHIPS){
     if(getShipSize(color) !== 2) continue;
 
-    let known = getKnownCells(color);
+    let known = getKnownCellsCached(color);
 
     if(known.length === 1){
       let placements = getPlacementsCached(color);
 
-      placements.forEach(p => {
-        p.forEach(i => {
-          if(grid[i] === null){
-            partialTiles.add(i);
-          }
-        });
-      });
+placements.forEach(p => {
+  placementCells(p).forEach(i => {
+    if(grid[i] === null){
+      partialTiles.add(i);
+    }
+  });
+});
     }
   }
 
@@ -1594,9 +1686,9 @@ function validateStateOrAbort() {
 
   return true;
 }
+
 function buildSimulationContext() {
-  const { hits, misses } = getHitMissCounts();
-  const huntMode = hits >= threshold && misses >= 3;
+  const { hits, misses, huntMode } = getGameContext();
 
   let placedTiles = 0;
   for(let i = 0; i < 25; i++){
@@ -1653,11 +1745,11 @@ function shouldRunExactSolver(ctx) {
   let exactThreshold = 5;
 
   if (rareCount === 4) {
-    exactThreshold = 4;
-  } else if (rareCount === 3) {
     exactThreshold = 3;
-  } else if (rareCount <= 2) {
+  } else if (rareCount === 3) {
     exactThreshold = 2;
+  } else if (rareCount <= 2) {
+    exactThreshold = 1;
   }
 
   return ctx.placedTiles >= exactThreshold;
@@ -1669,23 +1761,27 @@ function shouldRunExactSolver(ctx) {
 
 function runMonteCarlo(ctx) {
   appState.forcedTiles = null;
+
   const counts = Array(25).fill(0);
   let valid = 0;
   let attempts = 0;
   const seen = new Set();
 
   const NUM_CHAINS =
-  ctx.placedTiles >= 4 ? 2 : 4;
+    ctx.placedTiles >= 4 ? 2 : 4;
+
   const MAX_ATTEMPTS = 7000;
   const TARGET_VALID = 4000;
 
+  const ships = prepareSortedShips();
+  const placementsMap = buildPlacementsMap(ships);
+
+  if (!placementsMap) {
+    return { counts, valid, attempts };
+  }
+
   while (attempts < MAX_ATTEMPTS && valid < TARGET_VALID) {
     attempts++;
-
-    const ships = prepareSortedShips();
-    const placementsMap = buildPlacementsMap(ships);
-
-    if (!placementsMap) continue;
 
     const chains = initializeChains(ships, placementsMap, NUM_CHAINS);
     if (chains.length === 0) continue;
@@ -1713,12 +1809,24 @@ function finalizeSimulation({ counts, valid, attempts }) {
     `Valid boards: ${valid} (in ${attempts} chains)`;
 }
 
+function scoreBoard(board){
+  let score = 0;
+
+  for(let i=0;i<25;i++){
+    if(grid[i] && grid[i] !== 'miss'){
+      if(board[i] === grid[i]) score += 2;
+    }
+  }
+
+  return score;
+}
+
 function prepareSortedShips() {
   const ships = getShipList();
 
   ships.sort((a, b) => {
-    const scoreA = getPlacementsCached(a).length - getKnownCells(a).length * 5;
-    const scoreB = getPlacementsCached(b).length - getKnownCells(b).length * 5;
+    const scoreA = getPlacementsCached(a).length - getKnownCellsCached(a).length * 5;
+    const scoreB = getPlacementsCached(b).length - getKnownCellsCached(b).length * 5;
 
     if(scoreA !== scoreB) return scoreA - scoreB;
 
@@ -1829,16 +1937,22 @@ function runExactSolver() {
 
   const probs = computeProbabilities(counts, valid);
 
+  appState.allBoards = allBoards;
+
   appState.forcedTiles = computeForcedTiles(allBoards);
 
   renderHeatmap(probs);
-
+  
 if (handleTwoBoardEndgame(valid, probs, allBoards)) return;
 
 const analysis = analyzeEquivalence(allBoards, probs);
 const { huntMode } = getGameContext();
 
-if (huntMode && analysis.bestGroup.length >= 2) {
+const bestProb = analysis.bestGroup.length
+  ? probs[analysis.bestGroup[0]]
+  : null;
+
+if (huntMode && !isEarlyGame() && analysis.bestGroup.length >= 2 && bestProb < 1) {
   applyEquivalenceResult(analysis, probs);
   updateExactSolverUI(valid);
   return;
@@ -1873,18 +1987,27 @@ function prepareExactSolver() {
   return { ships, placementsMap };
 }
 
-function placementKey(placement){
-  let min = placement[0];
+function getEquivalenceGroups(allBoards){
+  let patterns = {};
 
-  for(let i = 1; i < placement.length; i++){
-    if(placement[i] < min) min = placement[i];
+  for(let i=0;i<25;i++){
+    if(grid[i]) continue;
+
+    let key = "";
+
+    for(let b of allBoards){
+      key += b[i] ? "1" : "0";
+    }
+
+    if(!patterns[key]) patterns[key] = [];
+    patterns[key].push(i);
   }
 
-  return min;
+  return Object.values(patterns);
 }
 
 function violatesSameColorDiagonal(board, placement, ship){
-  for(const i of placement){
+  for(const i of placementCells(placement)){
     for(const ni of DIAGONALS[i]){
       if(board[ni] === ship) return true;
     }
@@ -1892,15 +2015,125 @@ function violatesSameColorDiagonal(board, placement, ship){
   return false;
 }
 
-function canPlaceShip(board, placement, ship, occupiedMask, knownMissMask){
+function canPlaceShip(
+  board,
+  placement,
+  ship,
+  occupiedMask,
+  knownMissMask,
+  shipMasks = {}
+){
   const mask = getPlacementMask(placement);
+  const shipMask = shipMasks[ship] || 0;
 
   if((mask & knownMissMask) !== 0) return false;
   if((mask & occupiedMask) !== 0) return false;
 
-  if(violatesSameColorDiagonal(board, placement, ship)) return false;
+  if(violatesDiagonalMask(mask, shipMask)) return false;
 
   return true;
+}
+
+function isAnonymousRareShip(ship){
+  return ship.startsWith('rare_');
+}
+
+function getLegalPlacementsForShip(
+  ship,
+  placements,
+  board,
+  occupiedMask,
+  knownMissMask,
+  lastRarePlacementKey,
+  remainingShips,
+  shipMasks
+){
+  if(!isFirstAnonymousRareInList(ship, remainingShips)){
+    return null;
+  }
+
+  const isAnonymousRare = isAnonymousRareShip(ship);
+  const legal = [];
+
+  for(const placement of placements){
+    const keyForPlacement = placementKey(placement);
+
+    if(
+      isAnonymousRare &&
+      keyForPlacement < lastRarePlacementKey
+    ){
+      continue;
+    }
+
+if(
+  canPlaceShip(
+    board,
+    placement,
+    ship,
+    occupiedMask,
+    knownMissMask,
+    shipMasks
+  )
+){
+  legal.push(placement);
+}
+  }
+
+  return legal;
+}
+
+function selectNextShipIndex(
+  remainingShips,
+  placementsMap,
+  board,
+  occupiedMask,
+  knownMissMask,
+  lastRarePlacementKey,
+  shipMasks
+){
+  let bestIndex = -1;
+  let bestPlacements = null;
+  let bestCount = Infinity;
+
+  for(let i = 0; i < remainingShips.length; i++){
+    const ship = remainingShips[i];
+    const placements = placementsMap[ship];
+
+const legalPlacements = getLegalPlacementsForShip(
+  ship,
+  placements,
+  board,
+  occupiedMask,
+  knownMissMask,
+  lastRarePlacementKey,
+  remainingShips,
+  shipMasks
+);
+
+    if(legalPlacements === null) continue;
+
+    const legalCount = legalPlacements.length;
+
+    if(legalCount === 0){
+      return {
+        index: i,
+        legalCount: 0,
+        legalPlacements
+      };
+    }
+
+    if(legalCount < bestCount){
+      bestCount = legalCount;
+      bestIndex = i;
+      bestPlacements = legalPlacements;
+    }
+  }
+
+  return {
+    index: bestIndex,
+    legalCount: bestCount,
+    legalPlacements: bestPlacements
+  };
 }
 
 function enumerateAllBoards(ships, placementsMap) {
@@ -1909,12 +2142,36 @@ function enumerateAllBoards(ships, placementsMap) {
   let valid = 0;
   const seen = new Set();
   const allBoards = [];
+  
+  const deadStates = new Set();
+  
+  function dfsStateKey(remainingShips, occupiedMask, lastRarePlacementKey){
+  return remainingShips.join('|') + '|' + occupiedMask + '|' + lastRarePlacementKey;
+}
 
   const board = Array(25).fill(null);
   const knownMissMask = getKnownMissMask();
 
-  function dfs(index, occupiedMask = 0, lastRarePlacementKey = -1) {
-    if (index === ships.length) {
+function dfs(
+  remainingShips,
+  occupiedMask = 0,
+  lastRarePlacementKey = -1,
+  shipMasks = {}
+) {
+
+  const stateKey = dfsStateKey(
+    remainingShips,
+    occupiedMask,
+    lastRarePlacementKey
+  );
+
+  if (deadStates.has(stateKey)) {
+    return;
+  }
+
+  const validBefore = valid;
+
+  if (remainingShips.length === 0) {
       const key = boardKey(board);
       if (seen.has(key)) return;
 
@@ -1931,50 +2188,65 @@ function enumerateAllBoards(ships, placementsMap) {
       return;
     }
 
-    const ship = ships[index];
-    const isAnonymousRare = ship.startsWith('rare_');
+const choice = selectNextShipIndex(
+  remainingShips,
+  placementsMap,
+  board,
+  occupiedMask,
+  knownMissMask,
+  lastRarePlacementKey,
+  shipMasks
+);
 
-    for (const placement of placementsMap[ship]) {
-      const keyForPlacement = placementKey(placement);
-
-      if (
-        isAnonymousRare &&
-        keyForPlacement < lastRarePlacementKey
-      ) {
-        continue;
-      }
-
-      const placementMask = getPlacementMask(placement);
-
-      if (
-        !canPlaceShip(
-          board,
-          placement,
-          ship,
-          occupiedMask,
-          knownMissMask
-        )
-      ) {
-        continue;
-      }
-
-      for(const i of placement){
-        board[i] = ship;
-      }
-
-      dfs(
-        index + 1,
-        occupiedMask | placementMask,
-        isAnonymousRare ? keyForPlacement : lastRarePlacementKey
-      );
-
-      for(const i of placement){
-        board[i] = null;
-      }
+    if(choice.index === -1 || choice.legalCount === 0){
+      return;
     }
+
+    const ship = remainingShips[choice.index];
+const isAnonymousRare = isAnonymousRareShip(ship);
+
+remainingShips.splice(choice.index, 1);
+
+for (const placement of choice.legalPlacements) {
+  const keyForPlacement = placementKey(placement);
+  const placementMask = placement.mask;
+  const cells = placementCells(placement);
+
+  for(const i of cells){
+    board[i] = ship;
   }
 
-  dfs(0);
+  const prevShipMask = shipMasks[ship] || 0;
+
+  shipMasks[ship] = prevShipMask | placementMask;
+
+  dfs(
+    remainingShips,
+    occupiedMask | placementMask,
+    isAnonymousRare ? keyForPlacement : lastRarePlacementKey,
+    shipMasks
+  );
+
+  if (prevShipMask !== 0) {
+    shipMasks[ship] = prevShipMask;
+  } else {
+    delete shipMasks[ship];
+  }
+
+  for(const i of cells){
+    board[i] = null;
+  }
+}
+
+remainingShips.splice(choice.index, 0, ship);
+
+if (valid === validBefore) {
+      deadStates.add(stateKey);
+    }
+
+  }
+
+  dfs([...ships]);
 
   return { counts, valid, allBoards };
 }
@@ -2137,6 +2409,31 @@ function updateExactSolverUI(valid) {
 // ===============================
 // T.11 UI
 // ===============================
+
+function updateModeButtons(){
+  const safeBtn = document.getElementById('modeSafe');
+  const aggressiveBtn = document.getElementById('modeAggressive');
+
+  if(!safeBtn || !aggressiveBtn) return;
+
+  safeBtn.classList.remove('active-btn', 'disabled');
+  aggressiveBtn.classList.remove('active-btn', 'disabled');
+
+if(configLocked || rareCount === null || rareCount < 4){
+  safeBtn.classList.add('disabled');
+  aggressiveBtn.classList.add('disabled');
+  return;
+}
+
+  const defaultMode = rareCount >= 5 ? "aggressive" : "safe";
+  const mode = forcedStartMode || defaultMode;
+
+  if(mode === "safe"){
+    safeBtn.classList.add('active-btn');
+  } else {
+    aggressiveBtn.classList.add('active-btn');
+  }
+}
 
 function render() {
   const play = DOM.playBoard;
@@ -2313,12 +2610,13 @@ if (context.missEndsGame) {
 }
 
 function getInfoContext() {
-const { hits, misses, huntMode } = getGameContext();
+  const { hits, misses } = getHitMissCounts();
+  const { huntMode } = getGameContext();
 
-const hasStarted = grid.some(c => c !== null);
-const missEndsGame = huntMode;
+  const hasStarted = grid.some(c => c !== null);
+  const missEndsGame = hits >= 5 && misses >= 3;
 
-return { hits, misses, hasStarted, huntMode, missEndsGame };
+  return { hits, misses, hasStarted, huntMode, missEndsGame };
 }
 
 function buildMissEndCard(ctx) {
@@ -2412,8 +2710,10 @@ function appendPreGameMessages(messages, ctx) {
   }
 
   if (rareCount === null || !selectedColor) {
-    messages.push("$OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles. If you have found 5, then you risk losing in one click if you have also found 3 blues. You can change extra chance risk level to 4 to give yourself a 1 click safety net in this calculator, but you will eliminate fewer possible boards this way.");
+    messages.push("$OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles.");
     messages.push("");
+	messages.push("8 colors will default to safe mode (finding blues.)<br>9 colors will default to aggressive mode (finding non-blues.)<br>You can change the starting mode to your liking, but cannot change it after starting.");
+	messages.push("");
     messages.push("Known tiles which you have not clicked yet will get diagonal stripes in their color. You need not click them until the solver tells you to.");
   }
 }
@@ -2540,11 +2840,18 @@ function appendOpeningHint(messages, ctx) {
     messages.push(`
       <div style="margin-top:10px;padding:10px;border-radius:8px;background:#1f2937;border:1px solid #374151;">
         <b style="color:#22c55e">Optimal Opening</b><br>
-        All four corners are equally optimal starting moves.<br>
-        You could also click dead center to immediately eliminate the most number of possible boards, but this has lower blue chance.
+       ${getOpeningHintText()}
       </div>
     `);
   }
+}
+
+function getOpeningHintText(){
+  const { huntMode } = getGameContext();
+
+  return huntMode
+    ? "Aggressive opening: any of the semi-corners are equally optimal starting moves."
+    : "Safe opening: all four corners are equally optimal starting moves.";
 }
 
 function updateBoardLock(){
@@ -2627,9 +2934,9 @@ function lockConfigUI(){
     btn.classList.add('disabled');
   });
 
-  document.querySelectorAll('[onclick^="setThreshold"]').forEach(btn=>{
-    btn.classList.add('disabled');
-  });
+document.querySelectorAll('[onclick^="setMode"]').forEach(b=>{
+  b.classList.add('disabled');
+});
 
 }
 
@@ -2711,7 +3018,17 @@ function findGuaranteedMove(candidates, huntMode) {
   const guaranteedHit = candidates.find(c => c.p === 1);
   const guaranteedMiss = candidates.find(c => c.p === 0);
 
-  return huntMode ? guaranteedHit : guaranteedMiss;
+  if(!huntMode){
+    return guaranteedMiss;
+  }
+
+  const foundColors = getFoundColors();
+
+	if(isEarlyGame()){
+	return null;
+	}
+
+  return guaranteedHit;
 }
 
 function applyGuaranteedMove(move, probs, play) {
@@ -2727,7 +3044,9 @@ function applyGuaranteedMove(move, probs, play) {
 }
 
 function rankCandidates(candidates, huntMode) {
+
   if (!huntMode) {
+
     candidates.forEach(c => {
       const p = c.p;
 
@@ -2739,9 +3058,6 @@ function rankCandidates(candidates, huntMode) {
       const asymmetry = Math.abs(p - 0.5);
       const collapseBonus = Math.max(p, 1 - p);
 
-      const [r, col] = indexToCoord(c.i);
-      const checker = (r + col) % 2 === 0 ? 1 : 0.8;
-
       c.score =
         entropy * 0.7 +
         asymmetry * 0.6 +
@@ -2749,9 +3065,62 @@ function rankCandidates(candidates, huntMode) {
     });
 
     candidates.sort((a, b) => b.score - a.score);
-  } else {
-    candidates.sort((a, b) => b.p - a.p);
+    return;
   }
+
+  const partialTiles = getPartialShipTiles();
+
+  const foundColors = getFoundColors();
+
+  const earlyGame = isEarlyGame();
+  
+  const adjacentCache = {};
+
+function adjacent(i){
+  if(adjacentCache[i] === undefined){
+    adjacentCache[i] = isAdjacentToKnown(i);
+  }
+
+  return adjacentCache[i];
+}
+
+  const hasNonAdjacentCandidate = candidates.some(c =>
+  !adjacent(c.i)
+);
+
+const canUseUnfoundBonus = !!appState.allBoards;
+
+  candidates.forEach(c => {
+    const p = c.p;
+
+    const info = 2 * p * (1 - p);
+    const blueRisk = 1 - p;
+
+let score = 0;
+
+const unfoundColorBonus = canUseUnfoundBonus
+  ? getCandidateUnfoundColorBonus(c.i, appState.allBoards)
+  : 0;
+
+score += p * 0.7;
+score += info * 0.5;
+score -= blueRisk * 0.25;
+score += unfoundColorBonus;
+
+	if (earlyGame && hasNonAdjacentCandidate && adjacent(c.i)) {
+  score -= 100;
+}
+
+    else if (!earlyGame && partialTiles.has(c.i)) {
+      score -= 0.15;
+    }
+
+    score += (c.i % 7) * 0.0001;
+
+    c.score = score;
+  });
+
+  candidates.sort((a, b) => b.score - a.score);
 }
 
 function selectTopMoves(candidates, huntMode) {
@@ -2923,9 +3292,13 @@ function highlightStartingCorners(){
 
   clearRecommendations();
 
-  const corners = [0, 4, 20, 24];
+  const { huntMode } = getGameContext();
 
-  corners.forEach(i => {
+  const openingTiles = huntMode
+    ? [6, 8, 16, 18]              
+    : [0, 4, 20, 24];  
+
+  openingTiles.forEach(i => {
     if(!grid[i]) { 
       play[i].classList.add('recommended-equal');
     }
@@ -2963,6 +3336,60 @@ function coordToIndex(r,c){return r*5+c;}
 
 function indexToCoord(i){return [Math.floor(i/5),i%5];}
 
+function isAdjacentToKnown(i){
+  const [r,c] = indexToCoord(i);
+
+  const dirs = [
+    [1,0],[-1,0],
+    [0,1],[0,-1]
+  ];
+
+  for (let [dr,dc] of dirs){
+    const rr = r + dr;
+    const cc = c + dc;
+
+    if(rr < 0 || cc < 0 || rr >= 5 || cc >= 5) continue;
+
+    const ni = coordToIndex(rr,cc);
+
+    if(grid[ni] && grid[ni] !== 'miss'){
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function placementKey(placement){
+  return placement.key ?? placementCells(placement)[0];
+}
+
+function getCandidateUnfoundColorBonus(tileIndex, allBoards){
+  if(!allBoards) return 0;
+
+  const foundColors = getFoundColors();
+
+  const possibleColors = new Set();
+
+  for(const board of allBoards){
+    const color = board[tileIndex];
+
+    if(color && !color.startsWith('rare_')){
+      possibleColors.add(color);
+    }
+  }
+
+  let bonus = 0;
+
+  for(const color of possibleColors){
+    if(!foundColors.has(color)){
+      bonus += 0.25;
+    }
+  }
+
+  return bonus;
+}
+
 function shuffle(arr){
   for(let i=arr.length-1;i>0;i--){
     let j=Math.floor(Math.random()*(i+1));
@@ -2990,24 +3417,16 @@ function createBoards(){
   }
 }
 
-const PLACEMENT_MASK_CACHE = new WeakMap();
+function placementCells(placement){
+  return placement.cells ?? placement;
+}
 
 function cellMask(i){
   return 1 << i;
 }
 
 function getPlacementMask(placement){
-  let cached = PLACEMENT_MASK_CACHE.get(placement);
-  if(cached !== undefined) return cached;
-
-  let mask = 0;
-
-  for(const i of placement){
-    mask |= cellMask(i);
-  }
-
-  PLACEMENT_MASK_CACHE.set(placement, mask);
-  return mask;
+  return placement.mask;
 }
 
 function getKnownMissMask(){
@@ -3038,6 +3457,118 @@ function boardKey(board){
   }
 
   return key;
+}
+
+function clearKnownCellsCache(){
+  knownCellsCache = {};
+}
+
+function getKnownCellsCached(color){
+  if(knownCellsCache[color]) return knownCellsCache[color];
+
+  const cells = getKnownCells(color);
+  knownCellsCache[color] = cells;
+
+  return cells;
+}
+
+function violatesDiagonalMask(placementMask, colorMask){
+  let mask = placementMask;
+
+  while(mask){
+    const bit = mask & -mask;
+    const i = BIT_INDEX[bit];
+
+    if(DIAGONAL_MASKS[i] & colorMask){
+      return true;
+    }
+
+    mask &= mask - 1;
+  }
+
+  return false;
+}
+
+function cellsToMask(cells){
+  let mask = 0;
+  for(const i of cells){
+    mask |= (1 << i);
+  }
+  return mask;
+}
+
+function buildShipMasks(board){
+  const masks = {};
+
+  for(let i = 0; i < 25; i++){
+    const ship = board[i];
+    if(!ship) continue;
+
+    masks[ship] = (masks[ship] || 0) | cellMask(i);
+  }
+
+  return masks;
+}
+
+function canPlaceWithSameShipOverlap(
+  placement,
+  ship,
+  occupiedMask,
+  shipMasks,
+  knownMissMask = 0
+){
+  const placementMask = getPlacementMask(placement);
+  const ownShipMask = shipMasks[ship] || 0;
+  const occupiedByOtherShips = occupiedMask & ~ownShipMask;
+
+  if((placementMask & knownMissMask) !== 0) return false;
+  if((placementMask & occupiedByOtherShips) !== 0) return false;
+
+  return true;
+}
+
+function boardToMask(board){
+  let mask = 0;
+
+  for(let i = 0; i < 25; i++){
+    if(board[i]){
+      mask |= cellMask(i);
+    }
+  }
+
+  return mask;
+}
+
+function clearColorMaskCache(){
+  colorMaskCache = {};
+}
+
+function getKnownMaskCached(color){
+  return getColorMaskCached(color);
+}
+
+function respectsKnownMask(placement, color){
+  const knownMask = getKnownMaskCached(color);
+  const placementMask = getPlacementMask(placement);
+
+  return (placementMask & knownMask) === knownMask;
+}
+
+function getColorMaskCached(color){
+  if(colorMaskCache[color] !== undefined){
+    return colorMaskCache[color];
+  }
+
+  let mask = 0;
+
+  for(let i = 0; i < 25; i++){
+    if(grid[i] === color){
+      mask |= cellMask(i);
+    }
+  }
+
+  colorMaskCache[color] = mask;
+  return mask;
 }
 
 // ===============================
@@ -3109,7 +3640,8 @@ function encodeGame(){
   writer.write(1, 3);
 
   writer.write(rareCount, 3);
-  writer.write(threshold === 5 ? 1 : 0, 1);
+  const modeBit = forcedStartMode === "aggressive" ? 1 : 0;
+writer.write(modeBit, 1);
 
   writer.write(movesToEncode.length, 5);
 
@@ -3126,7 +3658,7 @@ function decodeGame(hash){
 
   const version = reader.read(3);
   const rareCountVal = reader.read(3);
-  const thresholdVal = reader.read(1) ? 5 : 4;
+  const modeVal = reader.read(1) ? "aggressive" : "safe";
 
   const moveCount = reader.read(5);
 
@@ -3142,7 +3674,7 @@ function decodeGame(hash){
     });
   }
 
-  return { moves, rareCountVal, thresholdVal };
+  return { moves, rareCountVal, modeVal };
 }
 
 function loadFromHash(hash){
@@ -3154,7 +3686,9 @@ function loadFromHash(hash){
     resetAll();
 
     rareCount = rareCountVal;
-    threshold = thresholdVal;
+	forcedStartMode = rareCountVal >= 4 ? modeVal : null;
+    updateModeButtons();
+	
 
     document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
       b.classList.remove('active-btn');
@@ -3214,12 +3748,13 @@ window.setRare = function(n,btn){
 
   rareCount = n;
 
-  let newThreshold = (n >= 4) ? 4 : 5;
-  threshold = newThreshold;
+if (n >= 4) {
+  forcedStartMode = n >= 5 ? "aggressive" : "safe";
+} else {
+  forcedStartMode = null;
+}
 
-  document.getElementById('th4').classList.remove('active-btn');
-  document.getElementById('th5').classList.remove('active-btn');
-  document.getElementById('th' + newThreshold).classList.add('active-btn');
+updateModeButtons();
 
   document.querySelectorAll('[onclick^="setRare"]').forEach(b=>b.classList.remove('active-btn'));
   btn.classList.add('active-btn');
@@ -3236,14 +3771,17 @@ window.setRare = function(n,btn){
   updateColorAvailability();
 }
 
-window.setThreshold = function(n,btn){
+window.setMode = function(mode, btn){
   if(configLocked) return;
-  threshold=n;
-  document.getElementById('th4').classList.remove('active-btn');
-  document.getElementById('th5').classList.remove('active-btn');
-  btn.classList.add('active-btn');
+  if(rareCount < 4) return;
+
+  forcedStartMode = mode;
+
+  updateModeButtons();
+
   runSimulation();
-}
+  renderUI();
+};
 
 window.generateHash = function(){
   const input = document.getElementById('hashInput');
