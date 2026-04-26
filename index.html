@@ -3679,16 +3679,17 @@ function decodeGame(hash){
 
 function loadFromHash(hash){
   try {
-    isLoadingHash = true; 
+    isLoadingHash = true;
 
-    const { moves, rareCountVal, thresholdVal } = decodeGame(hash);
+    const decoded = decodeGame(hash);
+    const loadedMoves = decoded.moves;
+    const rareCountVal = decoded.rareCountVal;
+    const modeVal = decoded.modeVal;
 
     resetAll();
 
     rareCount = rareCountVal;
-	forcedStartMode = rareCountVal >= 4 ? modeVal : null;
-    updateModeButtons();
-	
+    forcedStartMode = rareCountVal >= 4 ? modeVal : null;
 
     document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
       b.classList.remove('active-btn');
@@ -3698,22 +3699,24 @@ function loadFromHash(hash){
       .querySelector(`[onclick="setRare(${rareCountVal},this)"]`)
       ?.classList.add('active-btn');
 
-    document.getElementById('th4').classList.remove('active-btn');
-    document.getElementById('th5').classList.remove('active-btn');
-    document.getElementById('th' + thresholdVal).classList.add('active-btn');
-	
-moves.forEach(m => {
-  selectedColor = m.color;
+    updateModeButtons();
+    updateBoardLock();
 
-  placeColor(m.index);
-});
+    loadedMoves.forEach(m => {
+      selectedColor = m.color;
+      placeColor(m.index);
+    });
 
-redoStack = [];
+    selectedColor = null;
+    redoStack = [];
 
     isLoadingHash = false;
 
-    runSimulation();    
+    render();
+    updateColorAvailability();
+    runSimulation();
     renderUI();
+    updateBoardLock();
 
   } catch(e){
     isLoadingHash = false;
