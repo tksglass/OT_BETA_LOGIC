@@ -3168,10 +3168,14 @@ function positionPreviewBox(tileIndex){
 
   if(!box || !cell) return;
 
-  const rect = cell.getBoundingClientRect();
+  const board = cell.parentElement;
+  if(!board) return;
 
-  box.style.left = `${rect.right + 10}px`;
+  const rect = board.getBoundingClientRect();
+
+  box.style.left = `${rect.right + 80}px`;
   box.style.top = `${rect.top}px`;
+  box.style.transform = "";
 }
 
 function showFarseerPreview(tileIndex){
@@ -3467,16 +3471,34 @@ function rankCandidates(candidates, huntMode) {
 
     let score = 0;
 
-    if(phase === "early"){
-      score += unfoundColorBonus * 1.2;
-      score += info * 0.75;
-      score += p * 0.35;
-      score -= blueRisk * 0.25;
+if(phase === "early"){
+  const lowMissAggroExplore =
+    huntMode &&
+    rareCount >= 4 &&
+    getHitMissCounts().misses <= 1;
 
-      if(hasNonAdjacentCandidate && adjacent(c.i)){
-        score -= 100;
-      }
+  if(lowMissAggroExplore){
+    score += unfoundColorBonus * 2.5;
+    score += info * 1.1;
+    score += p * 0.08;
+    score -= blueRisk * 0.12;
+
+    if(p >= 0.95){
+      score -= 1.0;
+    } else if(p >= 0.85){
+      score -= 0.45;
     }
+  } else {
+    score += unfoundColorBonus * 1.2;
+    score += info * 0.75;
+    score += p * 0.35;
+    score -= blueRisk * 0.25;
+  }
+
+  if(hasNonAdjacentCandidate && adjacent(c.i)){
+    score -= 100;
+  }
+}
 
     else if(phase === "mid"){
       score += unfoundColorBonus * 0.8;
