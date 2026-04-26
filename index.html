@@ -127,6 +127,12 @@
   color: #c084fc; 
 }
 
+.preview-box .final-prob {
+  color: #e5e7eb;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
 .preview-box .delta.pos {
   color: #22c55e; 
   font-weight: bold;
@@ -3107,14 +3113,23 @@ const rows = changes.map(change => {
   const [r,c] = indexToCoord(change.i);
   const isPositive = change.delta >= 0;
 
-  const value = (change.delta * 100).toFixed(1);
+  const deltaVal = (change.delta * 100).toFixed(1);
   const sign = isPositive ? "+" : "";
+
+  const { huntMode } = getGameContext();
+
+  const finalProb = huntMode
+    ? scenarioProbs[change.i]
+    : 1 - scenarioProbs[change.i];
+
+  const finalPercent = (finalProb * 100).toFixed(1);
 
   return `
     Row ${r+1}, Col ${c+1}:
     <span class="delta ${isPositive ? 'pos' : 'neg'}">
-      ${sign}${value}%
+      ${sign}${deltaVal}%
     </span>
+    → <span class="final-prob">${finalPercent}%</span>
   `;
 }).join("<br>");
 
