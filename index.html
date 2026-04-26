@@ -732,32 +732,30 @@ let isLoadingHash = false;
 // T.03 ACTIONS
 // ===============================
 
-function placeColor(i){
+function placeColor(i) {
   if (isGameOver()) return;
   if (!canPlaceColor()) return;
 
   resetModeAndCache();
   ensureConfigLocked();
-  saveHistorySnapshot();
 
   const prevColor = grid[i];
   const newColor = toggleColor(i);
 
   setGridCell(i, newColor);
 
-  const { hits, misses } = getHitMissCounts();
-  const tracking = getShipTracking();
-
-  if (shouldEndGameOnMiss({ newColor, hits, misses, tracking })) {
-    handleGameOver();
+  if (!isValidPlacement(i, prevColor)) {
+    render();
+    renderUI();
+    updateColorAvailability();
     return;
   }
 
-  recordMove(i, prevColor, newColor);
-
-  if (!isValidPlacement(i, prevColor)) return;
-
-  finalizePlacement();
+  commitAcceptedMove({
+    index: i,
+    prevColor,
+    newColor
+  });
 }
 
 function handleCellClick(i){
@@ -989,6 +987,29 @@ function deepClone(obj) {
       ? obj.allBoards.map(b => [...b])
       : undefined
   };
+}
+
+function commitAcceptedMove(move) {
+  saveHistorySnapshot();
+
+  recordMove(move.index, move.prevColor, move.newColor);
+
+  clearPlacementsCache();
+
+  const { hits, misses } = getHitMissCounts();
+  const tracking = getShipTracking();
+
+  if (shouldEndGameOnMiss({
+    newColor: move.newColor,
+    hits,
+    misses,
+    tracking
+  })) {
+    handleGameOver();
+    return;
+  }
+
+  finalizePlacement();
 }
 
 function finalizePlacement() {
