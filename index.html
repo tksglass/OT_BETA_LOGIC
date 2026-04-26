@@ -1077,7 +1077,8 @@ function createEmptyAppState(){
     topMoves: null,
     isTrueEndgame: false,
     isGuaranteed: false,
-    specialGroup: null
+    specialGroup: null,
+    collapseMove: null
   };
 }
 
@@ -1875,13 +1876,14 @@ function runMonteCarlo(ctx) {
 function finalizeSimulation({ counts, valid, attempts }) {
   const probs = counts.map(c => (valid ? c / valid : 0));
 
-  appState = {
-    probs,
-    topMoves: null,
-    isTrueEndgame: false,
-    isGuaranteed: false,
-    specialGroup: null
-  };
+appState = {
+  probs,
+  topMoves: null,
+  isTrueEndgame: false,
+  isGuaranteed: false,
+  specialGroup: null,
+  collapseMove: null
+};
 
   DOM.confidence.textContent =
     `Valid boards: ${valid} (in ${attempts} chains)`;
@@ -2024,6 +2026,8 @@ function runExactSolver() {
 if (handleTwoBoardEndgame(valid, probs, allBoards)) return;
 
 const analysis = analyzeEquivalence(allBoards, probs);
+analysis.collapseMove = getBestTwoStepCollapseMove(allBoards, probs);
+
 const { huntMode } = getGameContext();
 
 const bestProb = analysis.bestGroup.length
@@ -2352,6 +2356,104 @@ function computeForcedTiles(allBoards) {
   return forcedTiles;
 }
 
+function getOutcomeKey(board, tile) {
+  return board[tile] || 'miss';
+}
+
+function scoreCollapseForTile(allBoards, tile, probs) {
+  const buckets = {};
+
+  for (const board of allBoards) {
+    const key = getOutcomeKey(board, tile);
+
+    if (!buckets[key]) buckets[key] = 0;
+    buckets[key]++;
+  }
+
+  let expectedRemaining = 0;
+
+  for (const key in buckets) {
+    const count = buckets[key];
+    const p = count / allBoards.length;
+
+    expectedRemaining += p * count;
+  }
+
+  return {
+    i: tile,
+    p: probs[tile],
+    expectedRemaining,
+    buckets
+  };
+}
+
+function getBestCollapseMove(allBoards, probs, excludedTile = null) {
+  let best = null;
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) continue;
+    if (i === excludedTile) continue;
+
+    const score = scoreCollapseForTile(allBoards, i, probs);
+
+    if (!best || score.expectedRemaining < best.expectedRemaining) {
+      best = score;
+    }
+  }
+
+  return best;
+}
+
+function scoreTwoStepCollapse(allBoards, firstTile, probs) {
+  const firstBuckets = {};
+
+  for (const board of allBoards) {
+    const key = getOutcomeKey(board, firstTile);
+
+    if (!firstBuckets[key]) firstBuckets[key] = [];
+    firstBuckets[key].push(board);
+  }
+
+  let expectedRemaining = 0;
+
+  for (const key in firstBuckets) {
+    const boardsAfterFirst = firstBuckets[key];
+    const pFirst = boardsAfterFirst.length / allBoards.length;
+
+    const bestSecond = getBestCollapseMove(
+      boardsAfterFirst,
+      probs,
+      firstTile
+    );
+
+    if (!bestSecond) continue;
+
+    expectedRemaining += pFirst * bestSecond.expectedRemaining;
+  }
+
+  return {
+    i: firstTile,
+    p: probs[firstTile],
+    expectedRemaining
+  };
+}
+
+function getBestTwoStepCollapseMove(allBoards, probs) {
+  let best = null;
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) continue;
+
+    const score = scoreTwoStepCollapse(allBoards, i, probs);
+
+    if (!best || score.expectedRemaining < best.expectedRemaining) {
+      best = score;
+    }
+  }
+
+  return best;
+}
+
 function handleTwoBoardEndgame(valid, probs, allBoards) {
   if (valid !== 2) return false;
 
@@ -2465,13 +2567,15 @@ function applyEquivalenceResult(data, probs) {
   appState.topMoves = null;
   appState.isTrueEndgame = false;
   appState.isGuaranteed = false;
+  appState.collapseMove = data.collapseMove || null;
 
   if (isSymmetric) {
     appState.specialGroup = {
       tiles: data.bestGroup,
       size2Tiles: data.size2Tiles,
       shipMap: data.shipMap,
-      probs
+      probs,
+      collapseMove: data.collapseMove || null
     };
   } else {
     appState.specialGroup = null;
@@ -2899,16 +3003,28 @@ const { hits, misses, huntMode } = getGameContext();
     );
   }
 
-  const second = topMoves[1];
-  if (second) {
-    messages.push(
-      makeCard(
-        "Alternative",
-        describeMove(second, "gold"),
-        "info-gold"
-      )
-    );
-  }
+const collapseMove = appState.collapseMove;
+const second = collapseMove || topMoves[1];
+
+if (second && (!best || second.i !== best.i)) {
+  const title = collapseMove
+    ? "2-Step Collapse"
+    : "Alternative";
+
+const body = collapseMove
+	? `${describeMove(second, "gold")}
+	<br><br>
+	<span style="color:#fbbf24">Expected boards after 2 clicks:</span> ${collapseMove.expectedRemaining.toFixed(1)}`
+	: describeMove(second, "gold");
+
+  messages.push(
+    makeCard(
+      title,
+      body,
+      "info-gold"
+    )
+  );
+}
 }
 
 function appendFallback(messages) {
@@ -3404,9 +3520,20 @@ function selectTopMoves(candidates, huntMode) {
 }
 
 function applyHighlights(play, topMoves, safest) {
-  if (topMoves[0]) play[topMoves[0].i].classList.add('recommended-best');
-  if (topMoves[1]) play[topMoves[1].i].classList.add('recommended-second');
-  if (safest) play[safest.i].classList.add('recommended-safe');
+  const best = topMoves[0];
+  const alternative = appState.collapseMove || topMoves[1];
+
+  if (best) {
+    play[best.i].classList.add('recommended-best');
+  }
+
+  if (alternative && (!best || alternative.i !== best.i)) {
+    play[alternative.i].classList.add('recommended-second');
+  }
+
+  if (safest) {
+    play[safest.i].classList.add('recommended-safe');
+  }
 }
 
 function updateRecommendationState(probs, topMoves, safest) {
