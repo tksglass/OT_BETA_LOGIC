@@ -1,4 +1,27 @@
 <!DOCTYPE html>
+
+<!-- 
+===============================
+// LEGEND
+// T.01 CONFIG / CONSTANTS
+// T.02 GLOBAL STATE
+// T.03 ACTIONS
+// T.04 FLOW CONTROLLERS
+// T.05 VALIDATION
+// T.06 SHIP PLACEMENT
+// T.07 GAME STATE
+// T.08 SIMULATION
+// T.09 MCMC
+// T.10 EXACT SOLVER
+// T.11 UI
+// T.12 VISUALS
+// T.13 GRID UTILS
+// T.14 HASH CREATION / LOADING
+// T.15 EVENT BINDS
+// T.16 INITIALIZATION
+// ===============================
+-->
+
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -29,7 +52,11 @@
     cursor:pointer;border:2px solid #333;transition: transform 0.1s, box-shadow 0.1s;
   }
   .color-btn:hover { transform: scale(1.1); }
-  .selected { box-shadow: 0 0 0 3px black; }
+  
+  .color-btn.selected {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 3px black, 0 0 8px rgba(0,0,0,0.4);
+}
 
   button {
     padding: 6px 10px; margin-right: 5px; border-radius: 6px;
@@ -98,7 +125,7 @@
 }
 
 .topbar, #infoBox {
-width: auto;
+  width: 100%;
   box-sizing: border-box;
 }
 
@@ -110,9 +137,7 @@ width: auto;
   padding: 15px;
   border-radius: 12px;
   background: #d1d5db;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-
-  max-width: 720px;   
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
   margin-left: auto;
   margin-right: auto;
 }
@@ -494,6 +519,10 @@ width: auto;
 <script>
 window.onload = function(){
 
+// ===============================
+// T.01 CONFIG / CONSTANTS
+// ===============================
+
 const SIZE=5;
 const SHIPS={
   teal:4,
@@ -516,29 +545,7 @@ const MODE = {
   GAME_OVER: 4
 };
 
-let currentMode = MODE.NORMAL;
-
-let moves = [];
-let redoStack = [];
-let history = [];
-let rareCount=null;
-let selectedColor=null;
-let threshold=5;
-let grid=Array(25).fill(null);
-let lastProbs = null;
-let lastTopMoves = null;
 const MAX_MISSES = 5;
-let lastSpecialGroup = null;
-let placementsCache = {};
-let configLocked = false;
-let isLoadingHash = false;
-let appState = {
-  probs: null,
-  topMoves: null,
-  isTrueEndgame: false,
-  isGuaranteed: false,
-  specialGroup: null
-};
 
 const COLOR_TO_ID = {
   teal: 0,
@@ -556,247 +563,448 @@ const ID_TO_COLOR = Object.fromEntries(
   Object.entries(COLOR_TO_ID).map(([k,v]) => [v,k])
 );
 
-window.selectColor = function(c,e){
-if(e.target.classList.contains('disabled')) return;
-
-selectedColor = c;
-  document.querySelectorAll('.color-btn').forEach(b=>b.classList.remove('selected'));
-  e.target.classList.add('selected');
-  updateBoardLock();
-  updateColorAvailability();
-  
-  const hasStarted = grid.some(c => c !== null);
-
-if(!hasStarted){
-  updateInfoBox();
-}
-
-}
-
-window.generateHash = function(){
-  const input = document.getElementById('hashInput');
-  input.value = encodeGame();
-  input.select();
+const DOM = {
+  playBoard: null,
+  heatmap: null,
+  infoBox: null,
+  confidence: null,
+  modeLabel: null
 };
 
-window.loadHash = function(){
-  const input = document.getElementById('hashInput');
-  const hash = input.value.trim();
-
-  if(!hash){
-    showError("Enter a code first");
-    return;
-  }
-
-  loadFromHash(hash);
+const RAW_PLACEMENTS = {
+  2: buildRawPlacements(2),
+  3: buildRawPlacements(3),
+  4: buildRawPlacements(4)
 };
 
-window.setRare = function(n,btn){
-  if(configLocked) return;
+function buildRawPlacements(size){
+  const placements = [];
 
-  rareCount = n;
+  for(let r = 0; r < SIZE; r++){
+    for(let c = 0; c < SIZE; c++){
+      for(let horiz of [true, false]){
+        const cells = [];
 
-  let newThreshold = (n >= 4) ? 4 : 5;
-  threshold = newThreshold;
+        for(let k = 0; k < size; k++){
+          const rr = r + (horiz ? 0 : k);
+          const cc = c + (horiz ? k : 0);
 
-  document.getElementById('th4').classList.remove('active-btn');
-  document.getElementById('th5').classList.remove('active-btn');
-  document.getElementById('th' + newThreshold).classList.add('active-btn');
+          if(rr >= SIZE || cc >= SIZE){
+            cells.length = 0;
+            break;
+          }
 
-  document.querySelectorAll('[onclick^="setRare"]').forEach(b=>b.classList.remove('active-btn'));
-  btn.classList.add('active-btn');
+          cells.push(coordToIndex(rr, cc));
+        }
 
-  updateBoardLock();
-
-  if(!isStateValid()){
-    showError("Too many rare colors placed for this setting.");
-    return;
+        if(cells.length === size){
+          placements.push({
+			cells,
+			horiz,
+			key: cells[0]
+		  });
+        }
+      }
+    }
   }
 
-  runSimulation(); 
-  renderUI(); 
-  updateColorAvailability();
+  return placements;
 }
 
-window.setThreshold = function(n,btn){
-  if(configLocked) return;
-  threshold=n;
-  document.getElementById('th4').classList.remove('active-btn');
-  document.getElementById('th5').classList.remove('active-btn');
-  btn.classList.add('active-btn');
-  runSimulation();
-}
+const DIAGONALS = Array.from({ length: 25 }, (_, i) => {
+  const [r, c] = [Math.floor(i / 5), i % 5];
 
-function coordToIndex(r,c){return r*5+c;}
-function indexToCoord(i){return [Math.floor(i/5),i%5];}
-
-function createBoards(){
-  const play=document.getElementById('playBoard');
-  const heat=document.getElementById('heatmap');
-
-  play.innerHTML='';
-  heat.innerHTML='';
-
-  for(let i=0;i<25;i++){
-    let cell=document.createElement('div');
-    cell.className='cell';
-    cell.onclick=()=>handleCellClick(i);
-    play.appendChild(cell);
-
-    let h=document.createElement('div');
-    h.className='cell';
-    heat.appendChild(h);
-  }
-}
-
-function lockConfigUI(){
-
-  document.querySelectorAll('[onclick^="setRare"]').forEach(btn=>{
-    btn.classList.add('disabled');
-  });
-
-  document.querySelectorAll('[onclick^="setThreshold"]').forEach(btn=>{
-    btn.classList.add('disabled');
-  });
-
-}
-
-function makeCard(title, content, colorClass){
-  return `
-    <div class="info-card ${colorClass}">
-      <div class="info-card-title">${title}</div>
-      <div>${content}</div>
-    </div>
-  `;
-}
-
-function updateBoardLock(){
-  const board=document.getElementById('playBoard');
-  if(selectedColor && rareCount!==null){
-    board.classList.remove('disabled');
-  } else {
-    board.classList.add('disabled');
-  }
-}
-
-function placeColor(i){
-  if(currentMode === MODE.GAME_OVER) return;
-  
-  if(!selectedColor || rareCount===null) return;
- 
-  currentMode = MODE.NORMAL;
-  placementsCache = {};
-  
-  if(!configLocked){
-  configLocked = true;
-  lockConfigUI();
-}
-
-history.push({
-  grid: [...grid],
-  rareCount,
-  threshold,
-  appState: JSON.parse(JSON.stringify(appState)),
-  currentMode
+  return [
+    [r - 1, c - 1],
+    [r - 1, c + 1],
+    [r + 1, c - 1],
+    [r + 1, c + 1]
+  ].filter(([dr, dc]) => dr >= 0 && dc >= 0 && dr < 5 && dc < 5)
+   .map(([dr, dc]) => dr * 5 + dc);
 });
 
-let prevColor = grid[i];
-let newColor = (grid[i] === selectedColor ? null : selectedColor);
+// ===============================
+// T.02 GLOBAL STATE
+// ===============================
 
-grid[i] = newColor;
+let currentMode = MODE.NORMAL;
 
-let hits = grid.filter(x => x && x !== 'miss').length;
-let misses = grid.filter(x => x === 'miss').length;
+let grid = Array(25).fill(null);
 
-let missEndsGame = (hits >= 5) && (misses >= 3);
+let appState = createEmptyAppState();
 
-const tracking = getShipTracking();
+let moves = [];
+let redoStack = [];
+let history = [];
 
-const allShipsComplete =
-  tracking.incomplete === 0 &&
-  tracking.unfound === 0;
+let rareCount = null;
+let selectedColor = null;
+let threshold = 5;
 
-if(
-  !allShipsComplete &&
-  newColor === 'miss' &&
-  hits >= 5 &&
-  misses > 3
-){
-  currentMode = MODE.GAME_OVER;
-  
+let lastProbs = null;
+let lastTopMoves = null;
+let lastSpecialGroup = null;
 
-  selectedColor = null;
+let placementsCache = {};
 
-  document.querySelectorAll('.color-btn').forEach(b=>{
-    b.classList.remove('selected');
-  });
+let configLocked = false;
+let isLoadingHash = false;
 
-  appState = {
+// ===============================
+// T.03 ACTIONS
+// ===============================
+
+function placeColor(i){
+  if (isGameOver()) return;
+  if (!canPlaceColor()) return;
+
+  resetModeAndCache();
+  ensureConfigLocked();
+  saveHistorySnapshot();
+
+  const prevColor = grid[i];
+  const newColor = toggleColor(i);
+
+  setGridCell(i, newColor);
+
+  const { hits, misses } = getHitMissCounts();
+  const tracking = getShipTracking();
+
+  if (shouldEndGameOnMiss({ newColor, hits, misses, tracking })) {
+    handleGameOver();
+    return;
+  }
+
+  recordMove(i, prevColor, newColor);
+
+  if (!isValidPlacement(i, prevColor)) return;
+
+  finalizePlacement();
+}
+
+function handleCellClick(i){
+if(currentMode === MODE.GAME_OVER) return;
+  if(rareCount === null) return;
+
+  const forced = appState.forcedTiles?.[i];
+
+  if(forced && grid[i] === null){
+
+    const prevSelected = selectedColor;
+    const prevGrid = grid[i];
+
+    selectedColor = forced;
+
+    placeColor(i);
+
+    const success = grid[i] !== prevGrid;
+
+    selectedColor = prevSelected;
+
+    if(!success){
+      placeColor(i);
+    }
+
+    return;
+  }
+
+  placeColor(i);
+}
+
+function toggleColor(i) {
+  const isSameColor = grid[i] === selectedColor;
+  return isSameColor ? null : selectedColor;
+}
+
+function setGridCell(index, value) {
+  grid[index] = value;
+}
+
+function recordMove(index, prevColor, newColor) {
+  const move = { index, prevColor, newColor };
+
+  moves.push(move);
+  redoStack = [];
+  clearPlacementsCache();
+}
+
+window.undoMove = function(){
+  if(history.length === 0) return;
+
+  const lastMove = moves.pop();
+  if(!lastMove) return;
+
+  redoStack.push(lastMove);
+
+  const prev = history.pop();
+
+  grid = prev ? [...prev.grid] : Array(25).fill(null);
+  rareCount = prev?.rareCount ?? null;
+  threshold = prev?.threshold ?? 5;
+  appState = prev?.appState ? JSON.parse(JSON.stringify(prev.appState)) : {
     probs: null,
     topMoves: null,
     isTrueEndgame: false,
     isGuaranteed: false,
-    specialGroup: null,
+    specialGroup: null
+  };
+  currentMode = prev?.currentMode ?? MODE.NORMAL;
+
+  clearPlacementsCache();
+
+  render();
+  updateColorAvailability();
+  runSimulation();
+  renderUI();
+  updateBoardLock();
+};
+
+window.redoMove = function(){
+  if(redoStack.length === 0) return;
+
+  const move = redoStack.pop();
+
+  history.push({
+    grid: [...grid],
+    rareCount,
+    threshold,
+    appState: JSON.parse(JSON.stringify(appState)),
+    currentMode
+  });
+
+  grid[move.index] = move.newColor;
+
+  moves.push(move);
+
+  clearPlacementsCache();
+
+  render();
+  updateColorAvailability();
+  runSimulation();
+  renderUI();
+  updateBoardLock();
+};
+
+window.resetAll = function(){
+
+  grid = Array(25).fill(null);
+  selectedColor = null;
+  rareCount = null;
+  threshold = 5;
+  history = [];
+
+  document.querySelectorAll('.color-btn').forEach(b=>{
+    b.classList.remove('selected','disabled');
+  });
+
+  document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
+    b.classList.remove('active-btn');
+  });
+
+  document.getElementById('th4').classList.remove('active-btn');
+  document.getElementById('th5').classList.add('active-btn');
+
+  render();
+  const heat = DOM.heatmap;
+for(let i=0;i<25;i++){
+  heat[i].style.background = '';
+  heat[i].textContent = '';
+}
+
+  DOM.confidence.textContent = "";
+  DOM.modeLabel.textContent = "";
+currentMode = MODE.NORMAL;
+
+appState = createEmptyAppState();
+
+lastSpecialGroup = null;
+
+updateInfoBox();
+
+  updateBoardLock();
+  
+  const play = DOM.playBoard;
+
+clearRecommendations();
+
+lastProbs = null;
+lastTopMoves = null;
+moves = [];
+redoStack = [];
+
+configLocked = false;
+
+document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
+  b.classList.remove('disabled');
+});
+
+document.querySelectorAll('[onclick^="setThreshold"]').forEach(b=>{
+  b.classList.remove('disabled');
+});
+
+}
+
+function getEquivalenceGroups(allBoards){
+  let patterns = {};
+
+  for(let i=0;i<25;i++){
+    if(grid[i]) continue;
+
+    let key = "";
+
+    for(let b of allBoards){
+      key += b[i] ? "1" : "0";
+    }
+
+    if(!patterns[key]) patterns[key] = [];
+    patterns[key].push(i);
+  }
+
+  return Object.values(patterns);
+}
+
+// ===============================
+// T.04 FLOW CONTROLLERS
+// ===============================
+
+function isGameOver() {
+  const gameOver = currentMode === MODE.GAME_OVER;
+  return gameOver;
+}
+
+function canPlaceColor() {
+  const hasColor = !!selectedColor;
+  const hasRareConfig = rareCount !== null;
+
+  return hasColor && hasRareConfig;
+}
+
+function resetModeAndCache() {
+  currentMode = MODE.NORMAL;
+  clearPlacementsCache();
+  
+  appState.specialGroup = null;
+  appState.forcedTiles = null;
+}
+
+function ensureConfigLocked() {
+  if (configLocked) return;
+
+  configLocked = true;
+  lockConfigUI();
+}
+
+function saveHistorySnapshot() {
+  const snapshot = {
+    grid: [...grid],
+    rareCount,
+    threshold,
+    appState: deepClone(appState),
+    currentMode
+  };
+
+  history.push(snapshot);
+}
+
+function deepClone(obj) {
+  if (!obj) return obj;
+
+  return {
+    probs: obj.probs ? [...obj.probs] : null,
+    topMoves: obj.topMoves ? obj.topMoves.map(m => ({ ...m })) : null,
+    isTrueEndgame: obj.isTrueEndgame,
+    isGuaranteed: obj.isGuaranteed,
+    specialGroup: obj.specialGroup
+      ? {
+          tiles: [...obj.specialGroup.tiles],
+          probs: obj.specialGroup.probs
+        }
+      : null,
+    forcedTiles: obj.forcedTiles
+      ? { ...obj.forcedTiles }
+      : undefined,
+    allBoards: obj.allBoards
+      ? obj.allBoards.map(b => [...b])
+      : undefined
+  };
+}
+
+function finalizePlacement() {
+  render();
+
+  appState = createEmptyAppState();
+
+  runSimulation();
+  updateColorAvailability();
+  renderUI();
+}
+
+function handleGameOver() {
+  currentMode = MODE.GAME_OVER;
+  selectedColor = null;
+
+  clearSelectedColorUI();
+
+  appState = {
+    ...createEmptyAppState(),
     guaranteedColors: null
   };
 
   render();
   renderUI();
-  return;
 }
 
-moves.push({
-  index: i,
-  prevColor,
-  newColor
-});
+function shouldEndGameOnMiss({ newColor, hits, misses, tracking }) {
+  const allShipsComplete =
+    tracking.incomplete === 0 &&
+    tracking.unfound === 0;
 
-redoStack = [];
-
-placementsCache = {};
-
-if(!isStateValid()){
-  grid[i] = prevColor;
-  return;
+  return (
+    !allShipsComplete &&
+    newColor === 'miss' &&
+    hits >= 5 &&
+    misses > 3
+  );
 }
 
-for(let s of getShipList()){
-  if(getPlacementsCached(s).length === 0){
+function isValidPlacement(i, prevColor) {
+  if (!isStateValid()) {
     grid[i] = prevColor;
-    return;
+    return false;
   }
-}
 
-if(!hasAnyValidBoard()){
-  grid[i] = prevColor;
-  return;
-}
-  render();
-  
-  appState = {
-  probs: null,
-  topMoves: null,
-  isTrueEndgame: false,
-  isGuaranteed: false,
-  specialGroup: null
-};
-  
-  runSimulation();
-  updateColorAvailability();
-  renderUI();
-}
-
-function getPlacementsCached(color){
-  if(!placementsCache[color]){
-    placementsCache[color] = getValidPlacements(color);
+  for (let s of getShipList()) {
+    if (getPlacementsCached(s).length === 0) {
+      grid[i] = prevColor;
+      return false;
+    }
   }
-  return placementsCache[color];
+
+  if (!hasAnyValidBoard()) {
+    grid[i] = prevColor;
+    return false;
+  }
+
+  return true;
 }
 
-function getShipSize(color){
-  if(color.startsWith('rare_')) return 2;
-  return SHIPS[color];
+function createEmptyAppState(){
+  return {
+    probs: null,
+    topMoves: null,
+    isTrueEndgame: false,
+    isGuaranteed: false,
+    specialGroup: null
+  };
 }
+
+function clearPlacementsCache() {
+  placementsCache = {};
+}
+
+// ===============================
+// T.05 VALIDATION
+// ===============================
 
 function isStateValid(){
   let counts={}; for(let c in SHIPS) counts[c]=0;
@@ -811,18 +1019,16 @@ function isStateValid(){
 
   for(let i=0;i<25;i++){
     if(!grid[i] || grid[i]==='miss') continue;
-    let [r,c]=indexToCoord(i);
-    let diagonals=[[r-1,c-1],[r-1,c+1],[r+1,c-1],[r+1,c+1]];
-    for(let [dr,dc] of diagonals){
-      if(dr>=0&&dc>=0&&dr<5&&dc<5){
-        let ni=coordToIndex(dr,dc);
-        if(grid[ni]===grid[i]) return false;
-      }
-    }
+for (let ni of DIAGONALS[i]) {
+  if (grid[ni] === grid[i]) return false;
+}
   }
 
   for(let color in SHIPS){
-    let cells=grid.map((c,i)=>c===color?i:null).filter(x=>x!==null);
+let cells = [];
+for (let i = 0; i < 25; i++) {
+  if (grid[i] === color) cells.push(i);
+}
     if(cells.length<=1) continue;
 
     let rows=cells.map(i=>indexToCoord(i)[0]);
@@ -848,94 +1054,112 @@ function isStateValid(){
   return true;
 }
 
-function updateColorAvailability(){
-  let counts = {};
-  for(let c in SHIPS) counts[c] = 0;
+function isBoardValid(board, final=false){
 
+  if (!matchesKnownGrid(board)) return false;
+
+  let ships = getShipList();
+
+  for (let color of ships){
+    let cells = getBoardCells(board, color);
+
+    if (isRare(color)) {
+      if (!validateRareCells(cells, final)) return false;
+      continue;
+    }
+
+    if (!validateShipSize(cells, color, final)) return false;
+    if (!validateNoDiagonalTouch(board, cells, color)) return false;
+    if (!validateLineShape(board, cells, color)) return false;
+  }
+
+  return true;
+}
+
+function matchesKnownGrid(board){
   for(let i=0;i<25;i++){
-    if(grid[i]) counts[grid[i]]++;
+    if(grid[i] && grid[i] !== 'miss'){
+      if(board[i] !== grid[i]) return false;
+    }
+    if(grid[i] === 'miss'){
+      if(board[i]) return false;
+    }
   }
+  return true;
+}
 
-  let usedRare = RARE_COLORS.filter(c => counts[c] > 0);
+function getBoardCells(board, color){
+  const cells = [];
+for (let i = 0; i < 25; i++) {
+  if (board[i] === color) cells.push(i);
+}
+return cells;
+}
 
-  let selectedStillValid = true;
+function isRare(color){
+  return RARE_COLORS.includes(color);
+}
 
-  document.querySelectorAll('.color-btn').forEach(btn=>{
-    btn.classList.remove('disabled');
+function validateRareCells(cells, final){
+  if(final && cells.length !== 2) return false;
+  if(!final && cells.length > 2) return false;
+  return true;
+}
 
-	let color = btn.dataset.color;
+function validateShipSize(cells, color, final){
+  if(final){
+    if(cells.length === 0) return true;
+    return cells.length === getShipSize(color);
+  }
+  return cells.length <= getShipSize(color);
+}
 
-    if(!color) return;
+function validateNoDiagonalTouch(board, cells, color){
+  for(let i of cells){
+for (let ni of DIAGONALS[i]) {
+  if (board[ni] === color) return false;
+}
+  }
+  return true;
+}
 
-    let disabled = false;
+function validateLineShape(board, cells, color){
+  if(cells.length <= 1) return true;
 
-    if(getShipSize(color) && counts[color] >= getShipSize(color)){
-      disabled = true;
+  let coords = cells.map(i=>indexToCoord(i));
+  let rows = coords.map(x=>x[0]);
+  let cols = coords.map(x=>x[1]);
+
+  let sameRow = rows.every(r=>r===rows[0]);
+  let sameCol = cols.every(c=>c===cols[0]);
+
+  if(!(sameRow||sameCol)) return false;
+
+  if(sameRow){
+    let r=rows[0];
+    let min=Math.min(...cols);
+    let max=Math.max(...cols);
+
+    for(let c=min;c<=max;c++){
+      if(board[coordToIndex(r,c)] !== color) return false;
     }
 
-    if(RARE_COLORS.includes(color)){
-      if(rareCount !== null){
-        let isUsed = counts[color] > 0;
-        if(!isUsed && usedRare.length >= rareCount){
-          disabled = true;
-        }
-      }
+    return (max-min+1) === cells.length;
+  }
+
+  if(sameCol){
+    let c=cols[0];
+    let min=Math.min(...rows);
+    let max=Math.max(...rows);
+
+    for(let r=min;r<=max;r++){
+      if(board[coordToIndex(r,c)] !== color) return false;
     }
 
-    if(disabled){
-      btn.classList.add('disabled');
-
-      if(color === selectedColor){
-        selectedStillValid = false;
-      }
-    }
-  });
-
-  if(!selectedStillValid){
-    selectedColor = null;
-    document.querySelectorAll('.color-btn').forEach(b=>b.classList.remove('selected'));
-  }
-}
-
-function getUsedRare(){
-  return [...new Set(grid.filter(c=>RARE_COLORS.includes(c)))];
-}
-
-function shuffle(arr){
-  for(let i=arr.length-1;i>0;i--){
-    let j=Math.floor(Math.random()*(i+1));
-    [arr[i],arr[j]]=[arr[j],arr[i]];
-  }
-  return arr;
-}
-
-function getShipList(){
-  let ships = ['teal','green','yellow'];
-
-  let used = getUsedRare();
-  let remaining = Math.max(0, rareCount - used.length);
-
-  ships.push(...used);
-
-  for(let i = 0; i < remaining; i++){
-   ships.push(`rare_${i}`);
+    return (max-min+1) === cells.length;
   }
 
-  return ships;
-}
-
-function getKnownCells(color){
-  if(color.startsWith('rare_')) return [];
-  return grid.map((c,i)=>c===color?i:null).filter(x=>x!==null);
-}
-
-function getDirectionConstraint(cells){
-  if(cells.length < 2) return 'any';
-  let rows=cells.map(i=>indexToCoord(i)[0]);
-  let cols=cells.map(i=>indexToCoord(i)[1]);
-  if(rows.every(r=>r===rows[0])) return 'horizontal';
-  if(cols.every(c=>c===cols[0])) return 'vertical';
-  return 'any';
+  return true;
 }
 
 function hasAnyValidBoard(){
@@ -973,63 +1197,127 @@ function hasAnyValidBoard(){
   return dfs(0);
 }
 
+// ===============================
+// T.06 SHIP PLACEMENT
+// ===============================
+
+function getShipSize(color){
+  if(color.startsWith('rare_')) return 2;
+  return SHIPS[color];
+}
+
+function getShipList(){
+  let ships = ['teal','green','yellow'];
+
+  let used = getUsedRare();
+  let remaining = Math.max(0, rareCount - used.length);
+
+  ships.push(...used);
+
+  for(let i = 0; i < remaining; i++){
+   ships.push(`rare_${i}`);
+  }
+
+  return ships;
+}
+
+function getKnownCells(color){
+  if(color.startsWith('rare_')) return [];
+  const cells = [];
+for (let i = 0; i < 25; i++) {
+  if (grid[i] === color) cells.push(i);
+}
+return cells;
+}
+
+function getDirectionConstraint(cells){
+  if(cells.length < 2) return 'any';
+  let rows=cells.map(i=>indexToCoord(i)[0]);
+  let cols=cells.map(i=>indexToCoord(i)[1]);
+  if(rows.every(r=>r===rows[0])) return 'horizontal';
+  if(cols.every(c=>c===cols[0])) return 'vertical';
+  return 'any';
+}
+
 function getValidPlacements(color){
-  let size=getShipSize(color);
-  let placements=[];
-  let known=getKnownCells(color);
-  let direction=getDirectionConstraint(known);
+  const size = getShipSize(color);
+  const known = getKnownCells(color);
+  const direction = getDirectionConstraint(known);
 
-  for(let r=0;r<5;r++){
-    for(let c=0;c<5;c++){
-      for(let horiz of [true,false]){
-        if(direction==='horizontal' && !horiz) continue;
-        if(direction==='vertical' && horiz) continue;
+  const placements = [];
 
-        let cells=[];
-        for(let k=0;k<size;k++){
-          let rr=r+(horiz?0:k);
-          let cc=c+(horiz?k:0);
-          if(rr>=5||cc>=5){cells=[];break;}
-          cells.push(coordToIndex(rr,cc));
-        }
-        if(cells.length!==size) continue;
+  for(const placement of RAW_PLACEMENTS[size]){
+    const { cells, horiz } = placement;
 
-        let valid=true;
-        for(let kc of known){ if(!cells.includes(kc)) valid=false; }
-        for(let i of cells){
-if(grid[i] && grid[i] !== 'miss'){
-  if(color.startsWith('rare_')){
-    valid = false;
-  } else {
-    if(grid[i] !== color) valid = false;
+    if(!respectsDirection(direction, horiz)) continue;
+    if(!respectsKnown(cells, known)) continue;
+    if(!isPlacementValid(cells, color)) continue;
+    if(!passesDiagonalRulePlacement(cells, color)) continue;
+
+    placements.push(cells);
   }
-}
-}
 
-for(let i of cells){
-  let [r,c] = indexToCoord(i);
-
-  let diagonals = [
-    [r-1,c-1],[r-1,c+1],
-    [r+1,c-1],[r+1,c+1]
-  ];
-
-  for(let [dr,dc] of diagonals){
-    if(dr>=0 && dc>=0 && dr<5 && dc<5){
-      let ni = coordToIndex(dr,dc);
-
-      if(grid[ni] === color){
-        valid = false;
-      }
-    }
-  }
-}
-
-        if(valid) placements.push(cells);
-      }
-    }
-  }
   return placements;
+}
+
+function respectsDirection(direction, horiz){
+  if(direction==='horizontal' && !horiz) return false;
+  if(direction==='vertical' && horiz) return false;
+  return true;
+}
+
+function buildPlacement(r, c, size, horiz){
+  let cells = [];
+
+  for(let k=0;k<size;k++){
+    let rr = r + (horiz ? 0 : k);
+    let cc = c + (horiz ? k : 0);
+
+    if(rr>=5||cc>=5) return null;
+
+    cells.push(coordToIndex(rr,cc));
+  }
+
+  return cells;
+}
+
+function respectsKnown(cells, known){
+  return known.every(k => cells.includes(k));
+}
+
+function isPlacementValid(cells, color){
+  for(let i of cells){
+    if(grid[i] && grid[i] !== 'miss'){
+      if(color.startsWith('rare_')) return false;
+      if(grid[i] !== color) return false;
+    }
+  }
+  return true;
+}
+
+function passesDiagonalRulePlacement(cells, color){
+  for(let i of cells){
+    let [r,c] = indexToCoord(i);
+
+    let diagonals = [
+      [r-1,c-1],[r-1,c+1],
+      [r+1,c-1],[r+1,c+1]
+    ];
+
+    for(let [dr,dc] of diagonals){
+      if(dr>=0 && dc>=0 && dr<5 && dc<5){
+        if(grid[coordToIndex(dr,dc)] === color) return false;
+      }
+    }
+  }
+  return true;
+}
+
+function getPlacementsCached(color){
+  if(!placementsCache[color]){
+    placementsCache[color] = getValidPlacements(color);
+  }
+  return placementsCache[color];
 }
 
 function backtrackPlace(ships, placementsMap, index, board){
@@ -1091,88 +1379,6 @@ function mcmcStep(board, ships, placementsMap){
   return newBoard;
 }
 
-function isBoardValid(board, final=false){
-
-for(let i=0;i<25;i++){
-  if(grid[i] && grid[i] !== 'miss'){
-    if(board[i] !== grid[i]) return false;
-  }
-  if(grid[i] === 'miss'){
-    if(board[i]) return false;
-  }
-}
-
-let ships = getShipList();
-
-for(let color of ships){
-
-if(color.startsWith('rare_')){
-  let cells = board.map((c,i)=>c===color?i:null).filter(x=>x!==null);
-
-  if(final && cells.length !== 2) return false;
-  if(!final && cells.length > 2) return false;
-
-  continue;
-}
-
-  let cells = board.map((c,i)=>c===color?i:null).filter(x=>x!==null);
-    if(final){
-  if(cells.length === 0) continue;
-  if(cells.length !== getShipSize(color)) return false;
-} else {
-  if(cells.length > getShipSize(color)) return false;
-}
-
-    for(let i of cells){
-      let [r,c]=indexToCoord(i);
-      let diagonals=[[r-1,c-1],[r-1,c+1],[r+1,c-1],[r+1,c+1]];
-      for(let [dr,dc] of diagonals){
-        if(dr>=0&&dc>=0&&dr<5&&dc<5){
-          let ni=coordToIndex(dr,dc);
-          if(board[ni]===color) return false;
-        }
-      }
-    }
-
-    if(cells.length>1){
-      let coords=cells.map(i=>indexToCoord(i));
-      let rows=coords.map(x=>x[0]);
-      let cols=coords.map(x=>x[1]);
-      let sameRow=rows.every(r=>r===rows[0]);
-      let sameCol=cols.every(c=>c===cols[0]);
-      if(!(sameRow||sameCol)) return false;
-
-      if(sameRow){
-  let r=rows[0];
-  let min=Math.min(...cols);
-  let max=Math.max(...cols);
-
-  for(let c=min;c<=max;c++){
-    let i=coordToIndex(r,c);
-    if(board[i] !== color) return false;
-  }
-
-  if((max-min+1) !== cells.length) return false;
-}
-
-      if(sameCol){
-  let c=cols[0];
-  let min=Math.min(...rows);
-  let max=Math.max(...rows);
-
-  for(let r=min;r<=max;r++){
-    let i=coordToIndex(r,c);
-    if(board[i] !== color) return false;
-  }
-
-  if((max-min+1) !== cells.length) return false;
-}
-    }
-  }
-
-  return true;
-}
-
 function scoreBoard(board){
   let score = 0;
 
@@ -1185,492 +1391,33 @@ function scoreBoard(board){
   return score;
 }
 
-function runSimulation(){
+// ===============================
+// T.07 GAME STATE
+// ===============================
 
-  if(isLoadingHash) return;
-  
-  if(currentMode === MODE.GAME_OVER) return;
-  
-  const hasStarted = grid.some(c => c !== null);
-
-if(!hasStarted){
-  return;
+function isNormalMode() {
+  return currentMode === MODE.NORMAL;
 }
 
-let isFull = grid.every(cell => cell !== null);
+function getGameContext() {
+  const { hits, misses } = getHitMissCounts();
 
-if(isFull){
-  currentMode = MODE.TOUCH_GRASS;
-
-  appState.probs = null;
-  appState.topMoves = null;
-  appState.isTrueEndgame = false;
-  appState.isGuaranteed = false;
-  appState.specialGroup = null;
-
-  renderUI();
-  return;
+  return {
+    hits,
+    misses,
+    huntMode: hits >= threshold && misses >= 3
+  };
 }
 
-if(currentMode !== MODE.NORMAL){
-  placementsCache = {};
-  return;
-}
+function getHitMissCounts() {
+  let hits = 0, misses = 0;
 
-lastSpecialGroup = null;
-lastGuaranteed = false;
-placementsCache = {};
-
-clearRecommendations();
-
-if(!isStateValid()){
-  appState.probs = null;
-  appState.topMoves = null;
-  appState.isTrueEndgame = false;
-  appState.isGuaranteed = false;
-  appState.specialGroup = null;
-
-  showError("Current board is invalid.");
-  return;
-}
-  
-  let hits = grid.filter(x=>x && x!=='miss').length;
-let misses = grid.filter(x=>x==='miss').length;
-let huntMode = (hits >= threshold) && (misses >= 3);
-
-const remainingBlue = getRemainingBlueTiles();
-const tracking = getShipTracking();
-
-if(!huntMode && remainingBlue === 0){
-  currentMode = MODE.ALL_HITS;
-
-  appState.probs = null;
-  appState.topMoves = null;
-  appState.isTrueEndgame = false;
-  appState.isGuaranteed = false;
-  appState.specialGroup = null;
-
-  renderUI();
-  return;
-}
-
-if(huntMode && tracking.incomplete === 0 && tracking.unfound === 0){
-  currentMode = MODE.ALL_MISSES;
-
-  appState.probs = null;
-  appState.topMoves = null;
-  appState.isTrueEndgame = false;
-  appState.isGuaranteed = false;
-  appState.specialGroup = null;
-
-  renderUI();
-  return;
-}
-
-  const heat = document.getElementById('heatmap').children;
-  for(let i=0;i<25;i++){
-    heat[i].style.background = '';
-    heat[i].textContent = '';
+  for (let c of grid) {
+    if (c === 'miss') misses++;
+    else if (c) hits++;
   }
 
-let filled = grid.filter(x => x && x !== 'miss').length;
-
-  if(rareCount===null) return;
-
- let counts=Array(25).fill(0);
-let valid=0;
-let attempts=0;
-let seen = new Set();
-const NUM_CHAINS = 4;
-
-let placedTiles = grid.filter(x => x !== null).length;
-
-let exactThreshold = 4;
-
-if(rareCount === 4){
-  exactThreshold = 3;
-}
-else if(rareCount === 3){ 
-  exactThreshold = 2;
-}
-else if(rareCount <= 2){
-  exactThreshold = 0; 
-}
-
-if(placedTiles >= exactThreshold){
-  runExactSolver();
-  return;
-}
-
-while(attempts < 15000 && valid < 5000){
-  attempts++;
-
-  let ships = getShipList();
-
-  ships.sort((a,b)=>{
-    if(a === b) return 0;
-    if(a.startsWith('rare_') && !b.startsWith('rare_')) return 1;
-    if(b.startsWith('rare_') && !a.startsWith('rare_')) return -1;
-    return 0;
-  });
-
-  ships.sort((a,b)=>{
-    let scoreA = getPlacementsCached(a).length - getKnownCells(a).length * 5;
-    let scoreB = getPlacementsCached(b).length - getKnownCells(b).length * 5;
-    return scoreA - scoreB;
-  });
-
-  let placementsMap={};
-  let ok=true;
-
-  ships.forEach(s=>{
-    let p = getPlacementsCached(s);
-    if(p.length===0) ok=false;
-    placementsMap[s]=p;
-  });
-
-  if(!ok) continue;
-  
-  let chains = [];
-
-  for(let c=0; c<NUM_CHAINS; c++){
-    let board = Array(25).fill(null);
-
-    if(!backtrackPlace(ships, placementsMap, 0, board)) continue;
-
-    chains.push({
-      board,
-      temperature: 0.7 + Math.random() * 0.6
-    });
-  }
-
-  if(chains.length === 0) continue;
-
-  let burnIn = 20;
-
-  for(let step=0; step<30; step++){
-
-    for(let chain of chains){
-
-      let newBoard = mcmcStep(chain.board, ships, placementsMap);
-
-      let oldScore = scoreBoard(chain.board);
-      let newScore = scoreBoard(newBoard);
-
-      if(newScore >= oldScore){
-        chain.board = newBoard;
-      } else {
-        let prob = Math.exp((newScore - oldScore) / chain.temperature);
-        if(Math.random() < prob){
-          chain.board = newBoard;
-        }
-      }
-
-      chain.temperature *= 0.98;
-    }
-  }
-
-  for(let chain of chains){
-
-    let board = chain.board;
-
-    if(valid % 200 === 0 && !isBoardValid(board, true)) continue;
-
-    let key = board.join(',');
-    if(seen.has(key)) continue;
-    seen.add(key);
-
-    valid++;
-
-    for(let i=0;i<25;i++) if(board[i]) counts[i]++;
-  }
-}
-
-  let probs=counts.map(c=>valid?c/valid:0);
-appState.probs = probs;
-appState.topMoves = null;
-appState.isTrueEndgame = false;
-appState.isGuaranteed = false;
-appState.specialGroup = null;
-
-document.getElementById('confidence').textContent =
-  "Valid boards: " + valid + " (in " + attempts + " chains)";
-}
-
-function runExactSolver(){
-
-lastSpecialGroup = null;
-lastGuaranteed = false;
-placementsCache = {};
-
-  let counts = Array(25).fill(0);
-  let valid = 0;
-  let seen = new Set();
-  let allBoards = [];
-  
-  let currentMisses = grid.filter(x => x === 'miss').length;
-
-let ships = getShipList().sort((a,b)=>{
-  return getPlacementsCached(a).length - getPlacementsCached(b).length;
-});
-
-  let placementsMap = {};
-for(let s of ships){
-  let p = getPlacementsCached(s);
-    if(p.length === 0) return;
-    placementsMap[s] = p;
-  }
-
-  let board = Array(25).fill(null);
-
-  function dfs(index){
-    if(index === ships.length){
-  if(!isBoardValid(board, true)) return;
-
-let key = board.join(',');
-
-if(seen.has(key)) return;
-seen.add(key);
-
-valid++;
-
-let snapshot = [...board];
-allBoards.push(snapshot);
-
-for(let i=0;i<25;i++) if(board[i]) counts[i]++;
-return;
-}
-
-    let ship = ships[index];
-
-    for(let opt of placementsMap[ship]){
-      if(opt.some(i => board[i] && board[i] !== ship)) continue;
-
-      opt.forEach(i => board[i] = ship);
-
-      dfs(index + 1);
-
-      opt.forEach(i => board[i] = null);
-    }
-  }
-
-  dfs(0);
-let probs = counts.map(c => valid ? c/valid : 0); 
-
-let forcedTiles = {};
-
-for(let i = 0; i < 25; i++){
-  if(grid[i] !== null) continue;
-
-  let first = allBoards[0][i];
-  let allSame = allBoards.every(b => b[i] === first);
-
-  if(allSame){
-    forcedTiles[i] = first || 'miss';
-  }
-}
-
-appState.forcedTiles = forcedTiles;
-
-renderHeatmap(probs);
-
-if(valid === 2){
-  appState.probs = probs;
-  appState.topMoves = [];
-  appState.isTrueEndgame = true;
-  appState.isGuaranteed = false;
-  appState.specialGroup = null;
-  appState.allBoards = allBoards;
-  return;
-}
-
-let hits = grid.filter(x=>x && x!=='miss').length;
-let misses = grid.filter(x=>x==='miss').length;
-let huntMode = (hits >= threshold) && (misses >= 3);
-
-let candidates = probs
-  .map((p,i)=>({p,i}))
-  .filter(x=>!grid[x.i]);
-
-let guaranteed = huntMode
-  ? candidates.find(c => c.p === 1) 
-  : candidates.find(c => c.p === 0);  
-
-if(guaranteed){
-
-  appState.probs = probs;
-  appState.topMoves = null;
-  appState.isTrueEndgame = false;
-  appState.isGuaranteed = true;
-  appState.specialGroup = null;
-
-  highlightRecommendations(probs);
-
-  document.getElementById('confidence').textContent =
-    "Exact boards: " + valid;
-  return;  
-}
-
-let groups = getEquivalenceGroups(allBoards);
-
-let groupData = groups.map(group => {
-  let p = probs[group[0]];
-  return { group, p };
-});
-
-let maxP = Math.max(...groupData.map(g => g.p));
-
-let bestGroups = groupData.filter(g => g.p === maxP);
-let bestGroup = bestGroups.flatMap(g => g.group);
-
-const tileShipSizes = getTileShipSizes(allBoards);
-
-const partialTiles = getPartialShipTiles();
-
-let size2Tiles = Object.keys(tileShipSizes)
-  .map(i => parseInt(i))
-  .filter(i => {
-    if(grid[i] !== null) return false;
-    if(bestGroup.includes(i)) return false;
-
-    const isSize2 = tileShipSizes[i].includes(2);
-    if(!isSize2) return false;
-
-    if(partialTiles.has(i)) return true;
-
-    return probs[i] >= 0.65;
-  });
-
-let isSymmetric = huntMode && bestGroup.length >= 2;
-
-function getTileShipSizes(allBoards){
-  let tileMap = {};
-
-  for(let i = 0; i < 25; i++){
-    if(grid[i]) continue;
-
-    let sizes = new Set();
-
-    for(let b of allBoards){
-      let color = b[i];
-      if(!color) continue;
-
-      sizes.add(getShipSize(color));
-    }
-
-    tileMap[i] = [...sizes].sort((a,b)=>b-a); 
-  }
-
-  return tileMap;
-}
-
-if(isSymmetric){
-  const tileShipSizes = getTileShipSizes(allBoards);
-
-  appState.probs = probs;
-  appState.topMoves = null;
-  appState.isTrueEndgame = false;
-  appState.isGuaranteed = false;
-appState.specialGroup = {
-  tiles: bestGroup,
-  size2Tiles: size2Tiles,
-  shipMap: tileShipSizes,
-  probs: probs
-};
-} else {
-  appState.probs = probs;
-  appState.topMoves = null;
-  appState.isTrueEndgame = false;
-  appState.isGuaranteed = false;
-  appState.specialGroup = null;
-
-  highlightRecommendations(probs);
-}
-
-document.getElementById('confidence').textContent =
-  "Exact boards: " + valid;
-}
-
-function render(){
-  const play=document.getElementById('playBoard').children;
-  for(let i=0;i<25;i++){
-    if(grid[i] && grid[i] !== 'miss'){
-  if(grid[i] === 'teal'){
-    play[i].style.background = '#4fd1c5';
-  } else if(grid[i] === 'rainbow'){
-    play[i].style.background = 'linear-gradient(to bottom, red, orange, yellow, green, blue, indigo, violet)';
-  } else {
-    play[i].style.background = grid[i];
-  }
-} else {
-      play[i].style.background = '';
-    }
-    if(grid[i]==='miss') play[i].style.background='#3b82f6';
-  }
-}
-
-function getPartialShipTiles(){
-  let partialTiles = new Set();
-
-  for(let color in SHIPS){
-    if(getShipSize(color) !== 2) continue;
-
-    let known = getKnownCells(color);
-
-    if(known.length === 1){
-      let placements = getPlacementsCached(color);
-
-      placements.forEach(p => {
-        p.forEach(i => {
-          if(grid[i] === null){
-            partialTiles.add(i);
-          }
-        });
-      });
-    }
-  }
-
-  return partialTiles;
-}
-
-function getRemainingBlueTiles(){
-  const totalCells = 25;
-
-  let shipCells = 0;
-  for(let color in SHIPS){
-    shipCells += getShipSize(color);
-  }
-
-  let totalShips = 0;
-  let ships = getShipList();
-
-ships.forEach(s => {
-  totalShips += getShipSize(s);
-});
-
-  const totalBlue = totalCells - totalShips;
-
-  const currentMisses = grid.filter(x => x === 'miss').length;
-
-  return totalBlue - currentMisses;
-}
-
-function renderHeatmap(probs){
-if(currentMode !== MODE.NORMAL) return;
-  const heat=document.getElementById('heatmap').children;
-
-  let hits = grid.filter(x=>x && x!=='miss').length;
-  let misses = grid.filter(x=>x==='miss').length;
-  let huntMode = (hits >= threshold) && (misses >= 3);
-
-  for(let i=0;i<25;i++){
-    let displayProb = huntMode ? probs[i] : (1 - probs[i]);
-    heat[i].style.background=`rgba(255,0,0,${displayProb})`;
-    heat[i].textContent=displayProb.toFixed(2);
-  }
-
-  document.getElementById('modeLabel').textContent =
-    huntMode ? "Mode: Aggressive (Non-blue Hunting)" : "Mode: Safe (Blue Hunting)";
+  return { hits, misses };
 }
 
 function getShipTracking(){
@@ -1710,306 +1457,885 @@ function getShipTracking(){
   return { incomplete, unfound };
 }
 
-function renderUI(){
+function getRemainingBlueTiles(){
+  const totalCells = 25;
 
-  const hasStarted = grid.some(c => c !== null);
+  let shipCells = 0;
+  for(let color in SHIPS){
+    shipCells += getShipSize(color);
+  }
 
-  clearRecommendations();
-  
-  if(currentMode === MODE.GAME_OVER){
-  updateInfoBox();
-  return;
+  let totalShips = 0;
+  let ships = getShipList();
+
+ships.forEach(s => {
+  totalShips += getShipSize(s);
+});
+
+  const totalBlue = totalCells - totalShips;
+
+  const { misses: currentMisses } = getHitMissCounts();
+
+  return totalBlue - currentMisses;
 }
 
-  if(rareCount !== null && !hasStarted){
-    highlightStartingCorners();
-  }
+function getUsedRare(){
+  return [...new Set(grid.filter(c=>RARE_COLORS.includes(c)))];
+}
 
-  if(appState.probs){
-    renderHeatmap(appState.probs);
-  }
+function getPartialShipTiles(){
+  let partialTiles = new Set();
 
-  if(hasStarted){
-    if(appState.specialGroup){
-      highlightAvoidGroup(appState.specialGroup);
-    } else if(appState.probs){
-      highlightRecommendations(appState.probs);
+  for(let color in SHIPS){
+    if(getShipSize(color) !== 2) continue;
+
+    let known = getKnownCells(color);
+
+    if(known.length === 1){
+      let placements = getPlacementsCached(color);
+
+      placements.forEach(p => {
+        p.forEach(i => {
+          if(grid[i] === null){
+            partialTiles.add(i);
+          }
+        });
+      });
     }
   }
-  
-  if(appState.forcedTiles){
-  renderForcedOverlays();
+
+  return partialTiles;
 }
+
+// ===============================
+// T.08 SIMULATION 
+// ===============================
+function runSimulation(){
+
+  if (shouldSkipSimulation()) return;
+
+  if (handleFullBoard()) return;
+
+  if (!ensureNormalMode()) return;
+
+  prepareSimulation();
+
+  if (!validateStateOrAbort()) return;
+
+  const context = buildSimulationContext();
+
+  if (handleForcedModes(context)) return;
+
+  resetHeatmapUI();
+
+  if (rareCount === null) return;
+
+  if (shouldRunExactSolver(context)) {
+    runExactSolver();
+    return;
+  }
+
+  const result = runMonteCarlo(context);
+
+  finalizeSimulation(result);
+}
+
+function shouldSkipSimulation() {
+  const isGameOverMode = currentMode === MODE.GAME_OVER;
+  return isLoadingHash || isGameOverMode;
+}
+
+function handleFullBoard() {
+  const isFull = grid.every(cell => cell !== null);
+  if (!isFull) return false;
+
+  currentMode = MODE.TOUCH_GRASS;
+  appState = createEmptyAppState();
+
+  renderUI();
+  return true;
+}
+
+function ensureNormalMode() {
+  const isNormal = currentMode === MODE.NORMAL;
+
+  if (!isNormal) {
+    clearPlacementsCache();
+    return false;
+  }
+
+  return true;
+}
+
+function prepareSimulation() {
+  lastSpecialGroup = null;
+  lastGuaranteed = false;
+  
+  appState.specialGroup = null; 
+  appState.forcedTiles = null;
+  
+  clearPlacementsCache();
+  clearRecommendations();
+}
+
+function validateStateOrAbort() {
+  if (isLoadingHash) return false;
+
+  const hasStarted = grid.some(cell => cell !== null);
+  if (!hasStarted) return false;
+
+  const valid = isStateValid();
+
+  if (!valid) {
+    appState = createEmptyAppState();
+    showError("Current board is invalid.");
+    return false;
+  }
+
+  return true;
+}
+function buildSimulationContext() {
+  const { hits, misses } = getHitMissCounts();
+  const huntMode = hits >= threshold && misses >= 3;
+
+  let placedTiles = 0;
+  for(let i = 0; i < 25; i++){
+    if(grid[i] !== null) placedTiles++;
+  }
+
+  const remainingBlue = getRemainingBlueTiles();
+  const tracking = getShipTracking();
+
+  return {
+    hits,
+    misses,
+    huntMode,
+    remainingBlue,
+    tracking,
+    placedTiles
+  };
+}
+
+function handleForcedModes(ctx) {
+  const noBlueRemaining = ctx.remainingBlue === 0;
+  const allShipsDone =
+    ctx.tracking.incomplete === 0 &&
+    ctx.tracking.unfound === 0;
+
+  if (!ctx.huntMode && noBlueRemaining) {
+    currentMode = MODE.ALL_HITS;
+    appState = createEmptyAppState();
+    renderUI();
+    return true;
+  }
+
+  if (ctx.huntMode && allShipsDone) {
+    currentMode = MODE.ALL_MISSES;
+    appState = createEmptyAppState();
+    renderUI();
+    return true;
+  }
+
+  return false;
+}
+
+function resetHeatmapUI() {
+  const heat = DOM.heatmap;
+
+  for (let i = 0; i < 25; i++) {
+    const cell = heat[i];
+    cell.style.background = '';
+    cell.textContent = '';
+  }
+}
+
+function shouldRunExactSolver(ctx) {
+  let exactThreshold = 5;
+
+  if (rareCount === 4) {
+    exactThreshold = 4;
+  } else if (rareCount === 3) {
+    exactThreshold = 3;
+  } else if (rareCount <= 2) {
+    exactThreshold = 2;
+  }
+
+  return ctx.placedTiles >= exactThreshold;
+}
+
+// ===============================
+// T.09 MCMC
+// ===============================
+
+function runMonteCarlo(ctx) {
+  appState.forcedTiles = null;
+  const counts = Array(25).fill(0);
+  let valid = 0;
+  let attempts = 0;
+  const seen = new Set();
+
+  const NUM_CHAINS =
+  ctx.placedTiles >= 4 ? 2 : 4;
+  const MAX_ATTEMPTS = 7000;
+  const TARGET_VALID = 4000;
+
+  while (attempts < MAX_ATTEMPTS && valid < TARGET_VALID) {
+    attempts++;
+
+    const ships = prepareSortedShips();
+    const placementsMap = buildPlacementsMap(ships);
+
+    if (!placementsMap) continue;
+
+    const chains = initializeChains(ships, placementsMap, NUM_CHAINS);
+    if (chains.length === 0) continue;
+
+    runMCMCLoops(chains, ships, placementsMap);
+
+    valid += collectSamples(chains, counts, seen, valid);
+  }
+
+  return { counts, valid, attempts };
+}
+
+function finalizeSimulation({ counts, valid, attempts }) {
+  const probs = counts.map(c => (valid ? c / valid : 0));
+
+  appState = {
+    probs,
+    topMoves: null,
+    isTrueEndgame: false,
+    isGuaranteed: false,
+    specialGroup: null
+  };
+
+  DOM.confidence.textContent =
+    `Valid boards: ${valid} (in ${attempts} chains)`;
+}
+
+function prepareSortedShips() {
+  const ships = getShipList();
+
+  ships.sort((a, b) => {
+    const scoreA = getPlacementsCached(a).length - getKnownCells(a).length * 5;
+    const scoreB = getPlacementsCached(b).length - getKnownCells(b).length * 5;
+
+    if(scoreA !== scoreB) return scoreA - scoreB;
+
+    const aRare = a.startsWith('rare_');
+    const bRare = b.startsWith('rare_');
+
+    if(aRare && !bRare) return 1;
+    if(bRare && !aRare) return -1;
+
+    return 0;
+  });
+
+  return ships;
+}
+
+function buildPlacementsMap(ships) {
+  const map = {};
+
+  for (let ship of ships) {
+    const placements = getPlacementsCached(ship);
+    if (placements.length === 0) return null;
+
+    map[ship] = placements;
+  }
+
+  return map;
+}
+
+function initializeChains(ships, placementsMap, numChains) {
+  const chains = [];
+
+  for (let c = 0; c < numChains; c++) {
+    const board = Array(25).fill(null);
+
+    if (!backtrackPlace(ships, placementsMap, 0, board)) continue;
+
+    chains.push({
+      board,
+      temperature: 0.7 + Math.random() * 0.6
+    });
+  }
+
+  return chains;
+}
+
+function runMCMCLoops(chains, ships, placementsMap) {
+  const STEPS = 30;
+  const COOLING = 0.98;
+
+  for (let step = 0; step < STEPS; step++) {
+    for (let chain of chains) {
+      const newBoard = mcmcStep(chain.board, ships, placementsMap);
+      const oldScore = chain.score ?? scoreBoard(chain.board);
+      const newScore = scoreBoard(newBoard);
+
+      if (newScore >= oldScore) {
+        chain.board = newBoard;
+        chain.score = newScore;
+      } else {
+        const prob = Math.exp((newScore - oldScore) / chain.temperature);
+        if (Math.random() < prob) {
+          chain.board = newBoard;
+          chain.score = newScore;
+        }
+      }
+
+      chain.temperature *= COOLING;
+    }
+  }
+}
+
+function collectSamples(chains, counts, seen, validSoFar) {
+  let newValid = 0;
+
+  for (let chain of chains) {
+    const board = chain.board;
+
+    if (validSoFar % 500 === 0 && !isBoardValid(board, true)) continue;
+
+    const key = boardKey(board);
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    newValid++;
+
+    for (let i = 0; i < 25; i++) {
+      if (board[i]) counts[i]++;
+    }
+  }
+
+  return newValid;
+}
+
+// ===============================
+// T.10 EXACT SOLVER
+// ===============================
+
+function runExactSolver() {
+
+  resetExactSolverState();
+  appState.forcedTiles = null;
+
+  const { ships, placementsMap } = prepareExactSolver();
+  if (!ships) return;
+
+  const { counts, valid, allBoards } =
+    enumerateAllBoards(ships, placementsMap);
+
+  const probs = computeProbabilities(counts, valid);
+
+  appState.forcedTiles = computeForcedTiles(allBoards);
+
+  renderHeatmap(probs);
+
+if (handleTwoBoardEndgame(valid, probs, allBoards)) return;
+
+const analysis = analyzeEquivalence(allBoards, probs);
+const { huntMode } = getGameContext();
+
+if (huntMode && analysis.bestGroup.length >= 2) {
+  applyEquivalenceResult(analysis, probs);
+  updateExactSolverUI(valid);
+  return;
+}
+
+if (handleGuaranteedMove(probs)) return;
+
+applyEquivalenceResult(analysis, probs);
+
+  updateExactSolverUI(valid);
+}
+
+function resetExactSolverState() {
+  lastSpecialGroup = null;
+  lastGuaranteed = false;
+  clearPlacementsCache();
+}
+
+function prepareExactSolver() {
+  const ships = prepareSortedShips();
+
+  const placementsMap = {};
+
+  for (const ship of ships) {
+    const placements = getPlacementsCached(ship);
+
+    if (placements.length === 0) return {};
+
+    placementsMap[ship] = placements;
+  }
+
+  return { ships, placementsMap };
+}
+
+function placementKey(placement){
+  let min = placement[0];
+
+  for(let i = 1; i < placement.length; i++){
+    if(placement[i] < min) min = placement[i];
+  }
+
+  return min;
+}
+
+function violatesSameColorDiagonal(board, placement, ship){
+  for(const i of placement){
+    for(const ni of DIAGONALS[i]){
+      if(board[ni] === ship) return true;
+    }
+  }
+  return false;
+}
+
+function canPlaceShip(board, placement, ship, occupiedMask, knownMissMask){
+  const mask = getPlacementMask(placement);
+
+  if((mask & knownMissMask) !== 0) return false;
+  if((mask & occupiedMask) !== 0) return false;
+
+  if(violatesSameColorDiagonal(board, placement, ship)) return false;
+
+  return true;
+}
+
+function enumerateAllBoards(ships, placementsMap) {
+
+  const counts = Array(25).fill(0);
+  let valid = 0;
+  const seen = new Set();
+  const allBoards = [];
+
+  const board = Array(25).fill(null);
+  const knownMissMask = getKnownMissMask();
+
+  function dfs(index, occupiedMask = 0, lastRarePlacementKey = -1) {
+    if (index === ships.length) {
+      const key = boardKey(board);
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      valid++;
+
+      const snapshot = [...board];
+      allBoards.push(snapshot);
+
+      for (let i = 0; i < 25; i++) {
+        if (board[i]) counts[i]++;
+      }
+
+      return;
+    }
+
+    const ship = ships[index];
+    const isAnonymousRare = ship.startsWith('rare_');
+
+    for (const placement of placementsMap[ship]) {
+      const keyForPlacement = placementKey(placement);
+
+      if (
+        isAnonymousRare &&
+        keyForPlacement < lastRarePlacementKey
+      ) {
+        continue;
+      }
+
+      const placementMask = getPlacementMask(placement);
+
+      if (
+        !canPlaceShip(
+          board,
+          placement,
+          ship,
+          occupiedMask,
+          knownMissMask
+        )
+      ) {
+        continue;
+      }
+
+      for(const i of placement){
+        board[i] = ship;
+      }
+
+      dfs(
+        index + 1,
+        occupiedMask | placementMask,
+        isAnonymousRare ? keyForPlacement : lastRarePlacementKey
+      );
+
+      for(const i of placement){
+        board[i] = null;
+      }
+    }
+  }
+
+  dfs(0);
+
+  return { counts, valid, allBoards };
+}
+
+function computeProbabilities(counts, valid) {
+  return counts.map(c => (valid ? c / valid : 0));
+}
+
+function computeForcedTiles(allBoards) {
+  const forcedTiles = {};
+
+  if (allBoards.length === 0) return forcedTiles;
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) continue;
+
+    const first = allBoards[0][i];
+    const allSame = allBoards.every(b => b[i] === first);
+
+    if (allSame) {
+      forcedTiles[i] = first || 'miss';
+    }
+  }
+
+  return forcedTiles;
+}
+
+function handleTwoBoardEndgame(valid, probs, allBoards) {
+  if (valid !== 2) return false;
+
+  appState.probs = probs;
+  appState.topMoves = [];
+  appState.isTrueEndgame = true;
+  appState.isGuaranteed = false;
+  appState.specialGroup = null;
+  appState.allBoards = allBoards;
+
+  return true;
+}
+
+function handleGuaranteedMove(probs) {
+  const { huntMode } = getGameContext();
+
+  const candidates = probs
+    .map((p, i) => ({ p, i }))
+    .filter(x => !grid[x.i]);
+
+  const guaranteed = candidates.find(c =>
+    huntMode ? c.p === 1 : c.p === 0
+  );
+
+  if (!guaranteed) {
+    appState.isGuaranteed = false;
+    return false;
+  }
+
+  appState.probs = probs;
+  appState.topMoves = [guaranteed];
+  appState.isTrueEndgame = false;
+  appState.isGuaranteed = true;
+  appState.specialGroup = null;
+
+  clearRecommendations();
+  highlightRecommendations(probs);
+
+  return true;
+}
+
+function analyzeEquivalence(allBoards, probs) {
+  const groups = getEquivalenceGroups(allBoards);
+
+  const groupData = groups.map(group => ({
+    group,
+    p: probs[group[0]]
+  }));
+
+  const maxP = Math.max(...groupData.map(g => g.p));
+
+  const bestGroup = groupData
+    .filter(g => g.p === maxP)
+    .flatMap(g => g.group);
+
+  const tileShipSizes = getTileShipSizes(allBoards);
+  const partialTiles = getPartialShipTiles();
+
+  const size2Tiles = Object.keys(tileShipSizes)
+    .map(i => parseInt(i))
+    .filter(i => {
+      if(grid[i] !== null) return false;
+      if(bestGroup.includes(i)) return false;
+
+      const isSize2 = tileShipSizes[i].includes(2);
+      if(!isSize2) return false;
+
+      if(partialTiles.has(i)) return true;
+
+      return probs[i] >= 0.65;
+    });
+
+  return {
+    bestGroup,
+    groups,
+    probs,
+    allBoards,
+    shipMap: tileShipSizes,
+    size2Tiles
+  };
+}
+
+function getTileShipSizes(allBoards){
+  let tileMap = {};
+
+  for(let i = 0; i < 25; i++){
+    if(grid[i]) continue;
+
+    let sizes = new Set();
+
+    for(let b of allBoards){
+      let color = b[i];
+      if(!color) continue;
+
+      sizes.add(getShipSize(color));
+    }
+
+    tileMap[i] = [...sizes].sort((a,b)=>b-a);
+  }
+
+  return tileMap;
+}
+
+function applyEquivalenceResult(data, probs) {
+  const { huntMode } = getGameContext();
+
+  const isSymmetric =
+    huntMode && data.bestGroup.length >= 2;
+
+  appState.probs = probs;
+  appState.topMoves = null;
+  appState.isTrueEndgame = false;
+  appState.isGuaranteed = false;
+
+  if (isSymmetric) {
+    appState.specialGroup = {
+      tiles: data.bestGroup,
+      size2Tiles: data.size2Tiles,
+      shipMap: data.shipMap,
+      probs
+    };
+  } else {
+    appState.specialGroup = null;
+    highlightRecommendations(probs);
+  }
+}
+
+function updateExactSolverUI(valid) {
+  DOM.confidence.textContent =
+    `Exact boards: ${valid}`;
+}
+
+// ===============================
+// T.11 UI
+// ===============================
+
+function render() {
+  const play = DOM.playBoard;
+
+  for (let i = 0; i < 25; i++) {
+    const cell = play[i];
+    const value = grid[i];
+
+    if (value === 'miss') {
+      cell.style.background = '#3b82f6';
+      continue;
+    }
+
+    if (!value) {
+      cell.style.background = '';
+      continue;
+    }
+
+    if (value === 'teal') {
+      cell.style.background = '#4fd1c5';
+    } else if (value === 'rainbow') {
+      cell.style.background =
+        'linear-gradient(to bottom, red, orange, yellow, green, blue, indigo, violet)';
+    } else {
+      cell.style.background = value;
+    }
+  }
+}
+
+function renderUI() {
+  const hasStarted = hasGameStarted();
+
+  clearRecommendations();
+
+  if (isGameOverMode()) {
+    updateInfoBox();
+    return;
+  }
+
+  renderOpeningHints(hasStarted);
+  renderHeatmapIfAvailable();
+  renderRecommendationsIfNeeded(hasStarted);
+  renderForcedTilesIfPresent();
 
   updateInfoBox();
 }
 
-function updateInfoBox(){
-
-if(currentMode === MODE.GAME_OVER){
-  const box = document.getElementById('infoBox');
-
-  box.innerHTML = makeCard(
-    "Game Over",
-    "Just blame the solver. It's always the computer's fault.",
-    "info-purple"
-  );
-
-  return;
+function hasGameStarted() {
+  return grid.some(cell => cell !== null);
 }
 
-let hits = grid.filter(x => x && x !== 'miss').length;
-let misses = grid.filter(x => x === 'miss').length;
+function renderOpeningHints(hasStarted) {
+  const shouldShow =
+    rareCount !== null && !hasStarted;
 
-let missEndsGameState = (hits >= 5) && (misses >= 3);
+  if (shouldShow) {
+    highlightStartingCorners();
+  }
+}
 
-let missCard = missEndsGameState
-  ? `
+function renderHeatmapIfAvailable() {
+  if (appState.probs) {
+    renderHeatmap(appState.probs);
+  }
+}
+
+function renderRecommendationsIfNeeded(hasStarted) {
+  if (!hasStarted) return;
+
+  if (appState.specialGroup) {
+    highlightAvoidGroup(appState.specialGroup);
+    return;
+  }
+
+  if (appState.probs) {
+    highlightRecommendations(appState.probs);
+  }
+}
+
+function renderForcedTilesIfPresent() {
+  if (appState.forcedTiles) {
+    renderForcedOverlays();
+  }
+}
+
+function isGameOverMode() {
+  return currentMode === MODE.GAME_OVER;
+}
+
+function renderHeatmap(probs) {
+  if (!isNormalMode()) return;
+
+  const heat = DOM.heatmap;
+
+const { huntMode } = getGameContext();
+
+  for (let i = 0; i < 25; i++) {
+    const displayProb = huntMode ? probs[i] : (1 - probs[i]);
+
+    heat[i].style.background = `rgba(255,0,0,${displayProb})`;
+    heat[i].textContent = displayProb.toFixed(2);
+  }
+
+  DOM.modeLabel.textContent =
+    huntMode
+      ? "Mode: Aggressive (Non-blue Hunting)"
+      : "Mode: Safe (Blue Hunting)";
+}
+
+function renderForcedOverlays() {
+  if (!appState.forcedTiles) return;
+
+  const play = DOM.playBoard;
+
+  for (let key in appState.forcedTiles) {
+    const i = parseInt(key);
+
+    if (grid[i] !== null) continue;
+
+    const color = appState.forcedTiles[i];
+    const cell = play[i];
+
+    if (color === 'rainbow') {
+      cell.classList.add('stripe-rainbow');
+    } else {
+      cell.classList.add('stripe-overlay');
+      cell.style.setProperty('--stripe-color', getStripeColor(color));
+    }
+  }
+}
+  
+function updateInfoBox() {
+  const box = DOM.infoBox;
+  const messages = [];
+  const context = getInfoContext();
+
+  if (isGameOverMode()) {
+    box.innerHTML = renderGameOverCard();
+    return;
+  }
+  
+if (context.missEndsGame) {
+  messages.push(buildMissEndCard(context));
+}
+
+  if (appState.specialGroup) {
+    renderEquivalenceInfo(appState.specialGroup);
+    return;
+  }
+
+  if (handleStaticModes(box)) return;
+
+  appendSetupMessages(messages, context);
+  appendPreGameMessages(messages, context);
+
+  if (appState.probs && appState.topMoves?.length) {
+    if (handleGuaranteedInfo(messages)) {
+      box.innerHTML = messages.join("<br>");
+      return;
+    }
+
+    if (handleEndgameInfo(messages, box)) return;
+
+    appendStrategyMessages(messages, context);
+	
+	 messages.push(buildShipStatusCard());
+     messages.push(buildModeCard());
+  }
+
+  appendFallback(messages);
+  appendOpeningHint(messages, context);
+
+  box.innerHTML = messages.join("<br>");
+}
+
+function getInfoContext() {
+const { hits, misses, huntMode } = getGameContext();
+
+const hasStarted = grid.some(c => c !== null);
+const missEndsGame = huntMode;
+
+return { hits, misses, hasStarted, huntMode, missEndsGame };
+}
+
+function buildMissEndCard(ctx) {
+  if (!ctx.missEndsGame) return "";
+
+  return `
     <div class="info-card info-purple info-alert">
       <div class="info-card-title">Miss Ends The Game</div>
       <div>Any blue tile will end the run.</div>
     </div>
-  `
-  : "";
-  
-
-if(appState.specialGroup){
-  renderEquivalenceInfo(appState.specialGroup);
-
-  if(missEndsGameState){
-    const box = document.getElementById('infoBox');
-    box.innerHTML += missCard;
-  }
-
-  return;
+  `;
 }
 
-const {
-  probs,
-  topMoves,
-  isTrueEndgame,
-  isGuaranteed,
-  specialGroup
-} = appState;
-
-  const box = document.getElementById('infoBox');
-
-if(currentMode === MODE.TOUCH_GRASS){
-box.innerHTML = makeCard(
-  "Board Complete",
-  "Please touch some grass.",
-  "info-green"
-);
-  return;
-}
-
-if(currentMode === MODE.ALL_HITS){
-box.innerHTML = makeCard(
-  "All Hits",
-  "No blue tiles remain.<br>Every remaining tile is a guaranteed hit.",
-  "info-green"
-);
-  return;
-}
-
-if(currentMode === MODE.ALL_MISSES){
-box.innerHTML = makeCard(
-  "All Misses",
-  "All ships are complete.<br>Every remaining tile is blue.",
-  "info-blue"
-);
-  return;
-}
-
-  let messages = [];
-
-  if(rareCount === null){
-    messages.push("Select how many colors are in play.");
-  } 
-
-const hasStarted = grid.some(c => c !== null);
-
-if(missEndsGameState){
-  messages.push(missCard);
-}
-
-if(!hasStarted){
-  if(!selectedColor){
-    messages.push("Select a color to begin filling in the board.");
-    messages.push("");
-  }
-
-  if(rareCount === null || !selectedColor){
-    messages.push("$OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles. If you have found 5, then you risk losing in one click if you have also found 3 blues. You can change extra chance risk level to 4 to give yourself a 1 click safety net in this calculator, but you will eliminate fewer possible boards this way.");
-    messages.push("");
-	messages.push("Known tiles which you have not clicked yet will get diagonal stripes in their color. You need not click them until the solver tells you to.");
-  }
-}
-
-  if(probs && topMoves && topMoves.length > 0){
-  
-  if(isGuaranteed){
-  const move = topMoves[0];
-  const [r,c] = indexToCoord(move.i);
-
-const coordText = `<span style="color:#a855f7; font-weight:bold">Row ${r+1}, Col ${c+1}</span>`;
-
-messages.push(
-  makeCard(
-    "Guaranteed Move",
-    move.p === 1
-      ? `${coordText}<br>is guaranteed to be NON-BLUE (hit)`
-      : `${coordText}<br>is guaranteed to be BLUE (miss)`,
-    "info-purple"
-  )
-);
-
-  box.innerHTML = messages.join("<br>");
-  return;
-}
-
-if(isTrueEndgame){
-
-  const play = document.getElementById('playBoard').children;
-  clearRecommendations();
-
-let [b1, b2] = appState.allBoards;
-
-let candidates = [];
-
-for(let i = 0; i < 25; i++){
-  if(grid[i]) continue;
-
-  if(b1[i] !== b2[i]){
-    candidates.push(i);
-  }
-}
-
-candidates.forEach(i=>{
-  play[i].classList.add('recommended-final');
-});
-
-if(appState.forcedTiles){
-  renderForcedOverlays();
-}
-
-let coords = candidates.map(i=>{
-  let [r,c2] = indexToCoord(i);
-  return `<span class="coord-good">Row ${r+1}, Col ${c2+1}</span>`;
-}).join("<br>");
-
-messages.push(
-  makeCard(
-    "Final Move",
-    `
-      <span style="color:#22c55e">Choose either:</span><br><br>
-      ${coords}
-    `,
-    "info-purple"
-  )
-);
-
-  box.innerHTML = messages.join("<br>");
-  return;
-}
-
-    let hits = grid.filter(x=>x && x!=='miss').length;
-    let misses = grid.filter(x=>x==='miss').length;
-    let huntMode = (hits >= threshold) && (misses >= 3);
-	
-	const remainingBlue = getRemainingBlueTiles();
-
-    const describeMove = (move, label, color) => {
-	let riskText = "";
-
-const p = move.p;
-const hitChance = huntMode ? p : (1 - p);
-const hitLabel = huntMode ? "Non-blue chance" : "Blue chance";
-  const [r,c] = indexToCoord(move.i);
-  const coordText = `<span style="color:${color}; font-weight:bold">Row ${r+1}, Col ${c+1}</span>`;
-
-  const elimination = 2 * p * (1 - p);
-
-  if(huntMode){
-return `${coordText}
-  → Eliminates ~${(elimination*100).toFixed(1)}% of possibilities
-→ ${hitLabel}: ${(hitChance*100).toFixed(1)}%
-${riskText}`;
-  } else {
-   return `${coordText}
-  → Info gain: ${(elimination*100).toFixed(1)}%
-  → ${hitLabel}: ${(hitChance*100).toFixed(1)}%
-${riskText}`;
-  }
-};
-
-let safeMove = topMoves.find(m => m.type === 'safe');
-
-if(safeMove){
-  const [r,c] = indexToCoord(safeMove.i);
-  const coordText = `<span style="color:#22c55e; font-weight:bold">Row ${r+1}, Col ${c+1}</span>`;
-
-const safeLabel = huntMode ? "Most Likely Not Blue" : "Most Likely Blue";
-messages.push(
-  makeCard(
-    safeLabel,
-    `
-    ${coordText}
-    → Statistically safest option
-    → ${((huntMode ? safeMove.p : (1 - safeMove.p)) * 100).toFixed(1)}% ${huntMode ? "non-blue chance" : "blue chance"}
-    `,
-    "info-green"
-  )
-);
-}	
-
-    let best = topMoves[0];
-    if(best){
-let explanation = "";
-
-let safest = [...probs.map((p,i)=>({p,i}))]
-  .filter(x=>!grid[x.i])
-  .sort((a,b)=>a.p-b.p)[0];
-
-if(!huntMode && safest && safest.i !== best.i){
-  const bestE = 2 * best.p * (1 - best.p);
-  const safeE = 2 * safest.p * (1 - safest.p);
-
-  explanation = `<br>
-    <i style="color:#9ca3af">
-      Chosen over safest tile because it eliminates more possible boards 
-    </i>`;
-}
-
-messages.push(
-  makeCard(
-    "Most Informative",
-    describeMove(best, "", "#a855f7") + explanation,
-    "info-purple"
-  )
-);
-    }
-
-    let second = topMoves[1];
-    if(second){
-messages.push(
-  makeCard(
-    "Alternative",
-    describeMove(second, "", "gold"),
-    "info-gold"
-  )
-);
-
-    }
-	
-	 let hasStarted = grid.some(c => c && c !== 'miss');
-
-if(hasStarted){
+function buildShipStatusCard(){
   const tracking = getShipTracking();
   const remainingBlue = getRemainingBlueTiles();
-
- messages.push(
-  makeCard(
+  return makeCard(
     "Ship Status",
     `
     • Incomplete found ships remaining: ${tracking.incomplete}<br>
@@ -2017,46 +2343,321 @@ if(hasStarted){
     • Remaining blue tiles: ${remainingBlue}
     `,
     "info-blue"
-  )
-);
+  );
 }
 
-messages.push(
-  makeCard(
-    huntMode ? "Mode: Hunting" : "Mode: Exploration",
+function buildModeCard(){
+  const { huntMode } = getGameContext();
+
+  return makeCard(
+    "Mode Info",
     huntMode
       ? "Finding non-blues. Heatmap represents % chance of non-blue in a given tile based on all valid boards."
       : "Finding blues. Heatmap represents % chance of blue in a given tile based on all valid boards.",
-    huntMode ? "info-purple" : "info-blue"
-  )
-);
-}
-if(messages.length === 0){
-  messages.push("Ready. Place colors to begin analysis.");
+    "info-blue"
+  );
 }
 
-
-if(rareCount !== null && !hasStarted){
-  messages.push("");
-  messages.push(`
-    <div style="
-      margin-top:10px;
-      padding:10px;
-      border-radius:8px;
-      background:#1f2937;
-      border:1px solid #374151;
-    ">
-      <b style="color:#22c55e">Optimal Opening</b><br>
-      All four corners are equally optimal starting moves.<br>
-	  You could also click dead center to immediately eliminate the most number of possible boards, but this has lower blue chance.
-    </div>
-  `);
+function renderGameOverCard() {
+  return makeCard(
+    "Game Over",
+    "Just blame the solver. It's always the computer's fault.",
+    "info-purple"
+  );
 }
+
+function handleStaticModes(box) {
+  if (currentMode === MODE.TOUCH_GRASS) {
+    box.innerHTML = makeCard(
+      "Board Complete",
+      "Please touch some grass.",
+      "info-green"
+    );
+    return true;
+  }
+
+  if (currentMode === MODE.ALL_HITS) {
+    box.innerHTML = makeCard(
+      "All Hits",
+      "No blue tiles remain.<br>Every remaining tile is a guaranteed hit.",
+      "info-green"
+    );
+    return true;
+  }
+
+  if (currentMode === MODE.ALL_MISSES) {
+    box.innerHTML = makeCard(
+      "All Misses",
+      "All ships are complete.<br>Every remaining tile is blue.",
+      "info-blue"
+    );
+    return true;
+  }
+
+  return false;
+}
+
+function appendSetupMessages(messages, ctx) {
+  if (rareCount === null) {
+    messages.push("Select how many colors are in play.");
+  }
+}
+
+function appendPreGameMessages(messages, ctx) {
+  if (ctx.hasStarted) return;
+
+  if (!selectedColor) {
+    messages.push("Select a color to begin filling in the board.");
+    messages.push("");
+  }
+
+  if (rareCount === null || !selectedColor) {
+    messages.push("$OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles. If you have found 5, then you risk losing in one click if you have also found 3 blues. You can change extra chance risk level to 4 to give yourself a 1 click safety net in this calculator, but you will eliminate fewer possible boards this way.");
+    messages.push("");
+    messages.push("Known tiles which you have not clicked yet will get diagonal stripes in their color. You need not click them until the solver tells you to.");
+  }
+}
+
+function handleGuaranteedInfo(messages) {
+  if (!appState.isGuaranteed) return false;
+
+  const move = appState.topMoves[0];
+  const [r, c] = indexToCoord(move.i);
+
+  const coordText = `<span style="color:#a855f7; font-weight:bold">Row ${r+1}, Col ${c+1}</span>`;
+
+  messages.push(
+    makeCard(
+      "Guaranteed Move",
+      move.p === 1
+        ? `${coordText}<br>is guaranteed to be NON-BLUE (hit)`
+        : `${coordText}<br>is guaranteed to be BLUE (miss)`,
+      "info-purple"
+    )
+  );
+
+  return true;
+}
+
+function handleEndgameInfo(messages, box) {
+  if (!appState.isTrueEndgame) return false;
+
+  const play = DOM.playBoard;
+  clearRecommendations();
+
+  let [b1, b2] = appState.allBoards;
+  let candidates = [];
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i]) continue;
+    if (b1[i] !== b2[i]) candidates.push(i);
+  }
+
+  candidates.forEach(i => {
+    play[i].classList.add('recommended-final');
+  });
+
+  if (appState.forcedTiles) {
+    renderForcedOverlays();
+  }
+
+  const coords = candidates.map(i => {
+    const r = (i / 5) | 0;
+    const c = i % 5;
+    return `<span class="coord-good">Row ${r+1}, Col ${c+1}</span>`;
+  }).join("<br>");
+
+  messages.push(
+    makeCard(
+      "Final Move",
+      `<span style="color:#22c55e">Choose either:</span><br><br>${coords}`,
+      "info-purple"
+    )
+  );
+
   box.innerHTML = messages.join("<br>");
+  return true;
+}
+
+function appendStrategyMessages(messages, ctx) {
+  const { probs, topMoves } = appState;
+
+const { hits, misses, huntMode } = getGameContext();
+
+  const describeMove = (move, color) => {
+    const p = move.p;
+    const hitChance = huntMode ? p : (1 - p);
+    const hitLabel = huntMode ? "Non-blue chance" : "Blue chance";
+
+    const [r, c] = indexToCoord(move.i);
+    const coordText = `<span style="color:${color}; font-weight:bold">Row ${r+1}, Col ${c+1}</span>`;
+
+    const elimination = 2 * p * (1 - p);
+
+    if (huntMode) {
+      return `${coordText}
+→ Eliminates ~${(elimination*100).toFixed(1)}%
+→ ${hitLabel}: ${(hitChance*100).toFixed(1)}%`;
+    }
+
+    return `${coordText}
+→ Info gain: ${(elimination*100).toFixed(1)}%
+→ ${hitLabel}: ${(hitChance*100).toFixed(1)}%`;
+  };
+
+  const best = topMoves[0];
+  if (best) {
+    messages.push(
+      makeCard(
+        "Most Informative",
+        describeMove(best, "#a855f7"),
+        "info-purple"
+      )
+    );
+  }
+
+  const second = topMoves[1];
+  if (second) {
+    messages.push(
+      makeCard(
+        "Alternative",
+        describeMove(second, "gold"),
+        "info-gold"
+      )
+    );
+  }
+}
+
+function appendFallback(messages) {
+  if (messages.length === 0) {
+    messages.push("Ready. Place colors to begin analysis.");
+  }
+}
+
+function appendOpeningHint(messages, ctx) {
+  if (rareCount !== null && !ctx.hasStarted) {
+    messages.push("");
+    messages.push(`
+      <div style="margin-top:10px;padding:10px;border-radius:8px;background:#1f2937;border:1px solid #374151;">
+        <b style="color:#22c55e">Optimal Opening</b><br>
+        All four corners are equally optimal starting moves.<br>
+        You could also click dead center to immediately eliminate the most number of possible boards, but this has lower blue chance.
+      </div>
+    `);
+  }
+}
+
+function updateBoardLock(){
+  const board=document.getElementById('playBoard');
+  if(selectedColor && rareCount!==null){
+    board.classList.remove('disabled');
+  } else {
+    board.classList.add('disabled');
+  }
+}
+
+function updateColorAvailability(){
+
+  let counts = getColorCounts();
+  let usedRare = getUsedRare();
+
+  let selectedStillValid = true;
+
+  document.querySelectorAll('.color-btn').forEach(btn=>{
+    let color = btn.dataset.color;
+    if(!color) return;
+
+    let disabled = isColorDisabled(color, counts, usedRare);
+
+    applyButtonState(btn, disabled);
+
+    if(disabled && color === selectedColor){
+      selectedStillValid = false;
+    }
+  });
+
+  if(!selectedStillValid){
+    clearSelectedColor();
+  }
+}
+
+function getColorCounts(){
+  let counts = {};
+  for(let c in SHIPS) counts[c] = 0;
+
+  for(let i=0;i<25;i++){
+    if(grid[i]) counts[grid[i]]++;
+  }
+
+  return counts;
+}
+
+function isColorDisabled(color, counts, usedRare){
+
+  if(getShipSize(color) && counts[color] >= getShipSize(color)){
+    return true;
+  }
+
+  if(RARE_COLORS.includes(color)){
+    if(rareCount !== null){
+      let isUsed = counts[color] > 0;
+      if(!isUsed && usedRare.length >= rareCount){
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function applyButtonState(btn, disabled){
+  btn.classList.remove('disabled');
+  if(disabled) btn.classList.add('disabled');
+}
+
+function clearSelectedColor(){
+  selectedColor = null;
+  document.querySelectorAll('.color-btn')
+    .forEach(b=>b.classList.remove('selected'));
+}
+
+function lockConfigUI(){
+
+  document.querySelectorAll('[onclick^="setRare"]').forEach(btn=>{
+    btn.classList.add('disabled');
+  });
+
+  document.querySelectorAll('[onclick^="setThreshold"]').forEach(btn=>{
+    btn.classList.add('disabled');
+  });
+
+}
+
+function showError(msg){
+  const box = DOM.infoBox;
+  box.innerHTML = "<span style='color:#ff6b6b'><b>Error:</b> " + msg + "</span>";
+
+  const heat = DOM.heatmap;
+  for(let i=0;i<25;i++){
+    heat[i].style.background = '';
+    heat[i].textContent = '';
+  }
+
+  DOM.confidence.textContent = "Invalid board state";
+}
+
+// ===============================
+// T.12 VISUALS
+// ===============================
+
+function clearSelectedColorUI() {
+  document.querySelectorAll('.color-btn').forEach(b => {
+    b.classList.remove('selected');
+  });
 }
 
 function clearRecommendations(){
-  const play = document.getElementById('playBoard').children;
+  const play = DOM.playBoard;
   for(let c of play){
     c.classList.remove('recommended-best');
     c.classList.remove('recommended-second');
@@ -2073,159 +2674,375 @@ c.style.removeProperty('--stripe-color');
   }
 }
 
-function showError(msg){
-  const box = document.getElementById('infoBox');
-  box.innerHTML = "<span style='color:#ff6b6b'><b>Error:</b> " + msg + "</span>";
+function highlightRecommendations(probs) {
+  if (!isNormalMode()) return;
 
-  const heat = document.getElementById('heatmap').children;
-  for(let i=0;i<25;i++){
-    heat[i].style.background = '';
-    heat[i].textContent = '';
+  lastSpecialGroup = null;
+
+  const play = DOM.playBoard;
+  clearRecommendations();
+
+  const context = getRecommendationContext();
+  const candidates = buildCandidates(probs);
+
+  const guaranteed = findGuaranteedMove(candidates, context.huntMode);
+
+  if (guaranteed) {
+    applyGuaranteedMove(guaranteed, probs, play);
+    return;
   }
 
-  document.getElementById('confidence').textContent = "Invalid board state";
+  rankCandidates(candidates, context.huntMode);
+
+  const { topMoves, safest } = selectTopMoves(candidates, context.huntMode);
+
+  applyHighlights(play, topMoves, safest);
+
+  updateRecommendationState(probs, topMoves, safest);
 }
 
-window.undoMove = function(){
-  if(history.length === 0) return;
-
-  const lastMove = moves.pop();
-  if(!lastMove) return;
-
-  redoStack.push(lastMove);
-
-  const prev = history.pop();
-
-  grid = prev ? [...prev.grid] : Array(25).fill(null);
-  rareCount = prev?.rareCount ?? null;
-  threshold = prev?.threshold ?? 5;
-  appState = prev?.appState ? JSON.parse(JSON.stringify(prev.appState)) : {
-    probs: null,
-    topMoves: null,
-    isTrueEndgame: false,
-    isGuaranteed: false,
-    specialGroup: null
-  };
-  currentMode = prev?.currentMode ?? MODE.NORMAL;
-
-  placementsCache = {};
-
-  render();
-  updateColorAvailability();
-  runSimulation();
-  renderUI();
-  updateBoardLock();
-};
-
-window.redoMove = function(){
-  if(redoStack.length === 0) return;
-
-  const move = redoStack.pop();
-
-  history.push({
-    grid: [...grid],
-    rareCount,
-    threshold,
-    appState: JSON.parse(JSON.stringify(appState)),
-    currentMode
-  });
-
-  grid[move.index] = move.newColor;
-
-  moves.push(move);
-
-  placementsCache = {};
-
-  render();
-  updateColorAvailability();
-  runSimulation();
-  renderUI();
-  updateBoardLock();
-};
-
-window.resetAll = function(){
-
-  grid = Array(25).fill(null);
-  selectedColor = null;
-  rareCount = null;
-  threshold = 5;
-  history = [];
-
-  document.querySelectorAll('.color-btn').forEach(b=>{
-    b.classList.remove('selected','disabled');
-  });
-
-  document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
-    b.classList.remove('active-btn');
-  });
-
-  document.getElementById('th4').classList.remove('active-btn');
-  document.getElementById('th5').classList.add('active-btn');
-
-  render();
-  const heat = document.getElementById('heatmap').children;
-for(let i=0;i<25;i++){
-  heat[i].style.background = '';
-  heat[i].textContent = '';
+function buildCandidates(probs) {
+  return probs
+    .map((p, i) => ({ p, i }))
+    .filter(c => !grid[c.i]);
 }
 
-  document.getElementById('confidence').textContent = "";
-  document.getElementById('modeLabel').textContent = "";
-currentMode = MODE.NORMAL;
+function findGuaranteedMove(candidates, huntMode) {
+  const guaranteedHit = candidates.find(c => c.p === 1);
+  const guaranteedMiss = candidates.find(c => c.p === 0);
 
-appState = {
-  probs: null,
-  topMoves: null,
-  isTrueEndgame: false,
-  isGuaranteed: false,
-  specialGroup: null
-};
+  return huntMode ? guaranteedHit : guaranteedMiss;
+}
 
-lastSpecialGroup = null;
+function applyGuaranteedMove(move, probs, play) {
+  play[move.i].classList.add('recommended-best');
 
-updateInfoBox();
+  lastProbs = probs;
+  lastTopMoves = [move];
+  lastGuaranteed = true;
 
-  updateBoardLock();
+  appState.probs = probs;
+  appState.topMoves = [move];
+  appState.isGuaranteed = true;
+}
+
+function rankCandidates(candidates, huntMode) {
+  if (!huntMode) {
+    candidates.forEach(c => {
+      const p = c.p;
+
+      const entropy =
+        p === 0 || p === 1
+          ? 0
+          : -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
+
+      const asymmetry = Math.abs(p - 0.5);
+      const collapseBonus = Math.max(p, 1 - p);
+
+      const [r, col] = indexToCoord(c.i);
+      const checker = (r + col) % 2 === 0 ? 1 : 0.8;
+
+      c.score =
+        entropy * 0.7 +
+        asymmetry * 0.6 +
+        collapseBonus * 0.3;
+    });
+
+    candidates.sort((a, b) => b.score - a.score);
+  } else {
+    candidates.sort((a, b) => b.p - a.p);
+  }
+}
+
+function selectTopMoves(candidates, huntMode) {
+  let topMoves = candidates.slice(0, 2);
+  let safest = null;
+
+  if (!huntMode) {
+    safest = [...candidates].sort((a, b) => a.p - b.p)[0];
+  }
+
+  if (safest && topMoves.some(m => m.i === safest.i)) {
+    safest = null;
+  }
+
+  topMoves = topMoves.map(m => ({ ...m, type: 'top' }));
+
+  if (safest) {
+    safest = { ...safest, type: 'safe' };
+  }
+
+  return { topMoves, safest };
+}
+
+function applyHighlights(play, topMoves, safest) {
+  if (topMoves[0]) play[topMoves[0].i].classList.add('recommended-best');
+  if (topMoves[1]) play[topMoves[1].i].classList.add('recommended-second');
+  if (safest) play[safest.i].classList.add('recommended-safe');
+}
+
+function updateRecommendationState(probs, topMoves, safest) {
+  const allMoves = [...topMoves];
+  if (safest) allMoves.push(safest);
+
+  lastProbs = probs;
+  lastTopMoves = allMoves;
+
+  appState.probs = probs;
+  appState.topMoves = allMoves;
+  appState.isGuaranteed = false;
+}
+
+function getRecommendationContext() {
+  return getGameContext();
+}
+
+function highlightAvoidGroup(data){
+  if(currentMode !== MODE.NORMAL) return;
   
-  const play = document.getElementById('playBoard').children;
+  if(!data || !data.tiles) return;
 
-clearRecommendations();
+  const play = DOM.playBoard;
+  clearRecommendations();
 
-lastProbs = null;
-lastTopMoves = null;
-moves = [];
-redoStack = [];
+let bestSet = new Set(data.tiles);
+let size2Set = new Set(data.size2Tiles || []);
 
-configLocked = false;
+for(let i=0;i<25;i++){
+  if(grid[i]) continue;
 
-document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
-  b.classList.remove('disabled');
-});
+if(bestSet.has(i)){
+  play[i].classList.add('recommended-equal');
 
-document.querySelectorAll('[onclick^="setThreshold"]').forEach(b=>{
-  b.classList.remove('disabled');
-});
+  let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
 
+  if(sizes.length){
+    play[i].setAttribute("data-label", sizes.join("/"));
+  }
+}
+  else if(size2Set.has(i)){
+	play[i].classList.add('recommended-size2');
+  }
+  else {
+    play[i].classList.add('recommended-avoid');
+    play[i].textContent = "✕";
+  }
 }
 
-function getEquivalenceGroups(allBoards){
-  let patterns = {};
+  renderEquivalenceInfo(data);
+}
 
-  for(let i=0;i<25;i++){
-    if(grid[i]) continue;
+function renderEquivalenceInfo(data){
+  const box = DOM.infoBox;
 
-    let key = "";
+  const bestTiles = data.tiles || [];
+  const size2Tiles = data.size2Tiles || [];
+  const probs = data.probs || [];
 
-    for(let b of allBoards){
-      key += b[i] ? "1" : "0";
-    }
+  let content = `
+    Best move tiles are statistically identical and have a green border.<br>
+    Unbordered tiles labeled "2" may also be part of a rare ship with reasonably high certainty. See below.<br><br>
+  `;
 
-    if(!patterns[key]) patterns[key] = [];
-    patterns[key].push(i);
+  if(bestTiles.length){
+    const bestProb = (probs[bestTiles[0]] * 100).toFixed(1);
+
+    let coords = bestTiles.map(i=>{
+      let [r,c] = indexToCoord(i);
+      return `<span class="coord-good">Row ${r+1}, Col ${c+1}</span>`;
+    }).join("<br>");
+
+    content += `
+      <b>Best Moves (~${bestProb}%)</b><br>
+      ${coords}<br><br>
+    `;
   }
 
-  return Object.values(patterns);
+if(size2Tiles.length){
+
+  const partialTilesSet = getPartialShipTiles();
+
+  let partialSize2 = size2Tiles
+    .filter(i => partialTilesSet.has(i))
+    .map(i => ({ i, p: probs[i] }))
+    .sort((a,b) => b.p - a.p);
+
+  let unknownSize2 = size2Tiles
+    .filter(i => !partialTilesSet.has(i))
+    .map(i => ({ i, p: probs[i] }))
+    .sort((a,b) => b.p - a.p);
+
+  if(partialSize2.length){
+    let coords = partialSize2.map(({i,p}) => {
+      let [r,c] = indexToCoord(i);
+
+      return `
+        <span style="color:gold">
+          Row ${r+1}, Col ${c+1}
+        </span>
+        (${(p*100).toFixed(1)}%)
+      `;
+    }).join("<br>");
+
+    content += `
+      <b>Incomplete Rare Ship(s)</b><br>
+      ${coords}<br><br>
+    `;
+  }
+
+  if(unknownSize2.length){
+    let coords = unknownSize2.map(({i,p}) => {
+      let [r,c] = indexToCoord(i);
+
+      return `
+        <span style="color:gold">
+          Row ${r+1}, Col ${c+1}
+        </span>
+        (${(p*100).toFixed(1)}%)
+      `;
+    }).join("<br>");
+
+    content += `
+      <b>Unfound Rare Ship(s)</b><br>
+      ${coords}<br><br>
+    `;
+  }
 }
+
+  content += `<span style="color:#ff6b6b">Avoid all tiles marked ✕</span>`;
+
+  box.innerHTML = makeCard(
+    "Equivalent Best Moves",
+    content,
+    "info-green"
+  );
+}
+
+function highlightStartingCorners(){
+  const play = DOM.playBoard;
+
+  clearRecommendations();
+
+  const corners = [0, 4, 20, 24];
+
+  corners.forEach(i => {
+    if(!grid[i]) { 
+      play[i].classList.add('recommended-equal');
+    }
+  });
+}
+
+function getStripeColor(color){
+  switch(color){
+    case 'teal': return 'rgba(79,209,197,0.4)';
+    case 'green': return 'rgba(0,128,0,0.4)';
+    case 'yellow': return 'rgba(255,255,0,0.4)';
+    case 'orange': return 'rgba(255,165,0,0.4)';
+    case 'red': return 'rgba(255,0,0,0.4)';
+    case 'black': return 'rgba(0,0,0,0.4)';
+    case 'white': return 'rgba(255,255,255,0.4)';
+    case 'miss': return 'rgba(59,130,246,0.4)';
+    default: return 'rgba(150,150,150,0.4)';
+  }
+}
+
+function makeCard(title, content, colorClass){
+  return `
+    <div class="info-card ${colorClass}">
+      <div class="info-card-title">${title}</div>
+      <div>${content}</div>
+    </div>
+  `;
+}
+
+// ===============================
+// T.13 GRID UTILS
+// ===============================
+
+function coordToIndex(r,c){return r*5+c;}
+
+function indexToCoord(i){return [Math.floor(i/5),i%5];}
+
+function shuffle(arr){
+  for(let i=arr.length-1;i>0;i--){
+    let j=Math.floor(Math.random()*(i+1));
+    [arr[i],arr[j]]=[arr[j],arr[i]];
+  }
+  return arr;
+}
+
+function createBoards(){
+  const play=document.getElementById('playBoard');
+  const heat=document.getElementById('heatmap');
+
+  play.innerHTML='';
+  heat.innerHTML='';
+
+  for(let i=0;i<25;i++){
+    let cell=document.createElement('div');
+    cell.className='cell';
+    cell.onclick=()=>handleCellClick(i);
+    play.appendChild(cell);
+
+    let h=document.createElement('div');
+    h.className='cell';
+    heat.appendChild(h);
+  }
+}
+
+const PLACEMENT_MASK_CACHE = new WeakMap();
+
+function cellMask(i){
+  return 1 << i;
+}
+
+function getPlacementMask(placement){
+  let cached = PLACEMENT_MASK_CACHE.get(placement);
+  if(cached !== undefined) return cached;
+
+  let mask = 0;
+
+  for(const i of placement){
+    mask |= cellMask(i);
+  }
+
+  PLACEMENT_MASK_CACHE.set(placement, mask);
+  return mask;
+}
+
+function getKnownMissMask(){
+  let mask = 0;
+
+  for(let i = 0; i < 25; i++){
+    if(grid[i] === 'miss'){
+      mask |= cellMask(i);
+    }
+  }
+
+  return mask;
+}
+
+function boardKey(board){
+  let key = "";
+
+  for(let i = 0; i < 25; i++){
+    const cell = board[i];
+
+    if(!cell){
+      key += "x";
+    } else if(cell.startsWith("rare_")){
+      key += "R";
+    } else {
+      key += COLOR_TO_ID[cell];
+    }
+  }
+
+  return key;
+}
+
+// ===============================
+// T.14 HASH CREATION / LOADING
+// ===============================
 
 function createBitWriter(){
   let bits = [];
@@ -2250,6 +3067,37 @@ function createBitWriter(){
       }
 
       return btoa(String.fromCharCode(...bytes));
+    }
+  };
+}
+
+function createBitReader(base64){
+  function safeBase64Decode(str){
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while(str.length % 4) str += '=';
+  return atob(str);
+}
+
+const binary = safeBase64Decode(base64);
+
+  let bits = [];
+
+  for(let i = 0; i < binary.length; i++){
+    let byte = binary.charCodeAt(i);
+    for(let j = 7; j >= 0; j--){
+      bits.push((byte >> j) & 1);
+    }
+  }
+
+  let index = 0;
+
+  return {
+    read(bitCount){
+      let value = 0;
+      for(let i = 0; i < bitCount; i++){
+        value = (value << 1) | bits[index++];
+      }
+      return value;
     }
   };
 }
@@ -2339,340 +3187,91 @@ redoStack = [];
   }
 }
 
-function createBitReader(base64){
-  function safeBase64Decode(str){
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  while(str.length % 4) str += '=';
-  return atob(str);
-}
 
-const binary = safeBase64Decode(base64);
+// ===============================
+// T.15 EVENT BINDS
+// ===============================
 
-  let bits = [];
+window.selectColor = function(c,e){
+if(e.target.classList.contains('disabled')) return;
 
-  for(let i = 0; i < binary.length; i++){
-    let byte = binary.charCodeAt(i);
-    for(let j = 7; j >= 0; j--){
-      bits.push((byte >> j) & 1);
-    }
-  }
-
-  let index = 0;
-
-  return {
-    read(bitCount){
-      let value = 0;
-      for(let i = 0; i < bitCount; i++){
-        value = (value << 1) | bits[index++];
-      }
-      return value;
-    }
-  };
-}
-
-function highlightAvoidGroup(data){
-  if(currentMode !== MODE.NORMAL) return;
-
-  const play = document.getElementById('playBoard').children;
-  clearRecommendations();
-
-let bestSet = new Set(data.tiles);
-let size2Set = new Set(data.size2Tiles || []);
-
-for(let i=0;i<25;i++){
-  if(grid[i]) continue;
-
-if(bestSet.has(i)){
-  play[i].classList.add('recommended-equal');
-
-  let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
-
-  if(sizes.length){
-    play[i].setAttribute("data-label", sizes.join("/"));
-  }
-}
-  else if(size2Set.has(i)){
-	play[i].classList.add('recommended-size2');
-  }
-  else {
-    play[i].classList.add('recommended-avoid');
-    play[i].textContent = "✕";
-  }
-}
-
-  renderEquivalenceInfo(data);
-}
-
-function renderEquivalenceInfo(data){
-  const box = document.getElementById('infoBox');
-
-  const bestTiles = data.tiles || [];
-  const size2Tiles = data.size2Tiles || [];
-  const probs = data.probs || [];
-
-  let content = `
-    Best move tiles are statistically identical and have a green border.<br>
-    Unbordered tiles labeled "2" may also be part of a rare ship with reasonably high certainty. See below.<br><br>
-  `;
-
-  if(bestTiles.length){
-    const bestProb = (probs[bestTiles[0]] * 100).toFixed(1);
-
-    let coords = bestTiles.map(i=>{
-      let [r,c] = indexToCoord(i);
-      return `<span class="coord-good">Row ${r+1}, Col ${c+1}</span>`;
-    }).join("<br>");
-
-    content += `
-      <b>Best Moves (~${bestProb}%)</b><br>
-      ${coords}<br><br>
-    `;
-  }
-
-if(size2Tiles.length){
-
-  const partialTilesSet = getPartialShipTiles();
-
-  let partialSize2 = size2Tiles
-    .filter(i => partialTilesSet.has(i))
-    .map(i => ({ i, p: probs[i] }))
-    .sort((a,b) => b.p - a.p);
-
-  let unknownSize2 = size2Tiles
-    .filter(i => !partialTilesSet.has(i))
-    .map(i => ({ i, p: probs[i] }))
-    .sort((a,b) => b.p - a.p);
-
-  if(partialSize2.length){
-    let coords = partialSize2.map(({i,p}) => {
-      let [r,c] = indexToCoord(i);
-
-      return `
-        <span style="color:gold">
-          Row ${r+1}, Col ${c+1}
-        </span>
-        (${(p*100).toFixed(1)}%)
-      `;
-    }).join("<br>");
-
-    content += `
-      <b>Incomplete Rare Ship(s)</b><br>
-      ${coords}<br><br>
-    `;
-  }
-
-  if(unknownSize2.length){
-    let coords = unknownSize2.map(({i,p}) => {
-      let [r,c] = indexToCoord(i);
-
-      return `
-        <span style="color:gold">
-          Row ${r+1}, Col ${c+1}
-        </span>
-        (${(p*100).toFixed(1)}%)
-      `;
-    }).join("<br>");
-
-    content += `
-      <b>Unfound Rare Ship(s)</b><br>
-      ${coords}<br><br>
-    `;
-  }
-}
-
-  content += `<span style="color:#ff6b6b">Avoid all tiles marked ✕</span>`;
-
-  box.innerHTML = makeCard(
-    "Equivalent Best Moves",
-    content,
-    "info-green"
-  );
-}
-
-function highlightStartingCorners(){
-  const play = document.getElementById('playBoard').children;
-
-  clearRecommendations();
-
-  const corners = [0, 4, 20, 24];
-
-  corners.forEach(i => {
-    if(!grid[i]) { 
-      play[i].classList.add('recommended-equal');
-    }
-  });
-}
-
-function getStripeColor(color){
-  switch(color){
-    case 'teal': return 'rgba(79,209,197,0.4)';
-    case 'green': return 'rgba(0,128,0,0.4)';
-    case 'yellow': return 'rgba(255,255,0,0.4)';
-    case 'orange': return 'rgba(255,165,0,0.4)';
-    case 'red': return 'rgba(255,0,0,0.4)';
-    case 'black': return 'rgba(0,0,0,0.4)';
-    case 'white': return 'rgba(255,255,255,0.4)';
-    case 'miss': return 'rgba(59,130,246,0.4)';
-    default: return 'rgba(150,150,150,0.4)';
-  }
-}
-
-function renderForcedOverlays(){
-  if(!appState.forcedTiles) return;
-
-  const play = document.getElementById('playBoard').children;
-
-  for(let i in appState.forcedTiles){
-    i = parseInt(i);
-
-    if(grid[i] !== null) continue;
-
-    const color = appState.forcedTiles[i];
-    const cell = play[i];
-
-    if(color === 'rainbow'){
-      cell.classList.add('stripe-rainbow');
-    } else {
-      cell.classList.add('stripe-overlay');
-      cell.style.setProperty('--stripe-color', getStripeColor(color));
-    }
-	}
-  }
+selectedColor = c;
+  document.querySelectorAll('.color-btn').forEach(b=>b.classList.remove('selected'));
+  e.target.classList.add('selected');
+  updateBoardLock();
+  updateColorAvailability();
   
-function handleCellClick(i){
-if(currentMode === MODE.GAME_OVER) return;
-  if(rareCount === null) return;
+  const hasStarted = grid.some(c => c !== null);
 
-  const forced = appState.forcedTiles?.[i];
+if(!hasStarted){
+  updateInfoBox();
+}
 
-  if(forced && grid[i] === null){
+}
 
-    const prevSelected = selectedColor;
-    const prevGrid = grid[i];
+window.setRare = function(n,btn){
+  if(configLocked) return;
 
-    selectedColor = forced;
+  rareCount = n;
 
-    placeColor(i);
+  let newThreshold = (n >= 4) ? 4 : 5;
+  threshold = newThreshold;
 
-    const success = grid[i] !== prevGrid;
+  document.getElementById('th4').classList.remove('active-btn');
+  document.getElementById('th5').classList.remove('active-btn');
+  document.getElementById('th' + newThreshold).classList.add('active-btn');
 
-    selectedColor = prevSelected;
+  document.querySelectorAll('[onclick^="setRare"]').forEach(b=>b.classList.remove('active-btn'));
+  btn.classList.add('active-btn');
 
-    if(!success){
-      placeColor(i);
-    }
+  updateBoardLock();
 
+  if(!isStateValid()){
+    showError("Too many rare colors placed for this setting.");
     return;
   }
 
-  placeColor(i);
+  runSimulation(); 
+  renderUI(); 
+  updateColorAvailability();
 }
 
-function highlightRecommendations(probs){
-if(currentMode !== MODE.NORMAL) return;
- lastSpecialGroup = null;
-  const play=document.getElementById('playBoard').children;
-  clearRecommendations();
-
-  let hits = grid.filter(x=>x && x!=='miss').length;
-  let misses = grid.filter(x=>x==='miss').length;
-  let huntMode = (hits >= threshold) && (misses >= 3);
-  let missEndsGame = huntMode && (misses + 1 >= MAX_MISSES);
-
-let candidates = probs
-  .map((p,i)=>({
-    p,
-    i,
-  }))
-  .filter(x=>!grid[x.i]);
-	
-let guaranteedHit = candidates.find(c => c.p === 1);
-let guaranteedMiss = candidates.find(c => c.p === 0);
-
-let guaranteed = huntMode ? guaranteedHit : guaranteedMiss;
-
-if(guaranteed){
-  play[guaranteed.i].classList.add('recommended-best');
-
- lastProbs = probs;
-lastTopMoves = [guaranteed];
-lastGuaranteed = true;
-
-appState.probs = probs;
-appState.topMoves = [guaranteed];
-appState.isGuaranteed = true;
-return;
+window.setThreshold = function(n,btn){
+  if(configLocked) return;
+  threshold=n;
+  document.getElementById('th4').classList.remove('active-btn');
+  document.getElementById('th5').classList.remove('active-btn');
+  btn.classList.add('active-btn');
+  runSimulation();
 }
 
- if(!huntMode){
-  candidates.forEach(c=>{
-    const p = c.p;
+window.generateHash = function(){
+  const input = document.getElementById('hashInput');
+  input.value = encodeGame();
+  input.select();
+};
 
-    const entropy = (p === 0 || p === 1)
-      ? 0
-      : -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
+window.loadHash = function(){
+  const input = document.getElementById('hashInput');
+  const hash = input.value.trim();
 
-    const asymmetry = Math.abs(p - 0.5);
-
-    const collapseBonus = Math.max(p, 1 - p);
-
-    const [r,col] = indexToCoord(c.i);
-    const checker = (r + col) % 2 === 0 ? 1 : 0.8;
-
-    c.score =
-      entropy * 0.7 +       
-      asymmetry * 0.6 +       
-      collapseBonus * 0.3;    
-  });
-
-  candidates.sort((a,b)=> b.score - a.score);
-} else {
-    candidates.sort((a,b)=> b.p - a.p);
+  if(!hash){
+    showError("Enter a code first");
+    return;
   }
 
-let topMoves = candidates.slice(0,2);
+  loadFromHash(hash);
+};
 
-let safest = null;
+// ===============================
+// T.16 INITIALIZATION
+// ===============================
 
-if(!huntMode){
-  safest = [...candidates].sort((a,b)=> a.p - b.p)[0];
-}
-
-if(safest && topMoves.some(m => m.i === safest.i)){
-  safest = null;
-}
-
-let hasGuaranteed = huntMode
-  ? candidates.some(c => c.p === 1)
-  : candidates.some(c => c.p === 0);
-
-topMoves = topMoves.map(m => ({
-  ...m,
-  type: 'top'
-}));
-
-if(safest){
-  safest = {
-    ...safest,
-    type: 'safe'
-  };
-}
-
-if(topMoves[0]) play[topMoves[0].i].classList.add('recommended-best');
-if(topMoves[1]) play[topMoves[1].i].classList.add('recommended-second');
-if(safest) play[safest.i].classList.add('recommended-safe');
-
-let allMoves = [...topMoves];
-if(safest) allMoves.push(safest);
-
-lastProbs = probs;
-lastTopMoves = allMoves;
-
-appState.probs = probs;
-appState.topMoves = allMoves;
-appState.isGuaranteed = false;
-}
-
+DOM.playBoard = document.getElementById('playBoard').children;
+DOM.heatmap = document.getElementById('heatmap').children;
+DOM.infoBox = document.getElementById('infoBox');
+DOM.confidence = document.getElementById('confidence');
+DOM.modeLabel = document.getElementById('modeLabel');
 createBoards();
 updateBoardLock();
 updateInfoBox();
