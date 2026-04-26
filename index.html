@@ -945,6 +945,7 @@ function resetModeAndCache() {
   
   appState.specialGroup = null;
   appState.forcedTiles = null;
+  appState.collapseMove = null;
 }
 
 function ensureConfigLocked() {
@@ -2480,6 +2481,7 @@ appState.topMoves = [guaranteed];
 appState.isTrueEndgame = false;
 appState.isGuaranteed = true;
 appState.specialGroup = null;
+appState.collapseMove = null;
 
 highlightRecommendations(probs);
 renderForcedOverlays();
@@ -2983,8 +2985,20 @@ const { hits, misses, huntMode } = getGameContext();
 → Info gain: ${(elimination*100).toFixed(1)}%
 → ${hitLabel}: ${(hitChance*100).toFixed(1)}%`;
   };
-
+  
   const best = topMoves[0];
+  const safest = topMoves.find(m => m.type === 'safe');
+
+if (safest && (!best || safest.i !== best.i)) {
+  messages.push(
+    makeCard(
+      "Safest Move",
+      describeMove(safest, "#22c55e"),
+      "info-green"
+    )
+  );
+}
+
   if (best) {
     messages.push(
       makeCard(
