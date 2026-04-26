@@ -1457,6 +1457,21 @@ function getFoundColors(){
   return found;
 }
 
+function getGamePhase(){
+  const { hits, misses } = getHitMissCounts();
+  const foundColors = getFoundShipColorCount();
+
+  if(hits < 5 && foundColors < 3){
+    return "early";
+  }
+
+  if(hits >= 5 || misses >= 2 || foundColors >= 5){
+    return "late";
+  }
+
+  return "mid";
+}
+
 function isEarlyGame(){
   const { hits, misses } = getHitMissCounts();
   const foundColors = getFoundShipColorCount();
@@ -3044,24 +3059,31 @@ function applyGuaranteedMove(move, probs, play) {
 }
 
 function rankCandidates(candidates, huntMode) {
+  const phase = getGamePhase();
 
   if (!huntMode) {
+    const danger = phase === "late";
 
     candidates.forEach(c => {
       const p = c.p;
 
-      const entropy =
-        p === 0 || p === 1
-          ? 0
-          : -p * Math.log2(p) - (1 - p) * Math.log2(1 - p);
+      const blueChance = 1 - p;
+      const info = 2 * p * (1 - p);
 
-      const asymmetry = Math.abs(p - 0.5);
-      const collapseBonus = Math.max(p, 1 - p);
+      let score = 0;
 
-      c.score =
-        entropy * 0.7 +
-        asymmetry * 0.6 +
-        collapseBonus * 0.3;
+      if(danger){
+        score += blueChance * 0.9;
+        score += info * 0.1;
+      } else {
+	  
+        score += blueChance * 0.45;
+        score += info * 0.55;
+      }
+
+      score += (c.i % 7) * 0.0001;
+
+      c.score = score;
     });
 
     candidates.sort((a, b) => b.score - a.score);
@@ -3069,26 +3091,21 @@ function rankCandidates(candidates, huntMode) {
   }
 
   const partialTiles = getPartialShipTiles();
+  const canUseUnfoundBonus = !!appState.allBoards;
 
-  const foundColors = getFoundColors();
-
-  const earlyGame = isEarlyGame();
-  
   const adjacentCache = {};
 
-function adjacent(i){
-  if(adjacentCache[i] === undefined){
-    adjacentCache[i] = isAdjacentToKnown(i);
+  function adjacent(i){
+    if(adjacentCache[i] === undefined){
+      adjacentCache[i] = isAdjacentToKnown(i);
+    }
+
+    return adjacentCache[i];
   }
 
-  return adjacentCache[i];
-}
-
   const hasNonAdjacentCandidate = candidates.some(c =>
-  !adjacent(c.i)
-);
-
-const canUseUnfoundBonus = !!appState.allBoards;
+    !adjacent(c.i)
+  );
 
   candidates.forEach(c => {
     const p = c.p;
@@ -3096,23 +3113,39 @@ const canUseUnfoundBonus = !!appState.allBoards;
     const info = 2 * p * (1 - p);
     const blueRisk = 1 - p;
 
-let score = 0;
+    const unfoundColorBonus = canUseUnfoundBonus
+      ? getCandidateUnfoundColorBonus(c.i, appState.allBoards)
+      : 0;
 
-const unfoundColorBonus = canUseUnfoundBonus
-  ? getCandidateUnfoundColorBonus(c.i, appState.allBoards)
-  : 0;
+    let score = 0;
 
-score += p * 0.7;
-score += info * 0.5;
-score -= blueRisk * 0.25;
-score += unfoundColorBonus;
+    if(phase === "early"){
+      score += unfoundColorBonus * 1.2;
+      score += info * 0.75;
+      score += p * 0.35;
+      score -= blueRisk * 0.25;
 
-	if (earlyGame && hasNonAdjacentCandidate && adjacent(c.i)) {
-  score -= 100;
-}
+      if(hasNonAdjacentCandidate && adjacent(c.i)){
+        score -= 100;
+      }
+    }
 
-    else if (!earlyGame && partialTiles.has(c.i)) {
-      score -= 0.15;
+    else if(phase === "mid"){
+      score += unfoundColorBonus * 0.8;
+      score += info * 0.65;
+      score += p * 0.55;
+      score -= blueRisk * 0.2;
+
+      if(partialTiles.has(c.i)){
+        score -= 0.12;
+      }
+    }
+
+    else {
+      score += p * 0.85;
+      score += info * 0.25;
+      score += unfoundColorBonus * 0.25;
+      score -= blueRisk * 0.1;
     }
 
     score += (c.i % 7) * 0.0001;
@@ -3365,26 +3398,26 @@ function placementKey(placement){
 }
 
 function getCandidateUnfoundColorBonus(tileIndex, allBoards){
-  if(!allBoards) return 0;
+  if(!allBoards || allBoards.length === 0) return 0;
 
   const foundColors = getFoundColors();
-
-  const possibleColors = new Set();
+  const unfoundHitsByColor = {};
 
   for(const board of allBoards){
     const color = board[tileIndex];
 
-    if(color && !color.startsWith('rare_')){
-      possibleColors.add(color);
-    }
+    if(!color) continue;
+    if(color.startsWith('rare_')) continue;
+    if(foundColors.has(color)) continue;
+
+    unfoundHitsByColor[color] =
+      (unfoundHitsByColor[color] || 0) + 1;
   }
 
   let bonus = 0;
 
-  for(const color of possibleColors){
-    if(!foundColors.has(color)){
-      bonus += 0.25;
-    }
+  for(const color in unfoundHitsByColor){
+    bonus += unfoundHitsByColor[color] / allBoards.length;
   }
 
   return bonus;
