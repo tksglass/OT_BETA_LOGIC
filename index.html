@@ -1506,14 +1506,14 @@ function getGameContext() {
 
   let huntMode = naturalAggressive;
 
-  if (rareCount >= 4) {
-    const defaultStartMode = rareCount >= 5 ? "aggressive" : "safe";
-    const startMode = forcedStartMode || defaultStartMode;
+if (rareCount >= 4) {
+  const defaultStartMode = "aggressive";
+  const startMode = forcedStartMode || defaultStartMode;
 
-    huntMode =
-      startMode === "aggressive" ||
-      naturalAggressive;
-  }
+  huntMode =
+    startMode === "aggressive" ||
+    naturalAggressive;
+}
 
   return {
     hits,
@@ -2446,8 +2446,8 @@ if(configLocked || rareCount === null || rareCount < 4){
   return;
 }
 
-  const defaultMode = rareCount >= 5 ? "aggressive" : "safe";
-  const mode = forcedStartMode || defaultMode;
+const defaultMode = "aggressive";
+const mode = forcedStartMode || defaultMode;
 
   if(mode === "safe"){
     safeBtn.classList.add('active-btn');
@@ -2738,7 +2738,7 @@ function appendPreGameMessages(messages, ctx) {
   if (rareCount === null || !selectedColor) {
     messages.push("$OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles.");
     messages.push("");
-	messages.push("8 colors will default to safe mode (finding blues.)<br>9 colors will default to aggressive mode (finding non-blues.)<br>You can change the starting mode to your liking, but cannot change it after starting.");
+	messages.push("8 and 9 colors will default to aggressive mode (finding non-blues.)<br>You can change the starting mode to your liking, but cannot change it after starting.");
 	messages.push("");
     messages.push("Known tiles which you have not clicked yet will get diagonal stripes in their color. Clicking them before the solver tells you to could lead to worse outcomes.");
   }
@@ -3804,7 +3804,7 @@ window.setRare = function(n,btn){
   rareCount = n;
 
 if (n >= 4) {
-  forcedStartMode = n >= 5 ? "aggressive" : "safe";
+  forcedStartMode = "aggressive";
 } else {
   forcedStartMode = null;
 }
