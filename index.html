@@ -1810,7 +1810,7 @@ function shouldRunExactSolver(ctx) {
   } else if (rareCount === 3) {
     exactThreshold = 2;
   } else if (rareCount <= 2) {
-    exactThreshold = 1;
+    exactThreshold = 2;
   }
 
   return ctx.placedTiles >= exactThreshold;
