@@ -3094,8 +3094,14 @@ function buildPreviewScenario(title, boards, scenarioProbs, hoveredIndex){
     `;
   }
 
- const changes = getPreviewChanges(appState.probs, scenarioProbs, hoveredIndex)
-  .slice(0, 3);
+  const { huntMode } = getGameContext();
+
+  const label = huntMode
+    ? "non-blue chance"
+    : "blue chance";
+
+  const changes = getPreviewChanges(appState.probs, scenarioProbs, hoveredIndex)
+    .slice(0, 3);
 
 const rows = changes.map(change => {
   const [r,c] = indexToCoord(change.i);
@@ -3115,7 +3121,7 @@ const rows = changes.map(change => {
   return `
     <b>${title}</b><br>
     Remaining boards: ${boards.length}<br>
-    Top changes:<br>
+    Top changes in ${label}:<br>
     ${rows || "No meaningful changes."}
   `;
 }
