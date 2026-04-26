@@ -967,26 +967,8 @@ function saveHistorySnapshot() {
 }
 
 function deepClone(obj) {
-  if (!obj) return obj;
-
-  return {
-    probs: obj.probs ? [...obj.probs] : null,
-    topMoves: obj.topMoves ? obj.topMoves.map(m => ({ ...m })) : null,
-    isTrueEndgame: obj.isTrueEndgame,
-    isGuaranteed: obj.isGuaranteed,
-    specialGroup: obj.specialGroup
-      ? {
-          tiles: [...obj.specialGroup.tiles],
-          probs: obj.specialGroup.probs
-        }
-      : null,
-    forcedTiles: obj.forcedTiles
-      ? { ...obj.forcedTiles }
-      : undefined,
-    allBoards: obj.allBoards
-      ? obj.allBoards.map(b => [...b])
-      : undefined
-  };
+  if (obj === null || obj === undefined) return obj;
+  return JSON.parse(JSON.stringify(obj));
 }
 
 function commitAcceptedMove(move) {
@@ -2357,7 +2339,7 @@ function computeForcedTiles(allBoards) {
 }
 
 function getOutcomeKey(board, tile) {
-  return board[tile] || 'miss';
+  return board[tile] || 0;
 }
 
 function scoreCollapseForTile(allBoards, tile, probs) {
@@ -2439,12 +2421,22 @@ function scoreTwoStepCollapse(allBoards, firstTile, probs) {
 }
 
 function getBestTwoStepCollapseMove(allBoards, probs) {
-  let best = null;
+  const candidates = [];
 
   for (let i = 0; i < 25; i++) {
     if (grid[i] !== null) continue;
 
-    const score = scoreTwoStepCollapse(allBoards, i, probs);
+    candidates.push(scoreCollapseForTile(allBoards, i, probs));
+  }
+
+  candidates.sort((a, b) => a.expectedRemaining - b.expectedRemaining);
+
+  const shortlist = candidates.slice(0, 6);
+
+  let best = null;
+
+  for (const candidate of shortlist) {
+    const score = scoreTwoStepCollapse(allBoards, candidate.i, probs);
 
     if (!best || score.expectedRemaining < best.expectedRemaining) {
       best = score;
