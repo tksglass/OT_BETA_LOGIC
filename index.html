@@ -112,6 +112,35 @@
   flex: 1;
 }
 
+.preview-box {
+  position: fixed;
+  z-index: 9999;
+  max-width: 260px;
+  font-size: 13px;
+  line-height: 1.25;
+  pointer-events: none;
+
+  color: #ffffff;
+}
+
+.preview-box b {
+  color: #c084fc; 
+}
+
+.preview-box .delta.pos {
+  color: #22c55e; 
+  font-weight: bold;
+}
+
+.preview-box .delta.neg {
+  color: #ef4444; 
+  font-weight: bold;
+}
+
+.preview-box:empty {
+  display: none;
+}
+
 #infoBox {
   flex: 1;
   width: 100%;
@@ -334,7 +363,7 @@
 .guaranteed-unknown {
   font-size: 18px;
   font-weight: bold;
-  color: #a855f7; /* purple */
+  color: #a855f7; 
 }
 
   .recommended-best {
@@ -579,7 +608,8 @@ const DOM = {
   heatmap: null,
   infoBox: null,
   confidence: null,
-  modeLabel: null
+  modeLabel: null,
+  previewBox: null
 };
 
 const RAW_PLACEMENTS = {
@@ -2983,6 +3013,141 @@ function showError(msg){
 // T.12 VISUALS
 // ===============================
 
+function positionPreviewBox(tileIndex){
+  const box = DOM.previewBox;
+  const cell = DOM.playBoard[tileIndex];
+
+  if(!box || !cell) return;
+
+  const rect = cell.getBoundingClientRect();
+
+  box.style.left = `${rect.right + 10}px`;
+  box.style.top = `${rect.top}px`;
+}
+
+function showWhatIfPreview(tileIndex){
+  if(grid[tileIndex] !== null) return;
+  if(!appState.probs) return;
+
+  const box = DOM.previewBox;
+  if(!box) return;
+
+  positionPreviewBox(tileIndex);
+
+  if(!appState.allBoards || appState.allBoards.length === 0){
+    box.innerHTML = makeCard(
+      "Farseer Preview",
+      "Preview unavailable until exact solving.",
+      "info-blue"
+    );
+    return;
+  }
+
+  const hitBoards = appState.allBoards.filter(b => b[tileIndex]);
+  const missBoards = appState.allBoards.filter(b => !b[tileIndex]);
+
+  const hitProbs = computePreviewProbs(hitBoards);
+  const missProbs = computePreviewProbs(missBoards);
+
+  const [r,c] = indexToCoord(tileIndex);
+
+  box.innerHTML = makeCard(
+    `Farseeing: Row ${r+1}, Col ${c+1}`,
+    `
+${buildPreviewScenario("If HIT", hitBoards, hitProbs, tileIndex)}
+<br>
+${buildPreviewScenario("If BLUE", missBoards, missProbs, tileIndex)}
+    `,
+    "info-purple"
+  );
+}
+
+function clearWhatIfPreview(){
+  if(DOM.previewBox){
+    DOM.previewBox.innerHTML = "";
+  }
+}
+
+function computePreviewProbs(boards){
+  const counts = Array(25).fill(0);
+
+  if(!boards || boards.length === 0){
+    return counts;
+  }
+
+  for(const board of boards){
+    for(let i = 0; i < 25; i++){
+      if(board[i]){
+        counts[i]++;
+      }
+    }
+  }
+
+  return counts.map(c => c / boards.length);
+}
+
+function buildPreviewScenario(title, boards, scenarioProbs, hoveredIndex){
+  if(!boards || boards.length === 0){
+    return `
+      <b>${title}</b><br>
+      Impossible scenario.
+    `;
+  }
+
+ const changes = getPreviewChanges(appState.probs, scenarioProbs, hoveredIndex)
+  .slice(0, 3);
+
+const rows = changes.map(change => {
+  const [r,c] = indexToCoord(change.i);
+  const isPositive = change.delta >= 0;
+
+  const value = (change.delta * 100).toFixed(1);
+  const sign = isPositive ? "+" : "";
+
+  return `
+    Row ${r+1}, Col ${c+1}:
+    <span class="delta ${isPositive ? 'pos' : 'neg'}">
+      ${sign}${value}%
+    </span>
+  `;
+}).join("<br>");
+
+  return `
+    <b>${title}</b><br>
+    Remaining boards: ${boards.length}<br>
+    Top changes:<br>
+    ${rows || "No meaningful changes."}
+  `;
+}
+
+function getPreviewChanges(baseProbs, scenarioProbs, hoveredIndex){
+  const { huntMode } = getGameContext();
+
+  const changes = [];
+
+  for(let i = 0; i < 25; i++){
+    if(i === hoveredIndex) continue;
+    if(grid[i] !== null) continue;
+
+    const before = huntMode
+      ? baseProbs[i]
+      : 1 - baseProbs[i];
+
+    const after = huntMode
+      ? scenarioProbs[i]
+      : 1 - scenarioProbs[i];
+
+    changes.push({
+      i,
+      delta: after - before
+    });
+  }
+
+  return changes.sort(
+    (a,b) => Math.abs(b.delta) - Math.abs(a.delta)
+  );
+}
+
 function clearSelectedColorUI() {
   document.querySelectorAll('.color-btn').forEach(b => {
     b.classList.remove('selected');
@@ -3450,6 +3615,20 @@ function shuffle(arr){
   return arr;
 }
 
+function createPreviewBox(){
+  let box = document.getElementById('previewBox');
+
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'previewBox';
+    box.className = 'preview-box';
+
+    document.body.appendChild(box);
+  }
+
+  DOM.previewBox = box;
+}
+
 function createBoards(){
   const play=document.getElementById('playBoard');
   const heat=document.getElementById('heatmap');
@@ -3461,6 +3640,8 @@ function createBoards(){
     let cell=document.createElement('div');
     cell.className='cell';
     cell.onclick=()=>handleCellClick(i);
+	cell.onmouseenter=()=>showWhatIfPreview(i);
+	cell.onmouseleave=()=>clearWhatIfPreview();
     play.appendChild(cell);
 
     let h=document.createElement('div');
@@ -3866,6 +4047,7 @@ DOM.infoBox = document.getElementById('infoBox');
 DOM.confidence = document.getElementById('confidence');
 DOM.modeLabel = document.getElementById('modeLabel');
 createBoards();
+createPreviewBox();
 updateBoardLock();
 updateInfoBox();
 
