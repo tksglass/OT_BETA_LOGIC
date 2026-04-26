@@ -362,8 +362,8 @@
 
 .guaranteed-unknown {
   font-size: 18px;
-  font-weight: bold;
   color: #a855f7; 
+  font-weight: bold;
 }
 
   .recommended-best {
@@ -3025,7 +3025,7 @@ function positionPreviewBox(tileIndex){
   box.style.top = `${rect.top}px`;
 }
 
-function showWhatIfPreview(tileIndex){
+function showFarseerPreview(tileIndex){
   if(grid[tileIndex] !== null) return;
   if(!appState.probs) return;
 
@@ -3062,7 +3062,7 @@ ${buildPreviewScenario("If BLUE", missBoards, missProbs, tileIndex)}
   );
 }
 
-function clearWhatIfPreview(){
+function clearFarseerPreview(){
   if(DOM.previewBox){
     DOM.previewBox.innerHTML = "";
   }
@@ -3640,8 +3640,8 @@ function createBoards(){
     let cell=document.createElement('div');
     cell.className='cell';
     cell.onclick=()=>handleCellClick(i);
-	cell.onmouseenter=()=>showWhatIfPreview(i);
-	cell.onmouseleave=()=>clearWhatIfPreview();
+	cell.onmouseenter=()=>showFarseerPreview(i);
+	cell.onmouseleave=()=>clearFarseerPreview();
     play.appendChild(cell);
 
     let h=document.createElement('div');
