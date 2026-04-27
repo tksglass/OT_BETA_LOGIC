@@ -829,26 +829,40 @@ function placeColor(i) {
   if (isGameOver()) return;
   if (!canPlaceColor()) return;
 
-  resetModeAndCache();
-  ensureConfigLocked();
+  const prevSnapshot = {
+    currentMode,
+    appState: deepClone(appState),
+    lastSpecialGroup,
+    lastProbs,
+    lastTopMoves,
+    farseerCardHtml
+  };
 
   const prevColor = grid[i];
   const newColor = toggleColor(i);
 
+  resetModeAndCache();
+  ensureConfigLocked();
   setGridCell(i, newColor);
 
   if (!isValidPlacement(i, prevColor)) {
+    grid[i] = prevColor;
+
+    currentMode = prevSnapshot.currentMode;
+    appState = prevSnapshot.appState;
+    lastSpecialGroup = prevSnapshot.lastSpecialGroup;
+    lastProbs = prevSnapshot.lastProbs;
+    lastTopMoves = prevSnapshot.lastTopMoves;
+    farseerCardHtml = prevSnapshot.farseerCardHtml;
+
+    clearPlacementsCache();
     render();
     renderUI();
     updateColorAvailability();
     return;
   }
 
-  commitAcceptedMove({
-    index: i,
-    prevColor,
-    newColor
-  });
+  commitAcceptedMove({ index: i, prevColor, newColor });
 }
 
 function handleCellClick(i){
