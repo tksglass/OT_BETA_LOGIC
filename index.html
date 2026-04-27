@@ -147,6 +147,56 @@
   display: none;
 }
 
+#topInfoBox {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 20px;
+}
+
+#topInfoBox .stat-number {
+  color: #2563eb;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.top-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.top-info-grid .info-card {
+  margin-top: 0;
+}
+
+#topInfoBox {
+  background: #d1d5db;
+  padding: 15px;
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 4px 10px rgba(0,0,0,0.1);
+}
+
+#topInfoBox .info-card {
+  background: #d1d5db;
+  color: #111827;
+  border: 1px solid #9ca3af;
+  border-radius: 10px;
+  box-shadow: none;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+#topInfoBox .info-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+
+#topInfoBox .info-card-title {
+  color: #60a5fa; 
+  letter-spacing: 0.3px;
+}
+
 #infoBox {
   flex: 1;
   width: 100%;
@@ -159,7 +209,7 @@
   box-shadow: 0 4px 10px rgba(0,0,0,0.2);
 }
 
-.topbar, #infoBox {
+.topbar, #infoBox, #topInfoBox {
   width: 100%;
   box-sizing: border-box;
 }
@@ -176,6 +226,31 @@
   margin-left: auto;
   margin-right: auto;
 }
+
+.info-farseer {
+  border-color: #8b5cf6;
+  background: #1f2937;
+  color: #ffffff;
+}
+
+.info-farseer .info-card-title {
+  color: #a855f7;
+}
+
+.info-farseer b {
+  color: #c084fc;
+}
+
+.info-farseer .delta.pos {
+  color: #22c55e;
+  font-weight: bold;
+}
+
+.info-farseer .delta.neg {
+  color: #ef4444;
+  font-weight: bold;
+}
+
 
 .board-container {
   background: #f3f4f6;
@@ -362,7 +437,8 @@
 
 .topbar,
 .board-container,
-#infoBox {
+#infoBox,
+#topInfoBox {
   border-radius: 12px;
 }
 
@@ -433,6 +509,16 @@
   font-weight: bold;
   position: absolute;
   font-size: 18px;
+}
+
+.info-hint {
+  border-style: dashed;
+  opacity: 0.9;
+}
+
+.info-hint .info-card-title {
+  font-size: 14px;
+  color: #93c5fd;
 }
 
 .cell.stripe-overlay::after {
@@ -512,6 +598,8 @@
 </div>
   
 </div>
+
+<div id="topInfoBox" class="top-info-box"></div>
 
 <div class="layout">
 
@@ -613,6 +701,7 @@ const DOM = {
   playBoard: null,
   heatmap: null,
   infoBox: null,
+  topInfoBox: null,
   confidence: null,
   modeLabel: null,
   previewBox: null
@@ -727,6 +816,10 @@ let gridMask = 0;
 
 let configLocked = false;
 let isLoadingHash = false;
+
+let farseerCardHtml = "";
+let hoverDebounceTimer = null;
+let lastHoveredTile = null;
 
 // ===============================
 // T.03 ACTIONS
@@ -2742,6 +2835,8 @@ function renderForcedOverlays() {
 }
   
 function updateInfoBox() {
+  updateTopInfoBox();
+
   const box = DOM.infoBox;
   const messages = [];
   const context = getInfoContext();
@@ -2768,26 +2863,25 @@ if (appState.specialGroup) {
   if (handleStaticModes(box)) return;
 
   appendSetupMessages(messages, context);
+  appendOpeningHint(messages, context);
   appendPreGameMessages(messages, context);
 
-  if (appState.probs && appState.topMoves?.length) {
-    if (handleGuaranteedInfo(messages)) {
-      box.innerHTML = messages.join("<br>");
-      return;
-    }
-
-    if (handleEndgameInfo(messages, box)) return;
-
-    appendStrategyMessages(messages, context);
-	
-	 messages.push(buildShipStatusCard());
-     messages.push(buildModeCard());
+if (appState.probs && appState.topMoves?.length) {
+  if (handleGuaranteedInfo(messages)) {
+    appendFarseerCard(messages);
+    box.innerHTML = messages.join("<br>");
+    return;
   }
 
-  appendFallback(messages);
-  appendOpeningHint(messages, context);
+  if (handleEndgameInfo(messages, box)) return;
 
-  box.innerHTML = messages.join("<br>");
+  appendStrategyMessages(messages, context);
+}
+
+appendFallback(messages);
+appendFarseerCard(messages);
+
+box.innerHTML = messages.join("<br>");
 }
 
 function getInfoContext() {
@@ -2811,15 +2905,39 @@ function buildMissEndCard(ctx) {
   `;
 }
 
+function updateTopInfoBox() {
+  const box = DOM.topInfoBox;
+  if (!box) return;
+
+  if (rareCount === null) {
+    box.innerHTML = "";
+    return;
+  }
+
+  box.innerHTML = `
+    <div class="top-info-grid">
+      ${buildShipStatusCard()}
+      ${buildModeCard()}
+    </div>
+  `;
+}
+
+function appendFarseerCard(messages) {
+  if (farseerCardHtml) {
+    messages.push(farseerCardHtml);
+  }
+}
+
 function buildShipStatusCard(){
   const tracking = getShipTracking();
   const remainingBlue = getRemainingBlueTiles();
+
   return makeCard(
     "Ship Status",
     `
-    • Incomplete found ships remaining: ${tracking.incomplete}<br>
-    • Unfound simulated ships: ${tracking.unfound}<br>
-    • Remaining blue tiles: ${remainingBlue}
+    • Incomplete found ships remaining: <span class="stat-number">${tracking.incomplete}</span><br>
+    • Unfound simulated ships: <span class="stat-number">${tracking.unfound}</span><br>
+    • Remaining blue tiles: <span class="stat-number">${remainingBlue}</span>
     `,
     "info-blue"
   );
@@ -2878,24 +2996,35 @@ function handleStaticModes(box) {
 
 function appendSetupMessages(messages, ctx) {
   if (rareCount === null) {
-    messages.push("Select how many colors are in play.");
+    messages.push(
+      makeCard(
+        "Getting Started",
+        "• Select how many colors are in play",
+        "info-blue info-hint"
+      )
+    );
   }
 }
 
 function appendPreGameMessages(messages, ctx) {
   if (ctx.hasStarted) return;
 
-  if (!selectedColor) {
-    messages.push("Select a color to begin filling in the board.");
-    messages.push("");
-  }
-
   if (rareCount === null || !selectedColor) {
-    messages.push("$OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles.");
-    messages.push("");
-	messages.push("8 and 9 colors will default to aggressive mode (finding non-blues.)<br>You can change the starting mode to your liking, but cannot change it after starting.");
-	messages.push("");
-    messages.push("Known tiles which you have not clicked yet will get diagonal stripes in their color. Clicking them before the solver tells you to could lead to worse outcomes.");
+    messages.push(
+      makeCard(
+        "Tips",
+        `
+        • $OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles<br><br>
+        • 8 and 9 colors default to aggressive mode (finding non-blues.)<br>
+        • You can change the starting mode, but cannot change it after starting<br><br>
+        • Unclicked guaranteed tiles get stripes in their color. Clicking them before the solver tells you to could lead to worse outcomes.<br><br>
+	    • The solver may know a tile is not blue, but not what color it really is. These are marked with ? in the center.<br><br>
+	    • While Exact solving is active, you can hover over a tile to get calculations of future probabilities.<br><br>
+        • "Alternative" recommendations are just the 2nd best move. These later become "2-Step Collapse" moves, which calculate 2 moves into the future to reduce board counts.<br><br>
+        `,
+        "info-blue info-hint"
+      )
+    );
   }
 }
 
@@ -2956,8 +3085,9 @@ function handleEndgameInfo(messages, box) {
     )
   );
 
-  box.innerHTML = messages.join("<br>");
-  return true;
+appendFarseerCard(messages);
+box.innerHTML = messages.join("<br>");
+return true;
 }
 
 function appendStrategyMessages(messages, ctx) {
@@ -3162,37 +3292,21 @@ function showError(msg){
 // T.12 VISUALS
 // ===============================
 
-function positionPreviewBox(tileIndex){
-  const box = DOM.previewBox;
-  const cell = DOM.playBoard[tileIndex];
-
-  if(!box || !cell) return;
-
-  const board = cell.parentElement;
-  if(!board) return;
-
-  const rect = board.getBoundingClientRect();
-
-  box.style.left = `${rect.right + 80}px`;
-  box.style.top = `${rect.top}px`;
-  box.style.transform = "";
-}
-
 function showFarseerPreview(tileIndex){
-  if(grid[tileIndex] !== null) return;
-  if(!appState.probs) return;
-
-  const box = DOM.previewBox;
-  if(!box) return;
-
-  positionPreviewBox(tileIndex);
+  if(grid[tileIndex] !== null || !appState.probs){
+    farseerCardHtml = "";
+    updateInfoBox();
+    return;
+  }
 
   if(!appState.allBoards || appState.allBoards.length === 0){
-    box.innerHTML = makeCard(
+    farseerCardHtml = makeCard(
       "Farseer Preview",
       "Preview unavailable until exact solving.",
       "info-blue"
     );
+
+    updateInfoBox();
     return;
   }
 
@@ -3204,21 +3318,46 @@ function showFarseerPreview(tileIndex){
 
   const [r,c] = indexToCoord(tileIndex);
 
-  box.innerHTML = makeCard(
+  farseerCardHtml = makeCard(
     `Farseeing: Row ${r+1}, Col ${c+1}`,
     `
 ${buildPreviewScenario("If HIT", hitBoards, hitProbs, tileIndex)}
 <br>
 ${buildPreviewScenario("If BLUE", missBoards, missProbs, tileIndex)}
     `,
-    "info-purple"
+    "info-farseer"
   );
+
+  updateInfoBox();
+}
+
+function queueFarseerPreview(tileIndex) {
+  if (lastHoveredTile === tileIndex) return;
+
+  lastHoveredTile = tileIndex;
+
+  if (hoverDebounceTimer) {
+    clearTimeout(hoverDebounceTimer);
+  }
+
+  hoverDebounceTimer = setTimeout(() => {
+    showFarseerPreview(tileIndex);
+  }, 75);
+}
+
+function cancelFarseerPreview() {
+  if (hoverDebounceTimer) {
+    clearTimeout(hoverDebounceTimer);
+    hoverDebounceTimer = null;
+  }
+
+  lastHoveredTile = null;
+  clearFarseerPreview();
 }
 
 function clearFarseerPreview(){
-  if(DOM.previewBox){
-    DOM.previewBox.innerHTML = "";
-  }
+  farseerCardHtml = "";
+  updateInfoBox();
 }
 
 function computePreviewProbs(boards){
@@ -3694,11 +3833,17 @@ if(size2Tiles.length){
 
   content += `<span style="color:#ff6b6b">Avoid all tiles marked ✕</span>`;
 
-  box.innerHTML = makeCard(
+const messages = [
+  makeCard(
     "Equivalent Best Moves",
     content,
     "info-green"
-  );
+  )
+];
+
+appendFarseerCard(messages);
+
+box.innerHTML = messages.join("<br>");
 }
 
 function highlightStartingCorners(){
@@ -3812,20 +3957,6 @@ function shuffle(arr){
   return arr;
 }
 
-function createPreviewBox(){
-  let box = document.getElementById('previewBox');
-
-  if(!box){
-    box = document.createElement('div');
-    box.id = 'previewBox';
-    box.className = 'preview-box';
-
-    document.body.appendChild(box);
-  }
-
-  DOM.previewBox = box;
-}
-
 function createBoards(){
   const play=document.getElementById('playBoard');
   const heat=document.getElementById('heatmap');
@@ -3833,18 +3964,18 @@ function createBoards(){
   play.innerHTML='';
   heat.innerHTML='';
 
-  for(let i=0;i<25;i++){
-    let cell=document.createElement('div');
-    cell.className='cell';
-    cell.onclick=()=>handleCellClick(i);
-	cell.onmouseenter=()=>showFarseerPreview(i);
-	cell.onmouseleave=()=>clearFarseerPreview();
-    play.appendChild(cell);
+for(let i=0;i<25;i++){
+  let cell=document.createElement('div');
+  cell.className='cell';
+  cell.onclick=()=>handleCellClick(i);
+  cell.addEventListener('mouseenter', () => queueFarseerPreview(i));
+  cell.addEventListener('mouseleave', cancelFarseerPreview);
+  play.appendChild(cell);
 
-    let h=document.createElement('div');
-    h.className='cell';
-    heat.appendChild(h);
-  }
+  let h=document.createElement('div');
+  h.className='cell';
+  heat.appendChild(h);
+}
 }
 
 function placementCells(placement){
@@ -4241,10 +4372,10 @@ window.loadHash = function(){
 DOM.playBoard = document.getElementById('playBoard').children;
 DOM.heatmap = document.getElementById('heatmap').children;
 DOM.infoBox = document.getElementById('infoBox');
+DOM.topInfoBox = document.getElementById('topInfoBox');
 DOM.confidence = document.getElementById('confidence');
 DOM.modeLabel = document.getElementById('modeLabel');
 createBoards();
-createPreviewBox();
 updateBoardLock();
 updateInfoBox();
 
