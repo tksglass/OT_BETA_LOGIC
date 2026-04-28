@@ -44,7 +44,6 @@
   h2, h3 { margin: 5px 0; }
   .topbar { background: #d1d5db; flex-wrap: nowrap; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
   .reset-container { background: #d1d5db; flex-wrap: nowrap; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-  .section { margin-bottom: 12px; }
   .label { font-weight: bold; margin-right: 10px; }
 
   .color-btn {
@@ -151,6 +150,12 @@
   width: 100%;
   box-sizing: border-box;
   margin-bottom: 20px;
+  background: #d1d5db;
+  padding: 15px;
+  border-radius: 12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 4px 10px rgba(0,0,0,0.1);
 }
 
 #topInfoBox .stat-number {
@@ -165,25 +170,15 @@
   gap: 12px;
 }
 
-.top-info-grid .info-card {
-  margin-top: 0;
-}
-
-#topInfoBox {
-  background: #d1d5db;
-  padding: 15px;
-  border-radius: 12px;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.5),
-    0 4px 10px rgba(0,0,0,0.1);
-}
-
 #topInfoBox .info-card {
-  background: #d1d5db;
+  margin-top: 0;
+  background: rgba(96,165,250,0.10);
   color: #111827;
-  border: 1px solid #9ca3af;
+  border: 1px solid #1e3a8a;
   border-radius: 10px;
-  box-shadow: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 6px rgba(0,0,0,0.08);
   transition: transform 0.1s ease, box-shadow 0.1s ease;
 }
 
@@ -193,20 +188,22 @@
 }
 
 #topInfoBox .info-card-title {
-  color: #60a5fa; 
+  color: #1d4ed8;
   letter-spacing: 0.3px;
 }
 
 #infoBox {
   flex: 1;
   width: 100%;
-  background: #111827;
-  color: #f9fafb;
+  background: #d1d5db; 
+  color: #111827;
   padding: 15px;
   border-radius: 12px;
   font-size: 14px;
   line-height: 1.5;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.5),
+    0 4px 10px rgba(0,0,0,0.1);
 }
 
 .topbar, #infoBox, #topInfoBox {
@@ -227,18 +224,32 @@
   margin-right: auto;
 }
 
-.info-farseer {
-  border-color: #8b5cf6;
-  background: #1f2937;
-  color: #ffffff;
+.info-red {
+  border-color: #b91c1c;
+  background: rgba(239,68,68,0.12);
+  color: #111827;
 }
 
-.info-farseer .info-card-title {
-  color: #a855f7;
+.info-red .info-card-title {
+  color: #dc2626;
 }
 
-.info-farseer b {
-  color: #c084fc;
+.info-card.info-farseer {
+  border-color: #7c3aed;
+  background: rgba(168,85,247,0.12); 
+  color: #111827;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 3px 10px rgba(124,58,237,0.18);
+}
+
+.info-card.info-farseer .info-card-title {
+  color: #6d28d9;
+}
+
+.info-card.info-farseer b {
+  color: #7c3aed;
 }
 
 .info-farseer .delta.pos {
@@ -360,8 +371,11 @@
   margin-top: 10px;
   padding: 12px;
   border-radius: 10px;
-  background: #1f2937;
-  border: 1px solid #374151;
+  background: #f3f4f6;
+  border: 1px solid #9ca3af;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.6),
+    0 2px 6px rgba(0,0,0,0.08);
 }
 
 .info-card-title {
@@ -374,13 +388,31 @@
 .info-purple .info-card-title { color: #a855f7; }
 
 .info-gold { border-color: #b45309; }
-.info-gold .info-card-title { color: gold; }
+.info-gold .info-card-title {
+  color: #92400e;
+}
 
 .info-green { border-color: #065f46; }
 .info-green .info-card-title { color: #22c55e; }
 
 .info-blue { border-color: #1e3a8a; }
 .info-blue .info-card-title { color: #60a5fa; }
+
+.info-green {
+  border-color: #065f46;
+  background: rgba(34,197,94,0.08);
+}
+
+.info-purple {
+  border-color: #6d28d9;
+  background: rgba(168,85,247,0.08);
+}
+
+.info-gold {
+  border-color: #b45309;
+  background: rgba(251,191,36,0.12);
+  color: #111827; 
+}
 
 .topbar {
   display: flex;
@@ -452,9 +484,10 @@
   outline: 3px solid #a855f7;
   box-shadow: 0 0 10px 4px rgba(168,85,247,0.8);
 }
+
 .recommended-second {
-  outline: 3px solid gold;
-  box-shadow: 0 0 10px 4px rgba(255,215,0,0.8);
+  outline: 3px solid #b45309;
+  box-shadow: 0 0 10px 4px rgba(180,83,9,0.6);
 }
 
 .recommended-safe {
@@ -491,7 +524,7 @@
 
 .recommended-size2::after {
   content: "2";
-  color: orange;
+  color: #b45309;
   font-weight: bold;
   position: absolute;
   font-size: 16px;
@@ -518,7 +551,7 @@
 
 .info-hint .info-card-title {
   font-size: 14px;
-  color: #93c5fd;
+  color: #1d4ed8; 
 }
 
 .cell.stripe-overlay::after {
@@ -591,15 +624,15 @@
 
   </div>
   
-  <div class="reset-container">
+  <div id="topInfoBox" class="top-info-box"></div>
+  
+</div>
+
+    <div class="reset-container">
   <button id="undoBtn" onclick="undoMove()">Undo</button>
   <button id="redoBtn" onclick="redoMove()">Redo</button>
   <button id="resetBtn" onclick="resetAll()">Reset</button>
 </div>
-  
-</div>
-
-<div id="topInfoBox" class="top-info-box"></div>
 
 <div class="layout">
 
@@ -633,7 +666,7 @@
 
   </div>
 </div>
-
+<br>
   <div class="board-container">
     <h3>Heatmap</h3>
     <div id="heatmap" class="board"></div>
@@ -813,6 +846,11 @@ let placementsCache = {};
 let knownCellsCache = {};
 let colorMaskCache = {};
 let gridMask = 0;
+let outcomeBucketsCache = null;
+let tileShipSizesCache = null;
+let unfoundBonusCache = null;
+let hitMasksCache = null;
+let equivalenceGroupsCache = null;
 
 let configLocked = false;
 let isLoadingHash = false;
@@ -1176,6 +1214,11 @@ function clearPlacementsCache() {
   placementsCache = {};
   clearKnownCellsCache();
   clearColorMaskCache();
+  outcomeBucketsCache = null;
+  tileShipSizesCache = null;
+  unfoundBonusCache = null;
+  hitMasksCache = null;
+  equivalenceGroupsCache = null;
 }
 
 // ===============================
@@ -1458,21 +1501,6 @@ function respectsDirection(direction, horiz){
   if(direction==='horizontal' && !horiz) return false;
   if(direction==='vertical' && horiz) return false;
   return true;
-}
-
-function buildPlacement(r, c, size, horiz){
-  let cells = [];
-
-  for(let k=0;k<size;k++){
-    let rr = r + (horiz ? 0 : k);
-    let cc = c + (horiz ? k : 0);
-
-    if(rr>=5||cc>=5) return null;
-
-    cells.push(coordToIndex(rr,cc));
-  }
-
-  return cells;
 }
 
 function isPlacementValid(cells, color){
@@ -1904,9 +1932,8 @@ function resetHeatmapUI() {
   const heat = DOM.heatmap;
 
   for (let i = 0; i < 25; i++) {
-    const cell = heat[i];
-    cell.style.background = '';
-    cell.textContent = '';
+    setBackgroundIfChanged(heat[i], '');
+    setTextIfChanged(heat[i], '');
   }
 }
 
@@ -2105,15 +2132,26 @@ function runExactSolver() {
   const { counts, valid, allBoards } =
     enumerateAllBoards(ships, placementsMap);
 
-  const probs = computeProbabilities(counts, valid);
+const probs = computeProbabilities(counts, valid);
 
-  appState.allBoards = allBoards;
+const exactCaches = buildExactCaches(allBoards);
+
+outcomeBucketsCache = exactCaches.outcomeBuckets;
+tileShipSizesCache = exactCaches.tileShipSizes;
+unfoundBonusCache = exactCaches.unfoundBonus;
+hitMasksCache = exactCaches.hitMasks;
+equivalenceGroupsCache = exactCaches.equivalenceGroups;
+
+appState.allBoards = allBoards;
 
   appState.forcedTiles = computeForcedTiles(allBoards);
 
-  renderHeatmap(probs);
-  
-if (handleTwoBoardEndgame(valid, probs, allBoards)) return;
+renderHeatmap(probs);
+
+if (handleTwoBoardEndgame(valid, probs, allBoards)) {
+  updateExactSolverUI(valid);
+  return;
+}
 
 const analysis = analyzeEquivalence(allBoards, probs);
 analysis.collapseMove = getBestTwoStepCollapseMove(allBoards, probs);
@@ -2130,11 +2168,14 @@ if (huntMode && !isEarlyGame() && analysis.bestGroup.length >= 2 && bestProb < 1
   return;
 }
 
-if (handleGuaranteedMove(probs)) return;
+if (handleGuaranteedMove(probs)) {
+  updateExactSolverUI(valid);
+  return;
+}
 
 applyEquivalenceResult(analysis, probs);
 
-  updateExactSolverUI(valid);
+updateExactSolverUI(valid);
 }
 
 function resetExactSolverState() {
@@ -2160,31 +2201,12 @@ function prepareExactSolver() {
 }
 
 function getEquivalenceGroups(allBoards){
-  let patterns = {};
-
-  for(let i=0;i<25;i++){
-    if(grid[i]) continue;
-
-    let key = "";
-
-    for(let b of allBoards){
-      key += b[i] ? "1" : "0";
-    }
-
-    if(!patterns[key]) patterns[key] = [];
-    patterns[key].push(i);
+  if (allBoards === appState.allBoards && equivalenceGroupsCache) {
+    return equivalenceGroupsCache;
   }
 
-  return Object.values(patterns);
-}
-
-function violatesSameColorDiagonal(board, placement, ship){
-  for(const i of placementCells(placement)){
-    for(const ni of DIAGONALS[i]){
-      if(board[ni] === ship) return true;
-    }
-  }
-  return false;
+  const hitMasks = allBoards.map(boardToMask);
+  return buildEquivalenceGroupsFromHitMasks(hitMasks);
 }
 
 function canPlaceShip(
@@ -2252,6 +2274,89 @@ if(
   }
 
   return legal;
+}
+
+function buildExactCaches(allBoards) {
+  const outcomeBuckets = Array.from({ length: 25 }, () => ({}));
+  const tileSizeSets = Array.from({ length: 25 }, () => new Set());
+  const unfoundCounts = Array.from({ length: 25 }, () => ({}));
+  const hitMasks = [];
+
+  const foundColors = getFoundColors();
+
+  for (const board of allBoards) {
+    let hitMask = 0;
+
+    for (let i = 0; i < 25; i++) {
+      const color = board[i];
+      const key = color || 0;
+
+      if (!outcomeBuckets[i][key]) {
+        outcomeBuckets[i][key] = 0;
+      }
+
+      outcomeBuckets[i][key]++;
+
+      if (!color) continue;
+
+      hitMask |= cellMask(i);
+
+      if (grid[i]) continue;
+
+      tileSizeSets[i].add(getShipSize(color));
+
+      if (
+        !isRareShipId(color) &&
+        !foundColors.has(color)
+      ) {
+        unfoundCounts[i][color] =
+          (unfoundCounts[i][color] || 0) + 1;
+      }
+    }
+
+    hitMasks.push(hitMask);
+  }
+
+  const tileShipSizes = {};
+  const unfoundBonus = Array(25).fill(0);
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i]) continue;
+
+    tileShipSizes[i] = [...tileSizeSets[i]].sort((a, b) => b - a);
+
+    for (const color in unfoundCounts[i]) {
+      unfoundBonus[i] += unfoundCounts[i][color] / allBoards.length;
+    }
+  }
+
+  return {
+    outcomeBuckets,
+    tileShipSizes,
+    unfoundBonus,
+    hitMasks,
+    equivalenceGroups: buildEquivalenceGroupsFromHitMasks(hitMasks)
+  };
+}
+
+function buildEquivalenceGroupsFromHitMasks(hitMasks) {
+  const patterns = {};
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i]) continue;
+
+    const mask = cellMask(i);
+    let key = "";
+
+    for (const hitMask of hitMasks) {
+      key += (hitMask & mask) ? "1" : "0";
+    }
+
+    if (!patterns[key]) patterns[key] = [];
+    patterns[key].push(i);
+  }
+
+  return Object.values(patterns);
 }
 
 function selectNextShipIndex(
@@ -2435,6 +2540,18 @@ function computeForcedTiles(allBoards) {
   for (let i = 0; i < 25; i++) {
     if (grid[i] !== null) continue;
 
+    const buckets = outcomeBucketsCache?.[i];
+
+    if (buckets) {
+      const keys = Object.keys(buckets);
+
+      if (keys.length === 1) {
+        forcedTiles[i] = keys[0] === "0" ? "miss" : keys[0];
+      }
+
+      continue;
+    }
+
     const first = allBoards[0][i];
     const allSame = allBoards.every(b => b[i] === first);
 
@@ -2450,14 +2567,93 @@ function getOutcomeKey(board, tile) {
   return board[tile] || 0;
 }
 
-function scoreCollapseForTile(allBoards, tile, probs) {
-  const buckets = {};
+function buildOutcomeBuckets(allBoards) {
+  const bucketsPerTile = Array.from({ length: 25 }, () => ({}));
 
   for (const board of allBoards) {
-    const key = getOutcomeKey(board, tile);
+    for (let i = 0; i < 25; i++) {
+      const key = board[i] || 0;
 
-    if (!buckets[key]) buckets[key] = 0;
-    buckets[key]++;
+      if (!bucketsPerTile[i][key]) {
+        bucketsPerTile[i][key] = 0;
+      }
+
+      bucketsPerTile[i][key]++;
+    }
+  }
+
+  return bucketsPerTile;
+}
+
+function buildTileShipSizes(allBoards) {
+  const tileMap = {};
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i]) continue;
+
+    const sizes = new Set();
+
+    for (const board of allBoards) {
+      const color = board[i];
+      if (!color) continue;
+
+      sizes.add(getShipSize(color));
+    }
+
+    tileMap[i] = [...sizes].sort((a, b) => b - a);
+  }
+
+  return tileMap;
+}
+
+function buildUnfoundBonusCache(allBoards) {
+  const bonuses = Array(25).fill(0);
+
+  if (!allBoards || allBoards.length === 0) {
+    return bonuses;
+  }
+
+  const foundColors = getFoundColors();
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i]) continue;
+
+    const unfoundHitsByColor = {};
+
+    for (const board of allBoards) {
+      const color = board[i];
+
+      if (!color) continue;
+      if (isRareShipId(color)) continue;
+      if (foundColors.has(color)) continue;
+
+      unfoundHitsByColor[color] =
+        (unfoundHitsByColor[color] || 0) + 1;
+    }
+
+    for (const color in unfoundHitsByColor) {
+      bonuses[i] += unfoundHitsByColor[color] / allBoards.length;
+    }
+  }
+
+  return bonuses;
+}
+
+function scoreCollapseForTile(allBoards, tile, probs) {
+  let buckets =
+    allBoards === appState.allBoards
+      ? outcomeBucketsCache?.[tile]
+      : null;
+
+  if (!buckets) {
+    buckets = {};
+
+    for (const board of allBoards) {
+      const key = getOutcomeKey(board, tile);
+
+      if (!buckets[key]) buckets[key] = 0;
+      buckets[key]++;
+    }
   }
 
   let expectedRemaining = 0;
@@ -2638,24 +2834,11 @@ function analyzeEquivalence(allBoards, probs) {
 }
 
 function getTileShipSizes(allBoards){
-  let tileMap = {};
-
-  for(let i = 0; i < 25; i++){
-    if(grid[i]) continue;
-
-    let sizes = new Set();
-
-    for(let b of allBoards){
-      let color = b[i];
-      if(!color) continue;
-
-      sizes.add(getShipSize(color));
-    }
-
-    tileMap[i] = [...sizes].sort((a,b)=>b-a);
+  if (allBoards === appState.allBoards && tileShipSizesCache) {
+    return tileShipSizesCache;
   }
 
-  return tileMap;
+  return buildTileShipSizes(allBoards);
 }
 
 function applyEquivalenceResult(data, probs) {
@@ -2810,20 +2993,22 @@ function renderHeatmap(probs) {
   if (!isNormalMode()) return;
 
   const heat = DOM.heatmap;
-
-const { huntMode } = getGameContext();
+  const { huntMode } = getGameContext();
 
   for (let i = 0; i < 25; i++) {
     const displayProb = huntMode ? probs[i] : (1 - probs[i]);
+    const bg = `rgba(255,0,0,${displayProb})`;
+    const text = displayProb.toFixed(2);
 
-    heat[i].style.background = `rgba(255,0,0,${displayProb})`;
-    heat[i].textContent = displayProb.toFixed(2);
+    setBackgroundIfChanged(heat[i], bg);
+    setTextIfChanged(heat[i], text);
   }
 
-  DOM.modeLabel.textContent =
-    huntMode
-      ? "Mode: Aggressive (Non-blue Hunting)"
-      : "Mode: Safe (Blue Hunting)";
+  const label = huntMode
+    ? "Mode: Aggressive (Non-blue Hunting)"
+    : "Mode: Safe (Blue Hunting)";
+
+  setTextIfChanged(DOM.modeLabel, label);
 }
 
 function renderForcedOverlays() {
@@ -3117,21 +3302,23 @@ const { hits, misses, huntMode } = getGameContext();
     const [r, c] = indexToCoord(move.i);
     const coordText = `<span style="color:${color}; font-weight:bold">Row ${r+1}, Col ${c+1}</span>`;
 
-    const elimination = 2 * p * (1 - p);
+    const elimination = move.expectedRemaining
+  ? 1 - (move.expectedRemaining / appState.allBoards.length)
+  : 2 * p * (1 - p);
 
     if (huntMode) {
       return `${coordText}
-→ Eliminates ~${(elimination*100).toFixed(1)}%
-→ ${hitLabel}: ${(hitChance*100).toFixed(1)}%`;
+<br>Eliminates ~${(elimination*100).toFixed(1)}%
+<br>${hitLabel}: ${(hitChance*100).toFixed(1)}%`;
     }
 
     return `${coordText}
-→ Info gain: ${(elimination*100).toFixed(1)}%
-→ ${hitLabel}: ${(hitChance*100).toFixed(1)}%`;
+<br>Info gain: ${(elimination*100).toFixed(1)}%
+<br>${hitLabel}: ${(hitChance*100).toFixed(1)}%`;
   };
   
-  const best = topMoves[0];
-  const safest = topMoves.find(m => m.type === 'safe');
+const safest = topMoves.find(m => m.type === 'safe');
+const best = topMoves.find(m => m.type !== 'safe');
 
 if (safest && (!best || safest.i !== best.i)) {
   messages.push(
@@ -3146,7 +3333,7 @@ if (safest && (!best || safest.i !== best.i)) {
   if (best) {
     messages.push(
       makeCard(
-        "Most Informative",
+        "Strategically Valuable",
         describeMove(best, "#a855f7"),
         "info-purple"
       )
@@ -3156,16 +3343,20 @@ if (safest && (!best || safest.i !== best.i)) {
 const collapseMove = appState.collapseMove;
 const second = collapseMove || topMoves[1];
 
-if (second && (!best || second.i !== best.i)) {
+if (
+  second &&
+  (!best || second.i !== best.i) &&
+  (!safest || second.i !== safest.i)
+) {
   const title = collapseMove
     ? "2-Step Collapse"
-    : "Alternative";
+    : "Strategically Valuable Alternative";
 
 const body = collapseMove
-	? `${describeMove(second, "gold")}
-	<br><br>
-	<span style="color:#fbbf24">Expected boards after 2 clicks:</span> ${collapseMove.expectedRemaining.toFixed(1)}`
-	: describeMove(second, "gold");
+  ? `${describeMove(second, "#b45309").replace(/<br>Info gain: .*?(\n|<br>)/, "")}
+  <br>
+  <span style="color:#b45309">Expected boards after 2 clicks:</span> ${collapseMove.expectedRemaining.toFixed(1)}`
+  : describeMove(second, "#b45309");
 
   messages.push(
     makeCard(
@@ -3185,13 +3376,13 @@ function appendFallback(messages) {
 
 function appendOpeningHint(messages, ctx) {
   if (rareCount !== null && !ctx.hasStarted) {
-    messages.push("");
-    messages.push(`
-      <div style="margin-top:10px;padding:10px;border-radius:8px;background:#1f2937;border:1px solid #374151;">
-        <b style="color:#22c55e">Optimal Opening</b><br>
-       ${getOpeningHintText()}
-      </div>
-    `);
+    messages.push(
+      makeCard(
+        "Optimal Opening",
+        getOpeningHintText(),
+        "info-green info-hint"
+      )
+    );
   }
 }
 
@@ -3290,14 +3481,13 @@ document.querySelectorAll('[onclick^="setMode"]').forEach(b=>{
 }
 
 function showError(msg){
-  const box = DOM.infoBox;
-  box.innerHTML = "<span style='color:#ff6b6b'><b>Error:</b> " + msg + "</span>";
+  DOM.infoBox.innerHTML = makeCard(
+    "Error",
+    msg,
+    "info-red"
+  );
 
-  const heat = DOM.heatmap;
-  for(let i=0;i<25;i++){
-    heat[i].style.background = '';
-    heat[i].textContent = '';
-  }
+  resetHeatmapUI();
 
   DOM.confidence.textContent = "Invalid board state";
 }
@@ -3313,16 +3503,16 @@ function showFarseerPreview(tileIndex){
     return;
   }
 
-  if(!appState.allBoards || appState.allBoards.length === 0){
-    farseerCardHtml = makeCard(
-      "Farseer Preview",
-      "Preview unavailable until exact solving.",
-      "info-blue"
-    );
+if(!appState.allBoards || appState.allBoards.length === 0){
+  farseerCardHtml = makeCard(
+    "Farseer Preview",
+    "Preview unavailable until exact solving.",
+    "info-farseer"
+  );
 
-    updateInfoBox();
-    return;
-  }
+  updateInfoBox();
+  return;
+}
 
   const hitBoards = appState.allBoards.filter(b => b[tileIndex]);
   const missBoards = appState.allBoards.filter(b => !b[tileIndex]);
@@ -3416,8 +3606,6 @@ const rows = changes.map(change => {
   const deltaVal = (change.delta * 100).toFixed(1);
   const sign = isPositive ? "+" : "";
 
-  const { huntMode } = getGameContext();
-
   const finalProb = huntMode
     ? scenarioProbs[change.i]
     : 1 - scenarioProbs[change.i];
@@ -3477,19 +3665,47 @@ function clearSelectedColorUI() {
 
 function clearRecommendations(){
   const play = DOM.playBoard;
+
   for(let c of play){
-    c.classList.remove('recommended-best');
-    c.classList.remove('recommended-second');
-    c.classList.remove('recommended-safe');
-	c.classList.remove('recommended-avoid'); 
-	c.classList.remove('recommended-equal');
-	c.classList.remove('recommended-size2');
-	c.classList.remove('recommended-final');
-	c.removeAttribute("data-label");
-    c.textContent = "";
-c.classList.remove('stripe-overlay');
-c.classList.remove('stripe-rainbow');
-c.style.removeProperty('--stripe-color');
+    removeClassIfPresent(c, 'recommended-best');
+    removeClassIfPresent(c, 'recommended-second');
+    removeClassIfPresent(c, 'recommended-safe');
+    removeClassIfPresent(c, 'recommended-avoid');
+    removeClassIfPresent(c, 'recommended-equal');
+    removeClassIfPresent(c, 'recommended-size2');
+    removeClassIfPresent(c, 'recommended-final');
+    removeClassIfPresent(c, 'stripe-overlay');
+    removeClassIfPresent(c, 'stripe-rainbow');
+
+    if (c.hasAttribute("data-label")) {
+      c.removeAttribute("data-label");
+    }
+
+    if (c.textContent !== "") {
+      c.textContent = "";
+    }
+
+    if (c.style.getPropertyValue('--stripe-color')) {
+      c.style.removeProperty('--stripe-color');
+    }
+  }
+}
+
+function setTextIfChanged(el, value) {
+  if (el.textContent !== value) {
+    el.textContent = value;
+  }
+}
+
+function setBackgroundIfChanged(el, value) {
+  if (el.style.background !== value) {
+    el.style.background = value;
+  }
+}
+
+function removeClassIfPresent(el, className) {
+  if (el.classList.contains(className)) {
+    el.classList.remove(className);
   }
 }
 
@@ -3522,7 +3738,25 @@ function highlightRecommendations(probs) {
 
 function buildCandidates(probs) {
   return probs
-    .map((p, i) => ({ p, i }))
+    .map((p, i) => {
+      const candidate = { p, i };
+      const buckets = outcomeBucketsCache?.[i];
+
+      if (buckets && appState.allBoards?.length) {
+        let expectedRemaining = 0;
+
+        for (const key in buckets) {
+          const count = buckets[key];
+          const outcomeChance = count / appState.allBoards.length;
+
+          expectedRemaining += outcomeChance * count;
+        }
+
+        candidate.expectedRemaining = expectedRemaining;
+      }
+
+      return candidate;
+    })
     .filter(c => !grid[c.i]);
 }
 
@@ -3681,14 +3915,15 @@ if(phase === "early"){
 
 function selectTopMoves(candidates, huntMode) {
   let topMoves = candidates.slice(0, 2);
-  let safest = null;
 
-  if (!huntMode) {
-    safest = [...candidates].sort((a, b) => a.p - b.p)[0];
-  }
+  let safest = !huntMode
+    ? [...candidates].sort((a, b) => a.p - b.p)[0]
+    : null;
 
-  if (safest && topMoves.some(m => m.i === safest.i)) {
-    safest = null;
+  const best = topMoves[0];
+
+  if (safest && best && safest.i === best.i) {
+    topMoves = topMoves.filter(m => m.i !== safest.i);
   }
 
   topMoves = topMoves.map(m => ({ ...m, type: 'top' }));
@@ -3775,9 +4010,7 @@ function renderEquivalenceInfo(data){
   const size2Tiles = data.size2Tiles || [];
   const probs = data.probs || [];
 
-  let content = `
-    Best move tiles are statistically identical and have a green border.<br>
-    Unbordered tiles labeled "2" may also be part of a rare ship with reasonably high certainty. See below.<br><br>
+  let content = `<br>
   `;
 
   if(bestTiles.length){
@@ -3812,12 +4045,12 @@ if(size2Tiles.length){
     let coords = partialSize2.map(({i,p}) => {
       let [r,c] = indexToCoord(i);
 
-      return `
-        <span style="color:gold">
-          Row ${r+1}, Col ${c+1}
-        </span>
-        (${(p*100).toFixed(1)}%)
-      `;
+return `
+  <span style="color:#92400e; font-weight:bold">
+    Row ${r+1}, Col ${c+1}
+  </span>
+  (${(p*100).toFixed(1)}%)
+`;
     }).join("<br>");
 
     content += `
@@ -3830,12 +4063,12 @@ if(size2Tiles.length){
     let coords = unknownSize2.map(({i,p}) => {
       let [r,c] = indexToCoord(i);
 
-      return `
-        <span style="color:gold">
-          Row ${r+1}, Col ${c+1}
-        </span>
-        (${(p*100).toFixed(1)}%)
-      `;
+return `
+  <span style="color:#92400e; font-weight:bold">
+    Row ${r+1}, Col ${c+1}
+  </span>
+  (${(p*100).toFixed(1)}%)
+`;
     }).join("<br>");
 
     content += `
@@ -3845,7 +4078,38 @@ if(size2Tiles.length){
   }
 }
 
-  content += `<span style="color:#ff6b6b">Avoid all tiles marked ✕</span>`;
+const avoidTiles = [];
+
+for(let i = 0; i < 25; i++){
+  if(grid[i] !== null) continue;
+  if(bestTiles.includes(i)) continue;
+  if(size2Tiles.includes(i)) continue;
+
+  avoidTiles.push(i);
+}
+
+let avoidText = "";
+
+if(avoidTiles.length){
+  const avoidProbs = avoidTiles
+    .map(i => probs[i])
+    .filter(p => typeof p === "number");
+
+  const minAvoid = Math.min(...avoidProbs);
+  const maxAvoid = Math.max(...avoidProbs);
+
+  const minPct = (minAvoid * 100).toFixed(1);
+  const maxPct = (maxAvoid * 100).toFixed(1);
+
+  const rangeText =
+    avoidTiles.length > 1 && minPct !== maxPct
+      ? `${minPct}% – ${maxPct}%`
+      : `≤ ${maxPct}%`;
+
+  avoidText = ` (${rangeText})`;
+}
+
+content += `<span style="color:#b91c1c; font-weight:500">Avoid all tiles marked ✕<br>They could be part of a ship, but their odds are low. ${avoidText}.</span>`;
 
 const messages = [
   makeCard(
@@ -3938,6 +4202,10 @@ function placementKey(placement){
 }
 
 function getCandidateUnfoundColorBonus(tileIndex, allBoards){
+  if (allBoards === appState.allBoards && unfoundBonusCache) {
+    return unfoundBonusCache[tileIndex] || 0;
+  }
+
   if(!allBoards || allBoards.length === 0) return 0;
 
   const foundColors = getFoundColors();
@@ -3947,7 +4215,7 @@ function getCandidateUnfoundColorBonus(tileIndex, allBoards){
     const color = board[tileIndex];
 
     if(!color) continue;
-    if(color.startsWith('rare_')) continue;
+    if(isRareShipId(color)) continue;
     if(foundColors.has(color)) continue;
 
     unfoundHitsByColor[color] =
@@ -4016,6 +4284,13 @@ function getKnownMissMask(){
   return mask;
 }
 
+function isRareShipId(cell) {
+  return !!cell && (
+    RARE_COLORS.includes(cell) ||
+    cell.startsWith('rare_')
+  );
+}
+
 function boardKey(board){
   let key = "";
 
@@ -4024,7 +4299,7 @@ function boardKey(board){
 
     if(!cell){
       key += "x";
-    } else if(cell.startsWith("rare_")){
+    } else if(isRareShipId(cell)){
       key += "R";
     } else {
       key += COLOR_TO_ID[cell];
