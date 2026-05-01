@@ -3967,18 +3967,25 @@ for(const t of tiles){
 
   const cell = play[t.i];
 
-  cell.classList.remove(
-    'recommended-best',
-    'recommended-second',
-    'recommended-safe',
-    'recommended-avoid',
-    'recommended-equal',
-    'recommended-final',
-    'stripe-overlay',
-    'stripe-rainbow'
-  );
+const label = cell.getAttribute("data-label");
 
-  cell.classList.add('rainbow-highlight');
+cell.classList.remove(
+  'recommended-best',
+  'recommended-second',
+  'recommended-safe',
+  'recommended-avoid',
+  'recommended-equal',
+  'recommended-size2',
+  'recommended-final',
+  'stripe-overlay',
+  'stripe-rainbow'
+);
+
+if(label){
+  cell.classList.add('recommended-label');
+}
+
+cell.classList.add('rainbow-highlight');
 }
 }
 
