@@ -3967,7 +3967,14 @@ for(const t of tiles){
 
   const cell = play[t.i];
 
-const label = cell.getAttribute("data-label");
+let label = cell.getAttribute("data-label");
+
+if(!label && appState.specialGroup?.shipMap?.[t.i]){
+  label = appState.specialGroup.shipMap[t.i]
+    .slice()
+    .sort((a,b)=>b-a)
+    .join("/");
+}
 
 cell.classList.remove(
   'recommended-best',
@@ -3983,6 +3990,7 @@ cell.classList.remove(
 
 if(label){
   cell.classList.add('recommended-label');
+  cell.setAttribute("data-label", label);
 }
 
 cell.classList.add('rainbow-highlight');
