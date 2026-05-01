@@ -43,7 +43,7 @@
 }
   h2, h3 { margin: 5px 0; }
   .topbar { background: #d1d5db; flex-wrap: nowrap; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-  .reset-container { background: #d1d5db; flex-wrap: nowrap; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+  .reset-container { background: #d1d5db; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
   .label { font-weight: bold; margin-right: 10px; }
 
   .color-btn {
@@ -57,10 +57,43 @@
   box-shadow: 0 0 0 3px black, 0 0 8px rgba(0,0,0,0.4);
 }
 
-  button {
-    padding: 6px 10px; margin-right: 5px; border-radius: 6px;
-    border: none; cursor: pointer; background: #ddd;
-  }
+.color-btn[data-color="rainbow"].selected {
+  transform: scale(1.15);
+  box-shadow:
+    0 0 0 3px black,
+    0 0 8px rgba(0,0,0,0.4),
+    inset 0 1px 2px rgba(255,255,255,0.65);
+}
+
+.color-btn[data-color="rainbow"] {
+  background:
+    linear-gradient(
+      135deg,
+      rgb(239,68,68),
+      rgb(251,191,36),
+      rgb(34,197,94),
+      rgb(59,130,246),
+      rgb(168,85,247)
+    ),
+    linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.65),
+      rgba(255,255,255,0.05)
+    );
+
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.65),
+    0 2px 5px rgba(0,0,0,0.30);
+}
+
+button {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  background: #ddd;
+}
+
   button:hover { background: #ccc; }
   .active-btn { background: #4CAF50; color: white; }
 
@@ -69,12 +102,6 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 10px;
-}
-
-.action-group {
-  display: flex;
-  gap: 10px;
-  margin-left: auto;
 }
 
 .boards {
@@ -86,6 +113,19 @@
 
 #heatmap .cell {
   transition: background-color 0.5s ease;
+}
+
+.heatmap-subtitle {
+  font-size: 12px;
+  color: #374151;
+  opacity: 0.7;
+  margin-bottom: 6px;
+}
+
+.heatmap-subtitle.error {
+  color: #dc2626; 
+  font-weight: 600;
+  opacity: 1;
 }
 
 .credit {
@@ -111,51 +151,16 @@
   flex: 1;
 }
 
-.preview-box {
-  position: fixed;
-  z-index: 9999;
-  max-width: 260px;
-  font-size: 13px;
-  line-height: 1.25;
-  pointer-events: none;
-
-  color: #ffffff;
-}
-
-.preview-box b {
-  color: #c084fc; 
-}
-
-.preview-box .final-prob {
-  color: #e5e7eb;
-  font-weight: 600;
-  margin-left: 4px;
-}
-
-.preview-box .delta.pos {
-  color: #22c55e; 
-  font-weight: bold;
-}
-
-.preview-box .delta.neg {
-  color: #ef4444; 
-  font-weight: bold;
-}
-
-.preview-box:empty {
-  display: none;
-}
-
 #topInfoBox {
   width: 100%;
   box-sizing: border-box;
-  margin-bottom: 20px;
-  background: #d1d5db;
-  padding: 15px;
-  border-radius: 12px;
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.5),
-    0 4px 10px rgba(0,0,0,0.1);
+  margin: 0;
+  
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin-bottom: 10px;
 }
 
 #topInfoBox .stat-number {
@@ -192,6 +197,14 @@
   letter-spacing: 0.3px;
 }
 
+.reset-actions {
+  display: grid;
+  grid-template-columns: repeat(3, max-content);
+  justify-content: center;
+  gap: 110px;
+  width: 100%;
+}
+
 #infoBox {
   flex: 1;
   width: 100%;
@@ -206,7 +219,7 @@
     0 4px 10px rgba(0,0,0,0.1);
 }
 
-.topbar, #infoBox, #topInfoBox {
+.topbar, #infoBox {
   width: 100%;
   box-sizing: border-box;
 }
@@ -224,6 +237,28 @@
   margin-right: auto;
 }
 
+.info-card.info-rainbow {
+  border-color: #db2777;
+  background: linear-gradient(
+    135deg,
+    rgba(239,68,68,0.10),
+    rgba(251,191,36,0.12),
+    rgba(168,85,247,0.12)
+  );
+  color: #111827;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.65),
+    0 3px 10px rgba(219,39,119,0.16);
+}
+
+.info-card.info-rainbow .info-card-title {
+  color: #be185d;
+}
+
+.info-card.info-rainbow b {
+  color: #be185d;
+}
+
 .info-red {
   border-color: #b91c1c;
   background: rgba(239,68,68,0.12);
@@ -233,35 +268,6 @@
 .info-red .info-card-title {
   color: #dc2626;
 }
-
-.info-card.info-farseer {
-  border-color: #7c3aed;
-  background: rgba(168,85,247,0.12); 
-  color: #111827;
-
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.6),
-    0 3px 10px rgba(124,58,237,0.18);
-}
-
-.info-card.info-farseer .info-card-title {
-  color: #6d28d9;
-}
-
-.info-card.info-farseer b {
-  color: #7c3aed;
-}
-
-.info-farseer .delta.pos {
-  color: #22c55e;
-  font-weight: bold;
-}
-
-.info-farseer .delta.neg {
-  color: #ef4444;
-  font-weight: bold;
-}
-
 
 .board-container {
   background: #f3f4f6;
@@ -423,6 +429,92 @@
   width: 100%;
 }
 
+#topInfoBox.hidden,
+#topInfoDivider.hidden {
+  display: none !important;
+}
+
+.top-info-divider {
+  width: 92%;
+  height: 1px;
+  margin: 10px auto 14px;
+
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(17, 24, 39, 0.25),
+    transparent
+  );
+
+  position: relative;
+}
+
+.rainbow-highlight {
+  position: relative;
+}
+
+.rainbow-highlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 10;
+
+  background:
+    linear-gradient(
+      90deg,
+      rgba(239,68,68,0.95),
+      rgba(251,191,36,0.85),
+      rgba(34,197,94,0.88),
+      rgba(59,130,246,0.88),
+      rgba(168,85,247,0.95)
+    ) top / 100% 3px no-repeat,
+
+    linear-gradient(
+      90deg,
+      rgba(239,68,68,0.95),
+      rgba(251,191,36,0.85),
+      rgba(34,197,94,0.88),
+      rgba(59,130,246,0.88),
+      rgba(168,85,247,0.95)
+    ) bottom / 100% 3px no-repeat,
+
+    linear-gradient(
+      180deg,
+      rgba(239,68,68,0.95),
+      rgba(251,191,36,0.85),
+      rgba(34,197,94,0.88),
+      rgba(59,130,246,0.88),
+      rgba(168,85,247,0.95)
+    ) left / 3px 100% no-repeat,
+
+    linear-gradient(
+      180deg,
+      rgba(239,68,68,0.95),
+      rgba(251,191,36,0.85),
+      rgba(34,197,94,0.88),
+      rgba(59,130,246,0.88),
+      rgba(168,85,247,0.95)
+    ) right / 3px 100% no-repeat;
+}
+
+.top-info-divider::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1px;
+  height: 1px;
+
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(255,255,255,0.5),
+    transparent
+  );
+}
+
 .section {
   display: flex;
   align-items: center;
@@ -433,11 +525,6 @@
 #undoBtn {
   background: #374151;
   color: #f9fafb;
-  margin-right: 100px;
-}
-
-#redoBtn {
-  margin-right: 100px;
 }
 
 #undoBtn:hover {
@@ -456,6 +543,7 @@
 .reset-container {
   display: flex;
   justify-content: center;
+  flex-direction: column;
 }
 
 #resetBtn {
@@ -469,15 +557,24 @@
 
 .topbar,
 .board-container,
-#infoBox,
-#topInfoBox {
+#infoBox {
   border-radius: 12px;
 }
 
-.guaranteed-unknown {
-  font-size: 18px;
-  color: #a855f7; 
+.guaranteed-unknown::after {
+  content: "?";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 22px;
   font-weight: bold;
+  color: #111827;
+
+  background: rgba(168,85,247,0.18);
+  border-radius: 6px;
 }
 
   .recommended-best {
@@ -537,11 +634,11 @@
 }
 
 .recommended-final::after {
-  content: "?";
+  content: "◆";
   color: #a855f7;
   font-weight: bold;
   position: absolute;
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .info-hint {
@@ -624,14 +721,22 @@
 
   </div>
   
-  <div id="topInfoBox" class="top-info-box"></div>
+
   
 </div>
 
-    <div class="reset-container">
-  <button id="undoBtn" onclick="undoMove()">Undo</button>
-  <button id="redoBtn" onclick="redoMove()">Redo</button>
-  <button id="resetBtn" onclick="resetAll()">Reset</button>
+<div class="reset-container">
+
+  <div id="topInfoBox" class="top-info-box hidden"></div>
+
+  <div id="topInfoDivider" class="top-info-divider hidden"></div>
+
+  <div class="reset-actions">
+    <button id="undoBtn" onclick="undoMove()">Undo</button>
+    <button id="redoBtn" onclick="redoMove()">Redo</button>
+    <button id="resetBtn" onclick="resetAll()">Reset</button>
+  </div>
+
 </div>
 
 <div class="layout">
@@ -653,7 +758,7 @@
         <span class="color-btn" data-color="red" style="background:red" onclick="selectColor('red',event)"></span>
         <span class="color-btn" data-color="black" style="background:black" onclick="selectColor('black',event)"></span>
         <span class="color-btn" data-color="white" style="background:white" onclick="selectColor('white',event)"></span>
-        <span class="color-btn" data-color="rainbow" style="background: linear-gradient(to bottom, red, orange, yellow, green, blue, indigo, violet);" onclick="selectColor('rainbow',event)"></span>
+        <span class="color-btn" data-color="rainbow" onclick="selectColor('rainbow',event)"></span>
       </div>
     </div>
 
@@ -668,10 +773,11 @@
 </div>
 <br>
   <div class="board-container">
-    <h3>Heatmap</h3>
-    <div id="heatmap" class="board"></div>
-    <div id="confidence" class="confidence"></div>
-    <div id="modeLabel" class="confidence"></div>
+<h3 id="heatmapTitle">Heatmap</h3>
+<div id="heatmapSubtitle" class="heatmap-subtitle"></div>
+<div id="heatmap" class="board"></div>
+<div id="confidence" class="confidence"></div>
+<div id="modeLabel" class="confidence"></div>
   </div>
   
     </div>
@@ -733,17 +839,12 @@ const ID_TO_COLOR = Object.fromEntries(
 const DOM = {
   playBoard: null,
   heatmap: null,
+  heatmapTitle: null,
+  heatmapSubtitle: null,
   infoBox: null,
   topInfoBox: null,
   confidence: null,
-  modeLabel: null,
-  previewBox: null
-};
-
-const RAW_PLACEMENTS = {
-  2: buildRawPlacements(2),
-  3: buildRawPlacements(3),
-  4: buildRawPlacements(4)
+  modeLabel: null
 };
 
 function buildRawPlacements(size){
@@ -767,12 +868,20 @@ function buildRawPlacements(size){
         }
 
         if(cells.length === size){
-		  placements.push({
-		  cells,
-		  horiz,
-		  key: cells[0],
-		  mask: cellsToMask(cells)
-		});
+          const mask = cellsToMask(cells);
+          let diagonalMask = 0;
+
+          for(const i of cells){
+            diagonalMask |= DIAGONAL_MASKS[i];
+          }
+
+          placements.push({
+            cells,
+            horiz,
+            key: cells[0],
+            mask,
+            diagonalMask
+          });
         }
       }
     }
@@ -820,6 +929,12 @@ for(let i = 0; i < 25; i++){
   DIAGONAL_MASKS[i] = mask;
 }
 
+const RAW_PLACEMENTS = {
+  2: buildRawPlacements(2),
+  3: buildRawPlacements(3),
+  4: buildRawPlacements(4)
+};
+
 // ===============================
 // T.02 GLOBAL STATE
 // ===============================
@@ -845,6 +960,7 @@ let lastSpecialGroup = null;
 let placementsCache = {};
 let knownCellsCache = {};
 let colorMaskCache = {};
+let gridStatsCache = null;
 let gridMask = 0;
 let outcomeBucketsCache = null;
 let tileShipSizesCache = null;
@@ -855,9 +971,9 @@ let equivalenceGroupsCache = null;
 let configLocked = false;
 let isLoadingHash = false;
 
-let farseerCardHtml = "";
-let hoverDebounceTimer = null;
+let hoverPreviewTimer = null;
 let lastHoveredTile = null;
+let heatmapPreviewActive = false;
 
 // ===============================
 // T.03 ACTIONS
@@ -867,14 +983,13 @@ function placeColor(i) {
   if (isGameOver()) return;
   if (!canPlaceColor()) return;
 
-  const prevSnapshot = {
-    currentMode,
-    appState: deepClone(appState),
-    lastSpecialGroup,
-    lastProbs,
-    lastTopMoves,
-    farseerCardHtml
-  };
+const prevSnapshot = {
+  currentMode,
+  appState: deepClone(appState),
+  lastSpecialGroup,
+  lastProbs,
+  lastTopMoves
+};
 
   const prevColor = grid[i];
   const newColor = toggleColor(i);
@@ -891,7 +1006,6 @@ function placeColor(i) {
     lastSpecialGroup = prevSnapshot.lastSpecialGroup;
     lastProbs = prevSnapshot.lastProbs;
     lastTopMoves = prevSnapshot.lastTopMoves;
-    farseerCardHtml = prevSnapshot.farseerCardHtml;
 
     clearPlacementsCache();
     render();
@@ -1013,6 +1127,7 @@ window.resetAll = function(){
   rareCount = null;
   forcedStartMode = null;
   history = [];
+  updateTopInfoVisibility();
   
 
   document.querySelectorAll('.color-btn').forEach(b=>{
@@ -1033,11 +1148,21 @@ for(let i=0;i<25;i++){
   heat[i].textContent = '';
 }
 
+setTextIfChanged(DOM.heatmapTitle, "Heatmap");
+DOM.heatmapSubtitle.classList.remove('error');
+
+setTextIfChanged(DOM.heatmapSubtitle, "");
+
+heatmapPreviewActive = false;
+lastHoveredTile = null;
+
   DOM.confidence.textContent = "";
   DOM.modeLabel.textContent = "";
 currentMode = MODE.NORMAL;
 
 appState = createEmptyAppState();
+gridStatsCache = null;
+DOM.infoBox.innerHTML = "";
 
 lastSpecialGroup = null;
 
@@ -1214,6 +1339,7 @@ function clearPlacementsCache() {
   placementsCache = {};
   clearKnownCellsCache();
   clearColorMaskCache();
+  gridStatsCache = null;
   outcomeBucketsCache = null;
   tileShipSizesCache = null;
   unfoundBonusCache = null;
@@ -1435,12 +1561,17 @@ function getShipList(){
   let ships = ['teal','green','yellow'];
 
   let used = getUsedRare();
+
+  if (!used.includes('orange')) {
+    used = ['orange', ...used];
+  }
+
   let remaining = Math.max(0, rareCount - used.length);
 
   ships.push(...used);
 
   for(let i = 0; i < remaining; i++){
-   ships.push(`rare_${i}`);
+    ships.push(`rare_${i}`);
   }
 
   return ships;
@@ -1460,11 +1591,15 @@ function isFirstAnonymousRareInList(ship, remainingShips){
 
 function getKnownCells(color){
   if(color.startsWith('rare_')) return [];
+
+  const mask = getGridStats().colorMasks[color] || 0;
   const cells = [];
-for (let i = 0; i < 25; i++) {
-  if (grid[i] === color) cells.push(i);
-}
-return cells;
+
+  for(let i = 0; i < 25; i++){
+    if(mask & cellMask(i)) cells.push(i);
+  }
+
+  return cells;
 }
 
 function getDirectionConstraint(cells){
@@ -1489,7 +1624,7 @@ for(const placement of RAW_PLACEMENTS[size]){
   if(!respectsDirection(direction, horiz)) continue;
   if(!respectsKnownMask(placement, color)) continue;
   if(!isPlacementValid(cells, color)) continue;
-  if(!passesDiagonalRulePlacement(cells, color)) continue;
+  if(!passesDiagonalRulePlacement(placement, color)) continue;
 
   placements.push(placement);
 }
@@ -1513,11 +1648,10 @@ function isPlacementValid(cells, color){
   return true;
 }
 
-function passesDiagonalRulePlacement(cells, color){
+function passesDiagonalRulePlacement(placement, color){
   const colorMask = getColorMaskCached(color);
-  const placementMask = cellsToMask(cells);
 
-  return !violatesDiagonalMask(placementMask, colorMask);
+  return (placement.diagonalMask & colorMask) === 0;
 }
 
 function getPlacementsCached(color){
@@ -1541,20 +1675,23 @@ function backtrackPlace(ships, placementsMap, index, board, occupiedMask = 0){
     const cells = placementCells(opt);
     const placementMask = getPlacementMask(opt);
 
-    if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
-      let prevShip = ships[index-1];
+if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
+  let prevShip = ships[index-1];
+  let minPrev = Infinity;
 
-      let prevCells = board
-        .map((c,i)=>c===prevShip?i:null)
-        .filter(x=>x!==null);
-
-      if(prevCells.length){
-        let minPrev = Math.min(...prevCells);
-        let minCurr = placementKey(opt);
-
-        if(minCurr < minPrev) continue;
-      }
+  for(let i = 0; i < 25; i++){
+    if(board[i] === prevShip){
+      minPrev = i;
+      break;
     }
+  }
+
+  if(minPrev !== Infinity){
+    let minCurr = placementKey(opt);
+
+    if(minCurr < minPrev) continue;
+  }
+}
 
     if(placementMask & occupiedMask) continue;
 
@@ -1582,42 +1719,47 @@ function mcmcStep(board, ships, placementsMap){
   let k = 2 + Math.floor(Math.random() * 2);
   let chosen = shuffle([...ships]).slice(0, k);
 
+  let occupiedMask = boardToMask(newBoard);
+  let shipMasks = buildShipMasks(newBoard);
+
   for(let ship of chosen){
     let known = getKnownCellsCached(ship);
+    let knownSet = new Set(known);
 
     for(let i=0;i<25;i++){
-      if(newBoard[i] === ship && !known.includes(i)){
+      if(newBoard[i] === ship && !knownSet.has(i)){
+        const mask = cellMask(i);
+
         newBoard[i] = null;
+        occupiedMask &= ~mask;
+        shipMasks[ship] &= ~mask;
       }
     }
 
-  let options = shuffle([...placementsMap[ship]]);
+    let options = shuffle([...placementsMap[ship]]);
 
-let occupiedMask = boardToMask(newBoard);
-let shipMasks = buildShipMasks(newBoard);
+    for(let opt of options){
+      if(
+        !canPlaceWithSameShipOverlap(
+          opt,
+          ship,
+          occupiedMask,
+          shipMasks
+        )
+      ){
+        continue;
+      }
 
-for(let opt of options){
-  if(
-    !canPlaceWithSameShipOverlap(
-      opt,
-      ship,
-      occupiedMask,
-      shipMasks
-    )
-  ){
-    continue;
-  }
+      const cells = placementCells(opt);
+      const placementMask = opt.mask;
 
-  const cells = placementCells(opt);
-  const placementMask = getPlacementMask(opt);
+      cells.forEach(i => newBoard[i] = ship);
 
-  cells.forEach(i => newBoard[i] = ship);
+      occupiedMask |= placementMask;
+      shipMasks[ship] = (shipMasks[ship] || 0) | placementMask;
 
-  occupiedMask |= placementMask;
-  shipMasks[ship] = (shipMasks[ship] || 0) | placementMask;
-
-  break;
-}
+      break;
+    }
   }
 
   return newBoard;
@@ -1628,15 +1770,7 @@ for(let opt of options){
 // ===============================
 
 function getFoundColors(){
-  const found = new Set();
-
-  for(const cell of grid){
-    if(cell && cell !== 'miss'){
-      found.add(cell);
-    }
-  }
-
-  return found;
+  return getGridStats().foundColors;
 }
 
 function getGamePhase(){
@@ -1699,13 +1833,7 @@ if (rareCount >= 4) {
 }
 
 function getHitMissCounts() {
-  let hits = 0, misses = 0;
-
-  for (let c of grid) {
-    if (c === 'miss') misses++;
-    else if (c) hits++;
-  }
-
+  const { hits, misses } = getGridStats();
   return { hits, misses };
 }
 
@@ -2009,15 +2137,19 @@ appState = {
 function scoreBoard(board){
   let score = 0;
 
-  for(let i=0;i<25;i++){
+  for(let i = 0; i < 25; i++){
     if(grid[i] && grid[i] !== 'miss'){
-      if(board[i] === grid[i]) score += 2;
+      if(board[i] === grid[i]) score += 3;
+      else score -= 10;
+    }
+
+    if(grid[i] === 'miss' && board[i]){
+      score -= 10;
     }
   }
 
   return score;
 }
-
 function prepareSortedShips() {
   const ships = getShipList();
 
@@ -2217,19 +2349,19 @@ function canPlaceShip(
   knownMissMask,
   shipMasks = {}
 ){
-  const mask = getPlacementMask(placement);
+  const mask = placement.mask;
   const shipMask = shipMasks[ship] || 0;
 
   if((mask & knownMissMask) !== 0) return false;
   if((mask & occupiedMask) !== 0) return false;
 
-  if(violatesDiagonalMask(mask, shipMask)) return false;
+  if((placement.diagonalMask & shipMask) !== 0) return false;
 
   return true;
 }
 
 function isAnonymousRareShip(ship){
-  return ship.startsWith('rare_');
+  return !!ship && ship.startsWith('rare_');
 }
 
 function getLegalPlacementsForShip(
@@ -2567,22 +2699,16 @@ function getOutcomeKey(board, tile) {
   return board[tile] || 0;
 }
 
-function buildOutcomeBuckets(allBoards) {
-  const bucketsPerTile = Array.from({ length: 25 }, () => ({}));
+function getUnknownTiles(){
+  const tiles = [];
 
-  for (const board of allBoards) {
-    for (let i = 0; i < 25; i++) {
-      const key = board[i] || 0;
-
-      if (!bucketsPerTile[i][key]) {
-        bucketsPerTile[i][key] = 0;
-      }
-
-      bucketsPerTile[i][key]++;
+  for(let i = 0; i < 25; i++){
+    if(grid[i] === null){
+      tiles.push(i);
     }
   }
 
-  return bucketsPerTile;
+  return tiles;
 }
 
 function buildTileShipSizes(allBoards) {
@@ -2604,39 +2730,6 @@ function buildTileShipSizes(allBoards) {
   }
 
   return tileMap;
-}
-
-function buildUnfoundBonusCache(allBoards) {
-  const bonuses = Array(25).fill(0);
-
-  if (!allBoards || allBoards.length === 0) {
-    return bonuses;
-  }
-
-  const foundColors = getFoundColors();
-
-  for (let i = 0; i < 25; i++) {
-    if (grid[i]) continue;
-
-    const unfoundHitsByColor = {};
-
-    for (const board of allBoards) {
-      const color = board[i];
-
-      if (!color) continue;
-      if (isRareShipId(color)) continue;
-      if (foundColors.has(color)) continue;
-
-      unfoundHitsByColor[color] =
-        (unfoundHitsByColor[color] || 0) + 1;
-    }
-
-    for (const color in unfoundHitsByColor) {
-      bonuses[i] += unfoundHitsByColor[color] / allBoards.length;
-    }
-  }
-
-  return bonuses;
 }
 
 function scoreCollapseForTile(allBoards, tile, probs) {
@@ -2673,11 +2766,15 @@ function scoreCollapseForTile(allBoards, tile, probs) {
   };
 }
 
-function getBestCollapseMove(allBoards, probs, excludedTile = null) {
+function getBestCollapseMove(
+  allBoards,
+  probs,
+  excludedTile = null,
+  unknownTiles = getUnknownTiles()
+) {
   let best = null;
 
-  for (let i = 0; i < 25; i++) {
-    if (grid[i] !== null) continue;
+  for (const i of unknownTiles) {
     if (i === excludedTile) continue;
 
     const score = scoreCollapseForTile(allBoards, i, probs);
@@ -2690,7 +2787,7 @@ function getBestCollapseMove(allBoards, probs, excludedTile = null) {
   return best;
 }
 
-function scoreTwoStepCollapse(allBoards, firstTile, probs) {
+function scoreTwoStepCollapse(allBoards, firstTile, probs, unknownTiles) {
   const firstBuckets = {};
 
   for (const board of allBoards) {
@@ -2709,7 +2806,8 @@ function scoreTwoStepCollapse(allBoards, firstTile, probs) {
     const bestSecond = getBestCollapseMove(
       boardsAfterFirst,
       probs,
-      firstTile
+      firstTile,
+      unknownTiles
     );
 
     if (!bestSecond) continue;
@@ -2725,11 +2823,11 @@ function scoreTwoStepCollapse(allBoards, firstTile, probs) {
 }
 
 function getBestTwoStepCollapseMove(allBoards, probs) {
+  const unknownTiles = getUnknownTiles();
+
   const candidates = [];
 
-  for (let i = 0; i < 25; i++) {
-    if (grid[i] !== null) continue;
-
+  for (const i of unknownTiles) {
     candidates.push(scoreCollapseForTile(allBoards, i, probs));
   }
 
@@ -2740,7 +2838,12 @@ function getBestTwoStepCollapseMove(allBoards, probs) {
   let best = null;
 
   for (const candidate of shortlist) {
-    const score = scoreTwoStepCollapse(allBoards, candidate.i, probs);
+    const score = scoreTwoStepCollapse(
+      allBoards,
+      candidate.i,
+      probs,
+      unknownTiles
+    );
 
     if (!best || score.expectedRemaining < best.expectedRemaining) {
       best = score;
@@ -2867,14 +2970,24 @@ function applyEquivalenceResult(data, probs) {
   }
 }
 
-function updateExactSolverUI(valid) {
+function updateExactSolverUI(valid, preview = false) {
   DOM.confidence.textContent =
-    `Exact boards: ${valid}`;
+    `Exact boards: ${valid}${preview ? " (preview)" : ""}`;
 }
 
 // ===============================
 // T.11 UI
 // ===============================
+
+function updateTopInfoVisibility(){
+  const shouldShow = rareCount !== null;
+
+  DOM.topInfoBox?.classList.toggle('hidden', !shouldShow);
+
+  document
+    .getElementById('topInfoDivider')
+    ?.classList.toggle('hidden', !shouldShow);
+}
 
 function updateModeButtons(){
   const safeBtn = document.getElementById('modeSafe');
@@ -2908,13 +3021,14 @@ function render() {
     const cell = play[i];
     const value = grid[i];
 
+    resetPlayCellVisualState(cell);
+
     if (value === 'miss') {
       cell.style.background = '#3b82f6';
       continue;
     }
 
     if (!value) {
-      cell.style.background = '';
       continue;
     }
 
@@ -2922,11 +3036,26 @@ function render() {
       cell.style.background = '#4fd1c5';
     } else if (value === 'rainbow') {
       cell.style.background =
-        'linear-gradient(to bottom, red, orange, yellow, green, blue, indigo, violet)';
+        'linear-gradient(135deg, rgb(239,68,68), rgb(251,191,36), rgb(34,197,94), rgb(59,130,246), rgb(168,85,247)), linear-gradient(to bottom, rgba(255,255,255,0.55), rgba(255,255,255,0.04))';
+
+      cell.style.boxShadow =
+        'inset 0 1px 2px rgba(255,255,255,0.6), 0 1px 4px rgba(0,0,0,0.18)';
     } else {
       cell.style.background = value;
     }
   }
+}
+
+function resetPlayCellVisualState(cell) {
+  cell.className = 'cell';
+
+  cell.textContent = '';
+
+  cell.style.background = '';
+  cell.style.boxShadow = '';
+  cell.style.removeProperty('--stripe-color');
+
+  cell.removeAttribute('data-label');
 }
 
 function renderUI() {
@@ -2939,10 +3068,11 @@ function renderUI() {
     return;
   }
 
-  renderOpeningHints(hasStarted);
-  renderHeatmapIfAvailable();
-  renderRecommendationsIfNeeded(hasStarted);
-  renderForcedTilesIfPresent();
+renderOpeningHints(hasStarted);
+renderHeatmapIfAvailable();
+renderRecommendationsIfNeeded(hasStarted);
+applyRainbowHighlights(appState.probs);
+renderForcedTilesIfPresent();
 
   updateInfoBox();
 }
@@ -2992,23 +3122,21 @@ function isGameOverMode() {
 function renderHeatmap(probs) {
   if (!isNormalMode()) return;
 
-  const heat = DOM.heatmap;
   const { huntMode } = getGameContext();
-
-  for (let i = 0; i < 25; i++) {
-    const displayProb = huntMode ? probs[i] : (1 - probs[i]);
-    const bg = `rgba(255,0,0,${displayProb})`;
-    const text = displayProb.toFixed(2);
-
-    setBackgroundIfChanged(heat[i], bg);
-    setTextIfChanged(heat[i], text);
-  }
 
   const label = huntMode
     ? "Mode: Aggressive (Non-blue Hunting)"
     : "Mode: Safe (Blue Hunting)";
 
-  setTextIfChanged(DOM.modeLabel, label);
+  renderHeatmapWithContext(probs, huntMode, currentMode, label);
+if (appState.allBoards) {
+  setTextIfChanged(
+    DOM.heatmapSubtitle,
+    "Hover tile to see next move probabilities."
+  );
+} else {
+  setTextIfChanged(DOM.heatmapSubtitle, "");
+}
 }
 
 function renderForcedOverlays() {
@@ -3024,12 +3152,15 @@ function renderForcedOverlays() {
     const color = appState.forcedTiles[i];
     const cell = play[i];
 
-    if (color === 'rainbow') {
-      cell.classList.add('stripe-rainbow');
-    } else {
-      cell.classList.add('stripe-overlay');
-      cell.style.setProperty('--stripe-color', getStripeColor(color));
-    }
+if (color === 'rainbow') {
+  cell.classList.remove('stripe-overlay');
+  cell.style.removeProperty('--stripe-color');
+  cell.classList.add('stripe-rainbow');
+} else {
+  cell.classList.remove('stripe-rainbow');
+  cell.classList.add('stripe-overlay');
+  cell.style.setProperty('--stripe-color', getStripeColor(color));
+}
   }
 }
   
@@ -3067,7 +3198,6 @@ if (appState.specialGroup) {
 
 if (appState.probs && appState.topMoves?.length) {
   if (handleGuaranteedInfo(messages)) {
-    appendFarseerCard(messages);
     box.innerHTML = messages.join("<br>");
     return;
   }
@@ -3077,8 +3207,8 @@ if (appState.probs && appState.topMoves?.length) {
   appendStrategyMessages(messages, context);
 }
 
+appendRainbowCandidateCard(messages);
 appendFallback(messages);
-appendFarseerCard(messages);
 
 box.innerHTML = messages.join("<br>");
 }
@@ -3121,10 +3251,102 @@ function updateTopInfoBox() {
   `;
 }
 
-function appendFarseerCard(messages) {
-  if (farseerCardHtml) {
-    messages.push(farseerCardHtml);
+function appendRainbowCandidateCard(messages) {
+  const card = buildRainbowCandidateCard(appState.probs);
+
+  if (card) {
+    messages.push(card);
   }
+}
+
+function buildRainbowCandidateCard(probs) {
+  if (!probs) return "";
+
+  const tiles = getRainbowCandidateTiles(probs);
+
+  if (tiles.length === 0) return "";
+
+  const rows = tiles
+    .map(tile => `
+      <div>
+        <span class="coord-good">Row ${tile.row}, Col ${tile.col}</span>
+        — ${(tile.p * 100).toFixed(1)}%
+      </div>
+    `)
+    .join("");
+
+return makeCard(
+  "Rainbow Candidates",
+  `
+    <div>Unclicked tiles that could be rainbow:</div>
+    <br>
+    ${rows}
+  `,
+  "info-rainbow"
+);
+}
+
+function getTileColorProbability(tileIndex, color){
+  const buckets = outcomeBucketsCache?.[tileIndex];
+  const total = appState.allBoards?.length || 0;
+
+  if(!buckets || total === 0) return 0;
+
+  return (buckets[color] || 0) / total;
+}
+
+function getRainbowCandidateTiles(probs) {
+  const knownRainbowTiles = [];
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] === "rainbow") {
+      knownRainbowTiles.push(i);
+    }
+  }
+
+  if (knownRainbowTiles.length === 0) return [];
+
+  if (knownRainbowTiles.length >= getShipSize("rainbow")) {
+    return [];
+  }
+
+  const tiles = new Set();
+
+  for (const i of knownRainbowTiles) {
+    for (const ni of getOrthogonalNeighbors(i)) {
+      if (grid[ni] === null) {
+        tiles.add(ni);
+      }
+    }
+  }
+
+  const candidates = [...tiles]
+    .map(i => {
+      const [r, c] = indexToCoord(i);
+      const forcedColor = appState.forcedTiles?.[i] || null;
+      const rainbowChance = getTileColorProbability(i, "rainbow");
+
+      return {
+        i,
+        row: r + 1,
+        col: c + 1,
+        p: rainbowChance,
+        forcedColor
+      };
+    })
+    .filter(tile => {
+      if(tile.forcedColor && tile.forcedColor !== "rainbow") return false;
+      return tile.p > 0;
+    })
+    .sort((a, b) => b.p - a.p);
+
+  const guaranteedRainbow = candidates.filter(tile => tile.p === 1);
+
+  if(guaranteedRainbow.length > 0){
+    return guaranteedRainbow;
+  }
+
+  return candidates;
 }
 
 function buildShipStatusCard(){
@@ -3133,7 +3355,7 @@ function buildShipStatusCard(){
 
   return makeCard(
     "Ship Status",
-    `
+    `<br>
     • Incomplete found ships remaining: <span class="stat-number">${tracking.incomplete}</span><br>
     • Unfound simulated ships: <span class="stat-number">${tracking.unfound}</span><br>
     • Remaining blue tiles: <span class="stat-number">${remainingBlue}</span>
@@ -3147,9 +3369,14 @@ function buildModeCard(){
 
   return makeCard(
     "Mode Info",
-    huntMode
-      ? "Finding non-blues. Heatmap represents % chance of non-blue in a given tile based on all valid boards."
-      : "Finding blues. Heatmap represents % chance of blue in a given tile based on all valid boards.",
+    `
+      <br>
+      ${
+        huntMode
+          ? "• Finding <b>non-blues</b>.<br>• Heatmap shows % chance of <b>non-blue</b>."
+          : "• Finding <b>blues</b>.<br>• Heatmap shows % chance of <b>blue</b>."
+      }
+    `,
     "info-blue"
   );
 }
@@ -3218,7 +3445,7 @@ function appendPreGameMessages(messages, ctx) {
         • You can change the starting mode, but cannot change it after starting<br><br>
         • Unclicked guaranteed tiles get stripes in their color. Clicking them before the solver tells you to could lead to worse outcomes.<br><br>
 	    • The solver may know a tile is not blue, but not what color it really is. These are marked with ? in the center.<br><br>
-	    • While Exact solving is active, you can hover over a tile to get calculations of future probabilities.<br><br>
+	    • While Exact solving is active, you can hover over a tile to get calculations of future probabilities based on the current selected color.<br><br>
         • "Alternative" recommendations are just the 2nd best move. These later become "2-Step Collapse" moves, which calculate 2 moves into the future to reduce board counts.<br><br>
         `,
         "info-blue info-hint"
@@ -3257,10 +3484,24 @@ function handleEndgameInfo(messages, box) {
   let [b1, b2] = appState.allBoards;
   let candidates = [];
 
-  for (let i = 0; i < 25; i++) {
-    if (grid[i]) continue;
-    if (b1[i] !== b2[i]) candidates.push(i);
+const { huntMode } = getGameContext();
+
+for (let i = 0; i < 25; i++) {
+  if (grid[i]) continue;
+  if (b1[i] === b2[i]) continue;
+
+  const p = appState.probs?.[i] ?? 0;
+
+  if (huntMode) {
+    if (p > 0) candidates.push(i);
+  } else {
+    if (p < 1) candidates.push(i);
   }
+}
+
+if (candidates.length === 0) {
+  return false;
+}
 
   candidates.forEach(i => {
     play[i].classList.add('recommended-final');
@@ -3284,7 +3525,6 @@ function handleEndgameInfo(messages, box) {
     )
   );
 
-appendFarseerCard(messages);
 box.innerHTML = messages.join("<br>");
 return true;
 }
@@ -3496,171 +3736,311 @@ function showError(msg){
 // T.12 VISUALS
 // ===============================
 
-function showFarseerPreview(tileIndex){
-  if(grid[tileIndex] !== null || !appState.probs){
-    farseerCardHtml = "";
-    updateInfoBox();
-    return;
+function applyRainbowHighlights(probs){
+  if(!probs) return;
+
+  const play = DOM.playBoard;
+
+  const tiles = getRainbowCandidateTiles(probs);
+
+for(const t of tiles){
+  const forcedColor = appState.forcedTiles?.[t.i] || null;
+
+  if(forcedColor && forcedColor !== "rainbow"){
+    continue;
   }
 
-if(!appState.allBoards || appState.allBoards.length === 0){
-  farseerCardHtml = makeCard(
-    "Farseer Preview",
-    "Preview unavailable until exact solving.",
-    "info-farseer"
+  const cell = play[t.i];
+
+  cell.classList.remove(
+    'recommended-best',
+    'recommended-second',
+    'recommended-safe',
+    'recommended-avoid',
+    'recommended-equal',
+    'recommended-final',
+    'stripe-overlay',
+    'stripe-rainbow'
   );
 
-  updateInfoBox();
-  return;
+  cell.removeAttribute('data-label');
+
+  cell.classList.add('rainbow-highlight');
+}
 }
 
-  const hitBoards = appState.allBoards.filter(b => b[tileIndex]);
-  const missBoards = appState.allBoards.filter(b => !b[tileIndex]);
-
-  const hitProbs = computePreviewProbs(hitBoards);
-  const missProbs = computePreviewProbs(missBoards);
-
-  const [r,c] = indexToCoord(tileIndex);
-
-  farseerCardHtml = makeCard(
-    `Farseeing: Row ${r+1}, Col ${c+1}`,
-    `
-${buildPreviewScenario("If HIT", hitBoards, hitProbs, tileIndex)}
-<br>
-${buildPreviewScenario("If BLUE", missBoards, missProbs, tileIndex)}
-    `,
-    "info-farseer"
-  );
-
-  updateInfoBox();
-}
-
-function queueFarseerPreview(tileIndex) {
+function queueHeatmapPreview(tileIndex) {
   if (lastHoveredTile === tileIndex) return;
 
   lastHoveredTile = tileIndex;
 
-  if (hoverDebounceTimer) {
-    clearTimeout(hoverDebounceTimer);
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
   }
 
-  hoverDebounceTimer = setTimeout(() => {
-    showFarseerPreview(tileIndex);
+  hoverPreviewTimer = setTimeout(() => {
+    showHeatmapPreview(tileIndex);
   }, 75);
 }
 
-function cancelFarseerPreview() {
-  if (hoverDebounceTimer) {
-    clearTimeout(hoverDebounceTimer);
-    hoverDebounceTimer = null;
+function cancelHeatmapPreview() {
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = null;
   }
 
   lastHoveredTile = null;
-  clearFarseerPreview();
+  clearHeatmapPreview();
 }
 
-function clearFarseerPreview(){
-  farseerCardHtml = "";
-  updateInfoBox();
+function clearHeatmapPreview() {
+  if (!heatmapPreviewActive) return;
+
+  heatmapPreviewActive = false;
+
+  setTextIfChanged(DOM.heatmapTitle, "Heatmap");
+
+DOM.heatmapSubtitle.classList.remove('error');
+
+if (appState.allBoards) {
+  setTextIfChanged(
+    DOM.heatmapSubtitle,
+    "Hover tile to see next move probabilities."
+  );
+} else {
+  setTextIfChanged(DOM.heatmapSubtitle, "");
 }
 
-function computePreviewProbs(boards){
+  if (appState.probs) {
+    renderHeatmap(appState.probs);
+  } else {
+    resetHeatmapUI();
+  }
+  
+   updateExactSolverUI(appState.allBoards.length);
+}
+
+function showHeatmapPreview(tileIndex) {
+  if (!canShowHeatmapPreview(tileIndex)) return;
+  if (!appState.allBoards) return;
+
+  const scenarioBoards = getScenarioBoardsForSelectedColor(tileIndex);
+
+  const [r, c] = indexToCoord(tileIndex);
+  const colorLabel = selectedColor.toUpperCase();
+
+  heatmapPreviewActive = true;
+
+setTextIfChanged(DOM.heatmapTitle, "Heatmap");
+
+if (scenarioBoards.length === 0) {
+  DOM.heatmapSubtitle.classList.add('error');
+
+  setTextIfChanged(
+    DOM.heatmapSubtitle,
+    `Impossible board state if Row ${r + 1}, Col ${c + 1} is ${colorLabel}`
+  );
+} else {
+  DOM.heatmapSubtitle.classList.remove('error');
+
+  setTextIfChanged(
+    DOM.heatmapSubtitle,
+    `If Row ${r + 1}, Col ${c + 1} is ${colorLabel}`
+  );
+}
+
+  const preview = buildPreviewHeatmapState(tileIndex, scenarioBoards);
+
+  renderHeatmapWithContext(
+    preview.probs,
+    preview.huntMode,
+    preview.mode,
+    preview.label
+  );
+  updateExactSolverUI(scenarioBoards.length, true);
+}
+
+function canShowHeatmapPreview(tileIndex) {
+  return (
+    currentMode === MODE.NORMAL &&
+    appState.allBoards &&
+    appState.allBoards.length > 0 &&
+    appState.probs &&
+    selectedColor &&
+    grid[tileIndex] === null
+  );
+}
+
+function getScenarioBoardsForSelectedColor(tileIndex) {
+  return appState.allBoards.filter(board =>
+    boardTileMatchesSelectedColor(board, tileIndex, selectedColor)
+  );
+}
+
+function boardTileMatchesSelectedColor(board, tileIndex, color) {
+  const boardColor = board[tileIndex];
+
+  if (color === 'miss') {
+    return !boardColor;
+  }
+
+  if (
+    RARE_COLORS.includes(color) &&
+    !getUsedRare().includes(color)
+  ) {
+    return isRareBoardColor(boardColor);
+  }
+
+  return boardColor === color;
+}
+
+function isRareBoardColor(color) {
+  if (!color) return false;
+
+  return (
+    RARE_COLORS.includes(color) ||
+    isAnonymousRareShip(color)
+  );
+}
+
+function buildPreviewHeatmapState(tileIndex, scenarioBoards) {
+  const probs = computePreviewProbs(scenarioBoards);
+  const context = getPreviewGameContext(tileIndex, scenarioBoards);
+
+  return {
+    probs,
+    huntMode: context.huntMode,
+    mode: context.mode,
+    label: context.label
+  };
+}
+
+function getPreviewGameContext(tileIndex, scenarioBoards) {
+  const current = getHitMissCounts();
+
+  const hits =
+    selectedColor === 'miss'
+      ? current.hits
+      : current.hits + 1;
+
+  const misses =
+    selectedColor === 'miss'
+      ? current.misses + 1
+      : current.misses;
+
+  const naturalAggressive = hits >= 5 && misses >= 3;
+
+  let huntMode = naturalAggressive;
+
+  if (rareCount >= 4) {
+    const defaultStartMode = "aggressive";
+    const startMode = forcedStartMode || defaultStartMode;
+
+    huntMode =
+      startMode === "aggressive" ||
+      naturalAggressive;
+  }
+
+  const remainingBlue =
+    getRemainingBlueTiles() - (selectedColor === 'miss' ? 1 : 0);
+
+  const allShipsComplete = scenarioBoards.length > 0 &&
+    scenarioBoards.every(board => {
+      for (let i = 0; i < 25; i++) {
+        if (i === tileIndex) continue;
+        if (grid[i] !== null) continue;
+        if (board[i]) return false;
+      }
+      return true;
+    });
+
+  const tracking = getShipTracking();
+  const allShipsAlreadyComplete =
+    tracking.incomplete === 0 &&
+    tracking.unfound === 0;
+
+  if (
+    selectedColor === 'miss' &&
+    !allShipsAlreadyComplete &&
+    hits >= 5 &&
+    misses > 3
+  ) {
+    return {
+      huntMode,
+      mode: MODE.GAME_OVER,
+      label: "Preview: Game Over"
+    };
+  }
+
+  if (!huntMode && remainingBlue === 0) {
+    return {
+      huntMode,
+      mode: MODE.ALL_HITS,
+      label: "Preview: All Hits"
+    };
+  }
+
+  if (huntMode && allShipsComplete) {
+    return {
+      huntMode,
+      mode: MODE.ALL_MISSES,
+      label: "Preview: All Misses"
+    };
+  }
+
+  return {
+    huntMode,
+    mode: MODE.NORMAL,
+    label: huntMode
+      ? "Preview Mode: Aggressive (Non-blue Hunting)"
+      : "Preview Mode: Safe (Blue Hunting)"
+  };
+}
+
+function computePreviewProbs(boards) {
   const counts = Array(25).fill(0);
 
-  if(!boards || boards.length === 0){
+  if (!boards || boards.length === 0) {
     return counts;
   }
 
-  for(const board of boards){
-    for(let i = 0; i < 25; i++){
-      if(board[i]){
-        counts[i]++;
-      }
+  for (const board of boards) {
+    for (let i = 0; i < 25; i++) {
+      if (board[i]) counts[i]++;
     }
   }
 
   return counts.map(c => c / boards.length);
 }
 
-function buildPreviewScenario(title, boards, scenarioProbs, hoveredIndex){
-  if(!boards || boards.length === 0){
-    return `
-      <b>${title}</b><br>
-      Impossible scenario.
-    `;
+function renderHeatmapWithContext(probs, huntMode, mode, label) {
+  const heat = DOM.heatmap;
+
+  for (let i = 0; i < 25; i++) {
+    let displayProb;
+    let text;
+
+    if (mode === MODE.GAME_OVER) {
+      displayProb = 0;
+      text = "END";
+    } else if (mode === MODE.ALL_HITS) {
+      displayProb = probs[i];
+      text = displayProb.toFixed(2);
+    } else if (mode === MODE.ALL_MISSES) {
+      displayProb = 1 - probs[i];
+      text = displayProb.toFixed(2);
+    } else {
+      displayProb = huntMode ? probs[i] : (1 - probs[i]);
+      text = displayProb.toFixed(2);
+    }
+
+    const bg = `rgba(255,0,0,${displayProb})`;
+
+    setBackgroundIfChanged(heat[i], bg);
+    setTextIfChanged(heat[i], text);
   }
 
-  const { huntMode } = getGameContext();
-
-  const label = huntMode
-    ? "non-blue chance"
-    : "blue chance";
-
-  const changes = getPreviewChanges(appState.probs, scenarioProbs, hoveredIndex)
-    .slice(0, 3);
-
-const rows = changes.map(change => {
-  const [r,c] = indexToCoord(change.i);
-  const isPositive = change.delta >= 0;
-
-  const deltaVal = (change.delta * 100).toFixed(1);
-  const sign = isPositive ? "+" : "";
-
-  const finalProb = huntMode
-    ? scenarioProbs[change.i]
-    : 1 - scenarioProbs[change.i];
-
-  const finalPercent = (finalProb * 100).toFixed(1);
-
-  return `
-    Row ${r+1}, Col ${c+1}:
-    <span class="delta ${isPositive ? 'pos' : 'neg'}">
-      ${sign}${deltaVal}%
-    </span>
-    → <span class="final-prob">${finalPercent}%</span>
-  `;
-}).join("<br>");
-
-  return `
-    <b>${title}</b><br>
-    Remaining boards: ${boards.length}<br>
-    Top changes in ${label}:<br>
-    ${rows || "No meaningful changes."}
-  `;
-}
-
-function getPreviewChanges(baseProbs, scenarioProbs, hoveredIndex){
-  const { huntMode } = getGameContext();
-
-  const changes = [];
-
-  for(let i = 0; i < 25; i++){
-    if(i === hoveredIndex) continue;
-    if(grid[i] !== null) continue;
-
-    const before = huntMode
-      ? baseProbs[i]
-      : 1 - baseProbs[i];
-
-    const after = huntMode
-      ? scenarioProbs[i]
-      : 1 - scenarioProbs[i];
-
-    changes.push({
-      i,
-      delta: after - before
-    });
-  }
-
-  return changes.sort(
-    (a,b) => Math.abs(b.delta) - Math.abs(a.delta)
-  );
-}
-
-function clearSelectedColorUI() {
-  document.querySelectorAll('.color-btn').forEach(b => {
-    b.classList.remove('selected');
-  });
+  setTextIfChanged(DOM.modeLabel, label);
 }
 
 function clearRecommendations(){
@@ -3676,6 +4056,8 @@ function clearRecommendations(){
     removeClassIfPresent(c, 'recommended-final');
     removeClassIfPresent(c, 'stripe-overlay');
     removeClassIfPresent(c, 'stripe-rainbow');
+	removeClassIfPresent(c, 'rainbow-highlight');
+    removeClassIfPresent(c, 'guaranteed-unknown');
 
     if (c.hasAttribute("data-label")) {
       c.removeAttribute("data-label");
@@ -3778,15 +4160,15 @@ function findGuaranteedMove(candidates, huntMode) {
 }
 
 function applyGuaranteedMove(move, probs, play) {
-  play[move.i].classList.add('recommended-best');
-  
+  const cell = play[move.i];
+
+  cell.classList.add('recommended-best');
+
   const forcedColor = appState.forcedTiles?.[move.i];
 
-if(move.p === 1 && !forcedColor){
-const cell = play[move.i];
-cell.textContent = "?";
-cell.classList.add('guaranteed-unknown');
-}
+  if(move.p === 1 && !forcedColor){
+    cell.classList.add('guaranteed-unknown');
+  }
 
   lastProbs = probs;
   lastTopMoves = [move];
@@ -4119,8 +4501,6 @@ const messages = [
   )
 ];
 
-appendFarseerCard(messages);
-
 box.innerHTML = messages.join("<br>");
 }
 
@@ -4168,6 +4548,70 @@ function makeCard(title, content, colorClass){
 // ===============================
 // T.13 GRID UTILS
 // ===============================
+
+function getGridStats(){
+  if(gridStatsCache) return gridStatsCache;
+
+  const colorCounts = {};
+  const colorMasks = {};
+  const foundColors = new Set();
+
+  for(const color in SHIPS){
+    colorCounts[color] = 0;
+    colorMasks[color] = 0;
+  }
+
+  let hits = 0;
+  let misses = 0;
+  let occupiedMask = 0;
+  let missMask = 0;
+
+  for(let i = 0; i < 25; i++){
+    const color = grid[i];
+
+    if(color === null) continue;
+
+    const mask = cellMask(i);
+
+    if(color === 'miss'){
+      misses++;
+      missMask |= mask;
+      continue;
+    }
+
+    hits++;
+    occupiedMask |= mask;
+
+    colorCounts[color] = (colorCounts[color] || 0) + 1;
+    colorMasks[color] = (colorMasks[color] || 0) | mask;
+    foundColors.add(color);
+  }
+
+  gridStatsCache = {
+    hits,
+    misses,
+    occupiedMask,
+    missMask,
+    colorCounts,
+    colorMasks,
+    foundColors
+  };
+
+  return gridStatsCache;
+}
+
+function getOrthogonalNeighbors(i) {
+  const [r, c] = indexToCoord(i);
+
+  return [
+    [r - 1, c],
+    [r + 1, c],
+    [r, c - 1],
+    [r, c + 1]
+  ]
+    .filter(([rr, cc]) => rr >= 0 && rr < SIZE && cc >= 0 && cc < SIZE)
+    .map(([rr, cc]) => coordToIndex(rr, cc));
+}
 
 function coordToIndex(r,c){return r*5+c;}
 
@@ -4250,8 +4694,8 @@ for(let i=0;i<25;i++){
   let cell=document.createElement('div');
   cell.className='cell';
   cell.onclick=()=>handleCellClick(i);
-  cell.addEventListener('mouseenter', () => queueFarseerPreview(i));
-  cell.addEventListener('mouseleave', cancelFarseerPreview);
+cell.addEventListener('mouseenter', () => queueHeatmapPreview(i));
+cell.addEventListener('mouseleave', cancelHeatmapPreview);
   play.appendChild(cell);
 
   let h=document.createElement('div');
@@ -4409,13 +4853,7 @@ function getColorMaskCached(color){
     return colorMaskCache[color];
   }
 
-  let mask = 0;
-
-  for(let i = 0; i < 25; i++){
-    if(grid[i] === color){
-      mask |= cellMask(i);
-    }
-  }
+  const mask = getGridStats().colorMasks[color] || 0;
 
   colorMaskCache[color] = mask;
   return mask;
@@ -4540,6 +4978,7 @@ function loadFromHash(hash){
 
     rareCount = rareCountVal;
     forcedStartMode = rareCountVal >= 4 ? modeVal : null;
+	updateTopInfoVisibility();
 
     document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
       b.classList.remove('active-btn');
@@ -4600,6 +5039,7 @@ window.setRare = function(n,btn){
   if(configLocked) return;
 
   rareCount = n;
+  updateTopInfoVisibility();
 
 if (n >= 4) {
   forcedStartMode = "aggressive";
@@ -4660,6 +5100,8 @@ window.loadHash = function(){
 
 DOM.playBoard = document.getElementById('playBoard').children;
 DOM.heatmap = document.getElementById('heatmap').children;
+DOM.heatmapTitle = document.getElementById('heatmapTitle');
+DOM.heatmapSubtitle = document.getElementById('heatmapSubtitle');
 DOM.infoBox = document.getElementById('infoBox');
 DOM.topInfoBox = document.getElementById('topInfoBox');
 DOM.confidence = document.getElementById('confidence');
@@ -4667,6 +5109,7 @@ DOM.modeLabel = document.getElementById('modeLabel');
 createBoards();
 updateBoardLock();
 updateInfoBox();
+updateTopInfoVisibility();
 
 };
 </script>
