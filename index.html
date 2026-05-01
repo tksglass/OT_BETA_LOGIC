@@ -619,6 +619,27 @@ button {
   font-size: 16px;
 }
 
+.recommended-label {
+  position: relative;
+}
+
+.recommended-label::after {
+  content: attr(data-label);
+  color: #22c55e;
+  font-weight: bold;
+  position: absolute;
+  inset: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  z-index: 20;
+  pointer-events: none;
+
+  font-size: 16px;
+}
+
 .recommended-size2::after {
   content: "2";
   color: #b45309;
@@ -3763,8 +3784,6 @@ for(const t of tiles){
     'stripe-rainbow'
   );
 
-  cell.removeAttribute('data-label');
-
   cell.classList.add('rainbow-highlight');
 }
 }
@@ -4365,12 +4384,17 @@ for(let i=0;i<25;i++){
   if(grid[i]) continue;
 
 if(bestSet.has(i)){
-  play[i].classList.add('recommended-equal');
+  const sizes = (data.shipMap[i] || []).slice().sort((a,b)=>b-a);
 
-  let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
+  if(sizes.includes(2)){
+    play[i].classList.add('recommended-label');
+    play[i].setAttribute("data-label", "2");
+  } else {
+    play[i].classList.add('recommended-equal');
 
-  if(sizes.length){
-    play[i].setAttribute("data-label", sizes.join("/"));
+    if(sizes.length){
+      play[i].setAttribute("data-label", sizes.join("/"));
+    }
   }
 }
   else if(size2Set.has(i)){
