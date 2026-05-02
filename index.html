@@ -13,12 +13,13 @@
 // T.08 SIMULATION
 // T.09 MCMC
 // T.10 EXACT SOLVER
-// T.11 UI
-// T.12 VISUALS
-// T.13 GRID UTILS
-// T.14 HASH CREATION / LOADING
-// T.15 EVENT BINDS
-// T.16 INITIALIZATION
+// T.11 MOVE STRATEGY
+// T.12 UI
+// T.13 VISUALS
+// T.14 GRID UTILS
+// T.15 HASH CREATION / LOADING
+// T.16 EVENT BINDS
+// T.17 INITIALIZATION
 // ===============================
 -->
 
@@ -1093,7 +1094,6 @@ function recordMove(index, prevColor, newColor) {
 
   moves.push(move);
   redoStack = [];
-  clearPlacementsCache();
 }
 
 window.undoMove = function(){
@@ -1280,8 +1280,6 @@ function commitAcceptedMove(move) {
 
   recordMove(move.index, move.prevColor, move.newColor);
 
-  clearPlacementsCache();
-
   const { hits, misses } = getHitMissCounts();
   const tracking = getShipTracking();
 
@@ -1386,47 +1384,53 @@ function clearPlacementsCache() {
 // ===============================
 
 function isStateValid(){
-  let counts={}; for(let c in SHIPS) counts[c]=0;
-  for(let i=0;i<25;i++) if(grid[i]) counts[grid[i]]++;
+  const { colorCounts, colorMasks } = getGridStats();
 
   for(let c in SHIPS){
-    if(counts[c] > SHIPS[c]) return false;
+    if(colorCounts[c] > SHIPS[c]) return false;
   }
 
-  let usedRare=RARE_COLORS.filter(c=>counts[c]>0).length;
-  if(rareCount!==null && usedRare>rareCount) return false;
-
-  for(let i=0;i<25;i++){
-    if(!grid[i] || grid[i]==='miss') continue;
-for (let ni of DIAGONALS[i]) {
-  if (grid[ni] === grid[i]) return false;
-}
+  let usedRare = 0;
+  for(const c of RARE_COLORS){
+    if(colorCounts[c] > 0) usedRare++;
   }
+
+  if(rareCount !== null && usedRare > rareCount) return false;
 
   for(let color in SHIPS){
-let cells = [];
-for (let i = 0; i < 25; i++) {
-  if (grid[i] === color) cells.push(i);
-}
-    if(cells.length<=1) continue;
+    const colorMask = colorMasks[color] || 0;
 
-    let rows=cells.map(i=>indexToCoord(i)[0]);
-    let cols=cells.map(i=>indexToCoord(i)[1]);
+    for(let mask = colorMask; mask; mask &= mask - 1){
+      const bit = mask & -mask;
+      const i = BIT_INDEX[bit];
 
-    let sameRow=rows.every(r=>r===rows[0]);
-    let sameCol=cols.every(c=>c===cols[0]);
+      if((DIAGONAL_MASKS[i] & colorMask) !== 0){
+        return false;
+      }
+    }
 
-    if(!(sameRow||sameCol)) return false;
+    const cells = maskToCells(colorMask);
+
+    if(cells.length <= 1) continue;
+
+    let rows = cells.map(i => indexToCoord(i)[0]);
+    let cols = cells.map(i => indexToCoord(i)[1]);
+
+    let sameRow = rows.every(r => r === rows[0]);
+    let sameCol = cols.every(c => c === cols[0]);
+
+    if(!(sameRow || sameCol)) return false;
 
     if(sameRow){
-      let min=Math.min(...cols);
-      let max=Math.max(...cols);
-      if(max-min+1 > getShipSize(color)) return false;
+      let min = Math.min(...cols);
+      let max = Math.max(...cols);
+      if(max - min + 1 > getShipSize(color)) return false;
     }
+
     if(sameCol){
-      let min=Math.min(...rows);
-      let max=Math.max(...rows);
-      if(max-min+1 > getShipSize(color)) return false;
+      let min = Math.min(...rows);
+      let max = Math.max(...rows);
+      if(max - min + 1 > getShipSize(color)) return false;
     }
   }
 
@@ -1695,110 +1699,6 @@ function getPlacementsCached(color){
   return placementsCache[color];
 }
 
-function backtrackPlace(ships, placementsMap, index, board, occupiedMask = 0){
-  if(index === ships.length) return true;
-
-  let ship = ships[index];
-  let options = shuffle([...placementsMap[ship]]);
-
-  function getShipType(ship){
-    return ship.startsWith('rare_') ? 'rare' : ship;
-  }
-
-  for(let opt of options){
-    const cells = placementCells(opt);
-    const placementMask = getPlacementMask(opt);
-
-if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
-  let prevShip = ships[index-1];
-  let minPrev = Infinity;
-
-  for(let i = 0; i < 25; i++){
-    if(board[i] === prevShip){
-      minPrev = i;
-      break;
-    }
-  }
-
-  if(minPrev !== Infinity){
-    let minCurr = placementKey(opt);
-
-    if(minCurr < minPrev) continue;
-  }
-}
-
-    if(placementMask & occupiedMask) continue;
-
-    cells.forEach(i=>board[i]=ship);
-
-    if(backtrackPlace(
-      ships,
-      placementsMap,
-      index + 1,
-      board,
-      occupiedMask | placementMask
-    )) {
-      return true;
-    }
-
-    cells.forEach(i=>board[i]=null);
-  }
-
-  return false;
-}
-
-function mcmcStep(board, ships, placementsMap){
-  let newBoard = [...board];
-
-  let k = 2 + Math.floor(Math.random() * 2);
-  let chosen = shuffle([...ships]).slice(0, k);
-
-  let occupiedMask = boardToMask(newBoard);
-  let shipMasks = buildShipMasks(newBoard);
-
-  for(let ship of chosen){
-    let known = getKnownCellsCached(ship);
-    let knownSet = new Set(known);
-
-    for(let i=0;i<25;i++){
-      if(newBoard[i] === ship && !knownSet.has(i)){
-        const mask = cellMask(i);
-
-        newBoard[i] = null;
-        occupiedMask &= ~mask;
-        shipMasks[ship] &= ~mask;
-      }
-    }
-
-    let options = shuffle([...placementsMap[ship]]);
-
-    for(let opt of options){
-      if(
-        !canPlaceWithSameShipOverlap(
-          opt,
-          ship,
-          occupiedMask,
-          shipMasks
-        )
-      ){
-        continue;
-      }
-
-      const cells = placementCells(opt);
-      const placementMask = opt.mask;
-
-      cells.forEach(i => newBoard[i] = ship);
-
-      occupiedMask |= placementMask;
-      shipMasks[ship] = (shipMasks[ship] || 0) | placementMask;
-
-      break;
-    }
-  }
-
-  return newBoard;
-}
-
 // ===============================
 // T.07 GAME STATE
 // ===============================
@@ -1872,18 +1772,14 @@ function getHitMissCounts() {
 }
 
 function getShipTracking(){
-  let counts = {};
-  for(let c in SHIPS) counts[c] = 0;
-
-  for(let i=0;i<25;i++){
-    if(grid[i] && grid[i] !== 'miss'){
-      counts[grid[i]]++;
-    }
-  }
+  const { colorCounts } = getGridStats();
 
   let incomplete = 0;
+
   for(let color in SHIPS){
-    if(counts[color] > 0 && counts[color] < getShipSize(color)){
+    const count = colorCounts[color] || 0;
+
+    if(count > 0 && count < getShipSize(color)){
       incomplete++;
     }
   }
@@ -1898,7 +1794,7 @@ function getShipTracking(){
   let unfound = 0;
 
   for(let ship in used){
-    let placed = counts[ship] || 0;
+    let placed = colorCounts[ship] || 0;
 
     if(placed === 0){
       unfound += used[ship];
@@ -1931,11 +1827,15 @@ ships.forEach(s => {
 }
 
 function getUsedRare(){
-  return [...new Set(grid.filter(c=>RARE_COLORS.includes(c)))];
+  const { colorCounts } = getGridStats();
+
+  return RARE_COLORS.filter(c => colorCounts[c] > 0);
 }
 
 function getPartialShipTiles(){
   let partialTiles = new Set();
+  const { occupiedMask, missMask } = getGridStats();
+  const knownMask = occupiedMask | missMask;
 
   for(let color in SHIPS){
     if(getShipSize(color) !== 2) continue;
@@ -1945,13 +1845,14 @@ function getPartialShipTiles(){
     if(known.length === 1){
       let placements = getPlacementsCached(color);
 
-placements.forEach(p => {
-  placementCells(p).forEach(i => {
-    if(grid[i] === null){
-      partialTiles.add(i);
-    }
-  });
-});
+      placements.forEach(p => {
+        const unknownPlacementMask = p.mask & ~knownMask;
+
+        for(let mask = unknownPlacementMask; mask; mask &= mask - 1){
+          const bit = mask & -mask;
+          partialTiles.add(BIT_INDEX[bit]);
+        }
+      });
     }
   }
 
@@ -2025,7 +1926,6 @@ function prepareSimulation() {
   appState.specialGroup = null; 
   appState.forcedTiles = null;
   
-  clearPlacementsCache();
   clearRecommendations();
 }
 
@@ -2152,6 +2052,58 @@ function runMonteCarlo(ctx) {
   return { counts, valid, attempts };
 }
 
+function backtrackPlace(ships, placementsMap, index, board, occupiedMask = 0){
+  if(index === ships.length) return true;
+
+  let ship = ships[index];
+  let options = shuffle([...placementsMap[ship]]);
+
+  function getShipType(ship){
+    return ship.startsWith('rare_') ? 'rare' : ship;
+  }
+
+  for(let opt of options){
+    const cells = placementCells(opt);
+    const placementMask = getPlacementMask(opt);
+
+if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
+  let prevShip = ships[index-1];
+  let minPrev = Infinity;
+
+  for(let i = 0; i < 25; i++){
+    if(board[i] === prevShip){
+      minPrev = i;
+      break;
+    }
+  }
+
+  if(minPrev !== Infinity){
+    let minCurr = placementKey(opt);
+
+    if(minCurr < minPrev) continue;
+  }
+}
+
+    if(placementMask & occupiedMask) continue;
+
+    cells.forEach(i=>board[i]=ship);
+
+    if(backtrackPlace(
+      ships,
+      placementsMap,
+      index + 1,
+      board,
+      occupiedMask | placementMask
+    )) {
+      return true;
+    }
+
+    cells.forEach(i=>board[i]=null);
+  }
+
+  return false;
+}
+
 function finalizeSimulation({ counts, valid, attempts }) {
   const probs = counts.map(c => (valid ? c / valid : 0));
 
@@ -2166,6 +2118,58 @@ appState = {
 
   DOM.confidence.textContent =
     `Valid boards: ${valid} (in ${attempts} chains)`;
+}
+
+function mcmcStep(board, ships, placementsMap){
+  let newBoard = [...board];
+
+  let k = 2 + Math.floor(Math.random() * 2);
+  let chosen = shuffle([...ships]).slice(0, k);
+
+  let occupiedMask = boardToMask(newBoard);
+  let shipMasks = buildShipMasks(newBoard);
+
+  for(let ship of chosen){
+    let known = getKnownCellsCached(ship);
+    let knownSet = new Set(known);
+
+    for(let i=0;i<25;i++){
+      if(newBoard[i] === ship && !knownSet.has(i)){
+        const mask = cellMask(i);
+
+        newBoard[i] = null;
+        occupiedMask &= ~mask;
+        shipMasks[ship] &= ~mask;
+      }
+    }
+
+    let options = shuffle([...placementsMap[ship]]);
+
+    for(let opt of options){
+      if(
+        !canPlaceWithSameShipOverlap(
+          opt,
+          ship,
+          occupiedMask,
+          shipMasks
+        )
+      ){
+        continue;
+      }
+
+      const cells = placementCells(opt);
+      const placementMask = opt.mask;
+
+      cells.forEach(i => newBoard[i] = ship);
+
+      occupiedMask |= placementMask;
+      shipMasks[ship] = (shipMasks[ship] || 0) | placementMask;
+
+      break;
+    }
+  }
+
+  return newBoard;
 }
 
 function scoreBoard(board){
@@ -2347,7 +2351,6 @@ updateExactSolverUI(valid);
 function resetExactSolverState() {
   lastSpecialGroup = null;
   lastGuaranteed = false;
-  clearPlacementsCache();
 }
 
 function prepareExactSolver() {
@@ -2506,23 +2509,41 @@ function buildExactCaches(allBoards) {
 }
 
 function buildEquivalenceGroupsFromHitMasks(hitMasks) {
-  const patterns = {};
+  const groups = [];
 
   for (let i = 0; i < 25; i++) {
     if (grid[i]) continue;
 
     const mask = cellMask(i);
-    let key = "";
+    let matchedGroup = null;
 
-    for (const hitMask of hitMasks) {
-      key += (hitMask & mask) ? "1" : "0";
+    for (const group of groups) {
+      const representative = group[0];
+      const representativeMask = cellMask(representative);
+
+      let samePattern = true;
+
+      for (const hitMask of hitMasks) {
+        if(Boolean(hitMask & mask) !== Boolean(hitMask & representativeMask)){
+          samePattern = false;
+          break;
+        }
+      }
+
+      if(samePattern){
+        matchedGroup = group;
+        break;
+      }
     }
 
-    if (!patterns[key]) patterns[key] = [];
-    patterns[key].push(i);
+    if(matchedGroup){
+      matchedGroup.push(i);
+    } else {
+      groups.push([i]);
+    }
   }
 
-  return Object.values(patterns);
+  return groups;
 }
 
 function selectNextShipIndex(
@@ -3038,7 +3059,145 @@ function updateExactSolverUI(valid, preview = false) {
 }
 
 // ===============================
-// T.11 UI
+// T.11 MOVE STRATEGY
+// ===============================
+
+function getSafeModeProgressMove(allBoards, probs) {
+  const unknown = getUnknownTiles();
+
+  const progressTiles = unknown.filter(i => {
+    const score = scoreCollapseForTile(allBoards, i, probs);
+    return score.expectedRemaining < allBoards.length;
+  });
+
+  if (!progressTiles.length) return null;
+
+  const partialTiles = getPartialShipTiles();
+
+  const partialCandidates = progressTiles
+    .filter(i => partialTiles.has(i));
+
+if (partialCandidates.length) {
+  const tile = chooseBestProgressCandidate(partialCandidates, allBoards, probs);
+
+  return withSafeMoveReason(
+    makeMoveObject(tile),
+    "This tile helps narrow the possible position of an incomplete rare ship."
+  );
+}
+
+  const rareCandidates = progressTiles
+    .map(i => ({
+      i,
+      rareP: getUnfoundRareProbability(i, allBoards)
+    }))
+    .filter(x => x.rareP > 0);
+
+  if (rareCandidates.length) {
+    rareCandidates.sort((a, b) => {
+      if (b.rareP !== a.rareP) return b.rareP - a.rareP;
+
+      return (
+        scoreCollapseForTile(allBoards, a.i, probs).expectedRemaining -
+        scoreCollapseForTile(allBoards, b.i, probs).expectedRemaining
+      );
+    });
+
+    return withSafeMoveReason(
+  makeMoveObject(rareCandidates[0].i),
+  `This tile has the best chance to reveal an unfound rare ship (${(rareCandidates[0].rareP * 100).toFixed(1)}%).`
+);
+  }
+
+const tile = chooseBestProgressCandidate(progressTiles, allBoards, probs);
+const score = scoreCollapseForTile(allBoards, tile, probs);
+
+return withSafeMoveReason(
+  makeMoveObject(tile),
+  `This tile reduces board uncertainty the most, from ${allBoards.length} possible boards to about ${score.expectedRemaining.toFixed(1)} expected boards.`
+);
+}
+
+function withSafeMoveReason(move, reason) {
+  return {
+    ...move,
+    reason
+  };
+}
+
+function chooseBestProgressCandidate(tiles, allBoards, probs) {
+  return [...tiles].sort((a, b) => {
+    const aScore = scoreCollapseForTile(allBoards, a, probs).expectedRemaining;
+    const bScore = scoreCollapseForTile(allBoards, b, probs).expectedRemaining;
+
+    if (aScore !== bScore) return aScore - bScore;
+
+    return probs[a] - probs[b];
+  })[0];
+}
+
+function chooseBestSafeCandidate(tiles, allBoards, probs) {
+  return [...tiles].sort((a, b) => {
+    if (probs[a] !== probs[b]) return probs[a] - probs[b];
+
+    return (
+      scoreCollapseForTile(allBoards, a, probs).expectedRemaining -
+      scoreCollapseForTile(allBoards, b, probs).expectedRemaining
+    );
+  })[0];
+}
+
+function getUnfoundRareProbability(tile, allBoards) {
+  const foundColors = getFoundColors();
+  let count = 0;
+
+  for (const board of allBoards) {
+    const color = board[tile];
+
+    if (!color) continue;
+
+    const isUnfoundRare =
+      isAnonymousRareShip(color) ||
+      (RARE_COLORS.includes(color) && !foundColors.has(color));
+
+    if (isUnfoundRare) count++;
+  }
+
+  return count / allBoards.length;
+}
+
+function getCandidateUnfoundColorBonus(tileIndex, allBoards){
+  if (allBoards === appState.allBoards && unfoundBonusCache) {
+    return unfoundBonusCache[tileIndex] || 0;
+  }
+
+  if(!allBoards || allBoards.length === 0) return 0;
+
+  const foundColors = getFoundColors();
+  const unfoundHitsByColor = {};
+
+  for(const board of allBoards){
+    const color = board[tileIndex];
+
+    if(!color) continue;
+    if(isRareShipId(color)) continue;
+    if(foundColors.has(color)) continue;
+
+    unfoundHitsByColor[color] =
+      (unfoundHitsByColor[color] || 0) + 1;
+  }
+
+  let bonus = 0;
+
+  for(const color in unfoundHitsByColor){
+    bonus += unfoundHitsByColor[color] / allBoards.length;
+  }
+
+  return bonus;
+}
+
+// ===============================
+// T.12 UI
 // ===============================
 
 function updateTopInfoVisibility(){
@@ -3490,13 +3649,6 @@ function appendSafeModeProgressCard(messages) {
   );
 }
 
-function withSafeMoveReason(move, reason) {
-  return {
-    ...move,
-    reason
-  };
-}
-
 function handleStaticModes(box) {
   if (currentMode === MODE.TOUCH_GRASS) {
     box.innerHTML = makeCard(
@@ -3638,108 +3790,11 @@ box.innerHTML = messages.join("<br>");
 return true;
 }
 
-function getSafeModeProgressMove(allBoards, probs) {
-  const unknown = getUnknownTiles();
-
-  const progressTiles = unknown.filter(i => {
-    const score = scoreCollapseForTile(allBoards, i, probs);
-    return score.expectedRemaining < allBoards.length;
-  });
-
-  if (!progressTiles.length) return null;
-
-  const partialTiles = getPartialShipTiles();
-
-  const partialCandidates = progressTiles
-    .filter(i => partialTiles.has(i));
-
-if (partialCandidates.length) {
-  const tile = chooseBestProgressCandidate(partialCandidates, allBoards, probs);
-
-  return withSafeMoveReason(
-    makeMoveObject(tile),
-    "This tile helps narrow the possible position of an incomplete rare ship."
-  );
-}
-
-  const rareCandidates = progressTiles
-    .map(i => ({
-      i,
-      rareP: getUnfoundRareProbability(i, allBoards)
-    }))
-    .filter(x => x.rareP > 0);
-
-  if (rareCandidates.length) {
-    rareCandidates.sort((a, b) => {
-      if (b.rareP !== a.rareP) return b.rareP - a.rareP;
-
-      return (
-        scoreCollapseForTile(allBoards, a.i, probs).expectedRemaining -
-        scoreCollapseForTile(allBoards, b.i, probs).expectedRemaining
-      );
-    });
-
-    return withSafeMoveReason(
-  makeMoveObject(rareCandidates[0].i),
-  `This tile has the best chance to reveal an unfound rare ship (${(rareCandidates[0].rareP * 100).toFixed(1)}%).`
-);
-  }
-
-const tile = chooseBestProgressCandidate(progressTiles, allBoards, probs);
-const score = scoreCollapseForTile(allBoards, tile, probs);
-
-return withSafeMoveReason(
-  makeMoveObject(tile),
-  `This tile reduces board uncertainty the most, from ${allBoards.length} possible boards to about ${score.expectedRemaining.toFixed(1)} expected boards.`
-);
-}
-
-function chooseBestProgressCandidate(tiles, allBoards, probs) {
-  return [...tiles].sort((a, b) => {
-    const aScore = scoreCollapseForTile(allBoards, a, probs).expectedRemaining;
-    const bScore = scoreCollapseForTile(allBoards, b, probs).expectedRemaining;
-
-    if (aScore !== bScore) return aScore - bScore;
-
-    return probs[a] - probs[b];
-  })[0];
-}
-
-function chooseBestSafeCandidate(tiles, allBoards, probs) {
-  return [...tiles].sort((a, b) => {
-    if (probs[a] !== probs[b]) return probs[a] - probs[b];
-
-    return (
-      scoreCollapseForTile(allBoards, a, probs).expectedRemaining -
-      scoreCollapseForTile(allBoards, b, probs).expectedRemaining
-    );
-  })[0];
-}
-
 function makeMoveObject(i) {
   return {
     i,
     p: appState.probs ? appState.probs[i] : 0
   };
-}
-
-function getUnfoundRareProbability(tile, allBoards) {
-  const foundColors = getFoundColors();
-  let count = 0;
-
-  for (const board of allBoards) {
-    const color = board[tile];
-
-    if (!color) continue;
-
-    const isUnfoundRare =
-      isAnonymousRareShip(color) ||
-      (RARE_COLORS.includes(color) && !foundColors.has(color));
-
-    if (isUnfoundRare) count++;
-  }
-
-  return count / allBoards.length;
 }
 
 function appendStrategyMessages(messages, ctx) {
@@ -3948,7 +4003,7 @@ function showError(msg){
 }
 
 // ===============================
-// T.12 VISUALS
+// T.13 VISUALS
 // ===============================
 
 function applyRainbowHighlights(probs){
@@ -4019,6 +4074,24 @@ function cancelHeatmapPreview() {
 
   lastHoveredTile = null;
   clearHeatmapPreview();
+}
+
+function highlightStartingCorners(){
+  const play = DOM.playBoard;
+
+  clearRecommendations();
+
+  const { huntMode } = getGameContext();
+
+  const openingTiles = huntMode
+    ? [6, 8, 16, 18]              
+    : [0, 4, 20, 24];  
+
+  openingTiles.forEach(i => {
+    if(!grid[i]) { 
+      play[i].classList.add('recommended-equal');
+    }
+  });
 }
 
 function clearHeatmapPreview() {
@@ -4740,24 +4813,6 @@ const messages = [
 box.innerHTML = messages.join("<br>");
 }
 
-function highlightStartingCorners(){
-  const play = DOM.playBoard;
-
-  clearRecommendations();
-
-  const { huntMode } = getGameContext();
-
-  const openingTiles = huntMode
-    ? [6, 8, 16, 18]              
-    : [0, 4, 20, 24];  
-
-  openingTiles.forEach(i => {
-    if(!grid[i]) { 
-      play[i].classList.add('recommended-equal');
-    }
-  });
-}
-
 function getStripeColor(color){
   switch(color){
     case 'teal': return 'rgba(79,209,197,0.4)';
@@ -4782,7 +4837,7 @@ function makeCard(title, content, colorClass){
 }
 
 // ===============================
-// T.13 GRID UTILS
+// T.14 GRID UTILS
 // ===============================
 
 function getGridStats(){
@@ -4836,6 +4891,18 @@ function getGridStats(){
   return gridStatsCache;
 }
 
+function maskToCells(mask){
+  const cells = [];
+
+  while(mask){
+    const bit = mask & -mask;
+    cells.push(BIT_INDEX[bit]);
+    mask &= mask - 1;
+  }
+
+  return cells;
+}
+
 function getOrthogonalNeighbors(i) {
   const [r, c] = indexToCoord(i);
 
@@ -4881,36 +4948,6 @@ function placementKey(placement){
   return placement.key ?? placementCells(placement)[0];
 }
 
-function getCandidateUnfoundColorBonus(tileIndex, allBoards){
-  if (allBoards === appState.allBoards && unfoundBonusCache) {
-    return unfoundBonusCache[tileIndex] || 0;
-  }
-
-  if(!allBoards || allBoards.length === 0) return 0;
-
-  const foundColors = getFoundColors();
-  const unfoundHitsByColor = {};
-
-  for(const board of allBoards){
-    const color = board[tileIndex];
-
-    if(!color) continue;
-    if(isRareShipId(color)) continue;
-    if(foundColors.has(color)) continue;
-
-    unfoundHitsByColor[color] =
-      (unfoundHitsByColor[color] || 0) + 1;
-  }
-
-  let bonus = 0;
-
-  for(const color in unfoundHitsByColor){
-    bonus += unfoundHitsByColor[color] / allBoards.length;
-  }
-
-  return bonus;
-}
-
 function shuffle(arr){
   for(let i=arr.length-1;i>0;i--){
     let j=Math.floor(Math.random()*(i+1));
@@ -4953,15 +4990,7 @@ function getPlacementMask(placement){
 }
 
 function getKnownMissMask(){
-  let mask = 0;
-
-  for(let i = 0; i < 25; i++){
-    if(grid[i] === 'miss'){
-      mask |= cellMask(i);
-    }
-  }
-
-  return mask;
+  return getGridStats().missMask;
 }
 
 function isRareShipId(cell) {
@@ -5096,7 +5125,7 @@ function getColorMaskCached(color){
 }
 
 // ===============================
-// T.14 HASH CREATION / LOADING
+// T.15 HASH CREATION / LOADING
 // ===============================
 
 function createBitWriter(){
@@ -5251,7 +5280,7 @@ function loadFromHash(hash){
 
 
 // ===============================
-// T.15 EVENT BINDS
+// T.16 EVENT BINDS
 // ===============================
 
 window.selectColor = function(c,e){
@@ -5331,7 +5360,7 @@ window.loadHash = function(){
 };
 
 // ===============================
-// T.16 INITIALIZATION
+// T.17 INITIALIZATION
 // ===============================
 
 DOM.playBoard = document.getElementById('playBoard').children;
