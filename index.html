@@ -3842,7 +3842,10 @@ if (candidates.length === 0) {
   return false;
 }
 
-  candidates.forEach(i => {
+const displayCandidates =
+  collapseFinalMoveCandidatesByOutcome(candidates, b1, b2);
+
+  displayCandidates.forEach(i => {
     play[i].classList.add('recommended-final');
   });
 
@@ -3850,7 +3853,7 @@ if (candidates.length === 0) {
     renderForcedOverlays();
   }
 
-  const coords = candidates.map(i => {
+  const coords = displayCandidates.map(i => {
     const r = (i / 5) | 0;
     const c = i % 5;
     return `<span class="coord-good">Row ${r+1}, Col ${c+1}</span>`;
@@ -3866,6 +3869,22 @@ if (candidates.length === 0) {
 
 box.innerHTML = messages.join("<br>");
 return true;
+}
+
+function collapseFinalMoveCandidatesByOutcome(candidates, b1, b2){
+  const groups = {};
+
+  for(const i of candidates){
+    const key = `${b1[i] || 0}|${b2[i] || 0}`;
+
+    if(!groups[key]){
+      groups[key] = [];
+    }
+
+    groups[key].push(i);
+  }
+
+  return Object.values(groups).map(group => group[0]);
 }
 
 function makeMoveObject(i) {
