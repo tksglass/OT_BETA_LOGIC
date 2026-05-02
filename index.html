@@ -4882,7 +4882,8 @@ if(size2Tiles.length){
   let unknownSize2 = size2Tiles
     .filter(i => !partialTilesSet.has(i))
     .map(i => ({ i, p: probs[i] }))
-    .sort((a,b) => b.p - a.p);
+    .sort((a,b) => b.p - a.p)
+	.slice(0, 3);
 
   if(partialSize2.length){
     let coords = partialSize2.map(({i,p}) => {
