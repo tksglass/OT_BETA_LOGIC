@@ -1009,6 +1009,12 @@ let hoverPreviewTimer = null;
 let lastHoveredTile = null;
 let heatmapPreviewActive = false;
 
+const DOM_LISTS = {
+  colorButtons: null,
+  rareButtons: null,
+  modeButtons: null
+};
+
 // ===============================
 // T.03 ACTIONS
 // ===============================
@@ -1109,13 +1115,9 @@ window.undoMove = function(){
   grid = prev ? [...prev.grid] : Array(25).fill(null);
   rareCount = prev?.rareCount ?? null;
   forcedStartMode = prev?.forcedStartMode ?? null;
-  appState = prev?.appState ? JSON.parse(JSON.stringify(prev.appState)) : {
-    probs: null,
-    topMoves: null,
-    isTrueEndgame: false,
-    isGuaranteed: false,
-    specialGroup: null
-  };
+appState = prev?.appState
+  ? deepClone(prev.appState)
+  : createEmptyAppState();
   currentMode = prev?.currentMode ?? MODE.NORMAL;
 
   clearPlacementsCache();
@@ -1136,7 +1138,7 @@ history.push({
   grid: [...grid],
   rareCount,
   forcedStartMode,
-  appState: JSON.parse(JSON.stringify(appState)),
+  appState: deepClone(appState),
   currentMode
 });
 
@@ -1163,13 +1165,13 @@ window.resetAll = function(){
   updateTopInfoVisibility();
   
 
-  document.querySelectorAll('.color-btn').forEach(b=>{
-    b.classList.remove('selected','disabled');
-  });
+DOM_LISTS.colorButtons.forEach(b=>{
+  b.classList.remove('selected','disabled');
+});
 
-  document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
-    b.classList.remove('active-btn');
-  });
+DOM_LISTS.rareButtons.forEach(b=>{
+  b.classList.remove('active-btn');
+});
 
 document.getElementById('modeSafe')?.classList.remove('active-btn');
 document.getElementById('modeAggressive')?.classList.remove('active-btn');
@@ -1202,8 +1204,6 @@ lastSpecialGroup = null;
 updateInfoBox();
 
   updateBoardLock();
-  
-  const play = DOM.playBoard;
 
 clearRecommendations();
 
@@ -1216,12 +1216,12 @@ configLocked = false;
 
 updateModeButtons();
 
-document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
+DOM_LISTS.rareButtons.forEach(b=>{
   b.classList.remove('disabled');
 });
 
-document.querySelectorAll('[onclick^="setMode"]').forEach(b=>{
-b.classList.add('disabled');
+DOM_LISTS.modeButtons.forEach(b=>{
+  b.classList.add('disabled');
 });
 
 }
@@ -1272,7 +1272,46 @@ function saveHistorySnapshot() {
 
 function deepClone(obj) {
   if (obj === null || obj === undefined) return obj;
-  return JSON.parse(JSON.stringify(obj));
+
+  return {
+    ...obj,
+
+    probs: obj.probs ? [...obj.probs] : null,
+
+    topMoves: obj.topMoves
+      ? obj.topMoves.map(move => ({ ...move }))
+      : null,
+
+    specialGroup: obj.specialGroup
+      ? {
+          ...obj.specialGroup,
+          tiles: obj.specialGroup.tiles
+            ? [...obj.specialGroup.tiles]
+            : obj.specialGroup.tiles
+        }
+      : null,
+
+    forcedTiles: obj.forcedTiles
+      ? { ...obj.forcedTiles }
+      : obj.forcedTiles,
+
+    collapseMove: obj.collapseMove
+      ? { ...obj.collapseMove }
+      : obj.collapseMove,
+
+    allBoards: obj.allBoards
+      ? obj.allBoards.map(board => [...board])
+      : obj.allBoards,
+
+    winStrategy: obj.winStrategy
+      ? {
+          ...obj.winStrategy,
+          line: obj.winStrategy.line
+            ? [...obj.winStrategy.line]
+            : obj.winStrategy.line
+        }
+      : obj.winStrategy
+  };
 }
 
 function commitAcceptedMove(move) {
@@ -1566,7 +1605,7 @@ function hasAnyValidBoard(){
     let ship = ships[index];
 
     for(let opt of placementsMap[ship]){
-      const placementMask = getPlacementMask(opt);
+      const placementMask = opt.mask;
 
       if((placementMask & knownMissMask) !== 0) continue;
       if((placementMask & occupiedMask) !== 0) continue;
@@ -2058,13 +2097,9 @@ function backtrackPlace(ships, placementsMap, index, board, occupiedMask = 0){
   let ship = ships[index];
   let options = shuffle([...placementsMap[ship]]);
 
-  function getShipType(ship){
-    return ship.startsWith('rare_') ? 'rare' : ship;
-  }
-
   for(let opt of options){
     const cells = placementCells(opt);
-    const placementMask = getPlacementMask(opt);
+    const placementMask = opt.mask;
 
 if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
   let prevShip = ships[index-1];
@@ -2131,10 +2166,10 @@ function mcmcStep(board, ships, placementsMap){
 
   for(let ship of chosen){
     let known = getKnownCellsCached(ship);
-    let knownSet = new Set(known);
+    let knownMask = cellsToMask(known);
 
     for(let i=0;i<25;i++){
-      if(newBoard[i] === ship && !knownSet.has(i)){
+      if(newBoard[i] === ship && !(knownMask & cellMask(i))){
         const mask = cellMask(i);
 
         newBoard[i] = null;
@@ -2237,6 +2272,10 @@ function initializeChains(ships, placementsMap, numChains) {
   }
 
   return chains;
+}
+
+function getShipType(ship){
+  return ship.startsWith('rare_') ? 'rare' : ship;
 }
 
 function runMCMCLoops(chains, ships, placementsMap) {
@@ -5363,6 +5402,12 @@ window.loadHash = function(){
 // T.17 INITIALIZATION
 // ===============================
 
+function cacheDomLists(){
+  DOM_LISTS.colorButtons = [...document.querySelectorAll('.color-btn')];
+  DOM_LISTS.rareButtons = [...document.querySelectorAll('[onclick^="setRare"]')];
+  DOM_LISTS.modeButtons = [...document.querySelectorAll('[onclick^="setMode"]')];
+}
+
 DOM.playBoard = document.getElementById('playBoard').children;
 DOM.heatmap = document.getElementById('heatmap').children;
 DOM.heatmapTitle = document.getElementById('heatmapTitle');
@@ -5371,6 +5416,9 @@ DOM.infoBox = document.getElementById('infoBox');
 DOM.topInfoBox = document.getElementById('topInfoBox');
 DOM.confidence = document.getElementById('confidence');
 DOM.modeLabel = document.getElementById('modeLabel');
+
+cacheDomLists();
+
 createBoards();
 updateBoardLock();
 updateInfoBox();
