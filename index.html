@@ -1031,14 +1031,32 @@ const prevSnapshot = {
   lastTopMoves
 };
 
+  const historySnapshot = createHistorySnapshot();
+
   const prevColor = grid[i];
   const newColor = toggleColor(i);
 
-  resetModeAndCache();
-  ensureConfigLocked();
-  setGridCell(i, newColor);
+resetModeAndCache();
+ensureConfigLocked();
+setGridCell(i, newColor);
 
-  if (!isValidPlacement(i, prevColor)) {
+const { hits, misses } = getHitMissCounts();
+
+if (shouldEndGameOnMiss({
+  newColor,
+  hits,
+  misses
+})) {
+  commitAcceptedMove({
+    index: i,
+    prevColor,
+    newColor,
+    historySnapshot
+  });
+  return;
+}
+
+if (!isValidPlacement(i, prevColor)) {
     grid[i] = prevColor;
 
     currentMode = prevSnapshot.currentMode;
@@ -1054,16 +1072,26 @@ const prevSnapshot = {
     return;
   }
 
-  commitAcceptedMove({ index: i, prevColor, newColor });
+  commitAcceptedMove({
+  index: i,
+  prevColor,
+  newColor,
+  historySnapshot
+});
 }
 
 function handleCellClick(i){
-if(currentMode === MODE.GAME_OVER) return;
+  if(currentMode === MODE.GAME_OVER) return;
   if(rareCount === null) return;
 
   const forced = appState.forcedTiles?.[i];
 
-  if(forced && grid[i] === null){
+  const canAutoPlaceForced =
+    forced &&
+    grid[i] === null &&
+    !isAnonymousRareShip(forced);
+
+  if(canAutoPlaceForced){
 
     const prevSelected = selectedColor;
     const prevGrid = grid[i];
@@ -1258,16 +1286,18 @@ function ensureConfigLocked() {
   lockConfigUI();
 }
 
-function saveHistorySnapshot() {
-  const snapshot = {
+function saveHistorySnapshot(snapshot = createHistorySnapshot()) {
+  history.push(snapshot);
+}
+
+function createHistorySnapshot() {
+  return {
     grid: [...grid],
     rareCount,
     forcedStartMode,
     appState: deepClone(appState),
     currentMode
   };
-
-  history.push(snapshot);
 }
 
 function deepClone(obj) {
@@ -1315,7 +1345,7 @@ function deepClone(obj) {
 }
 
 function commitAcceptedMove(move) {
-  saveHistorySnapshot();
+  saveHistorySnapshot(move.historySnapshot);
 
   recordMove(move.index, move.prevColor, move.newColor);
 
@@ -1347,9 +1377,8 @@ function finalizePlacement() {
 
 function handleGameOver() {
   currentMode = MODE.GAME_OVER;
-  selectedColor = null;
 
-  clearSelectedColorUI();
+  clearSelectedColor();
 
   appState = {
     ...createEmptyAppState(),
@@ -1360,13 +1389,8 @@ function handleGameOver() {
   renderUI();
 }
 
-function shouldEndGameOnMiss({ newColor, hits, misses, tracking }) {
-  const allShipsComplete =
-    tracking.incomplete === 0 &&
-    tracking.unfound === 0;
-
+function shouldEndGameOnMiss({ newColor, hits, misses }) {
   return (
-    !allShipsComplete &&
     newColor === 'miss' &&
     hits >= 5 &&
     misses > 3
@@ -1429,12 +1453,20 @@ function isStateValid(){
     if(colorCounts[c] > SHIPS[c]) return false;
   }
 
-  let usedRare = 0;
-  for(const c of RARE_COLORS){
-    if(colorCounts[c] > 0) usedRare++;
-  }
+ let usedRare = 0;
+for(const c of RARE_COLORS){
+  if(colorCounts[c] > 0) usedRare++;
+}
 
-  if(rareCount !== null && usedRare > rareCount) return false;
+if(rareCount !== null && usedRare > rareCount) return false;
+
+if(
+  rareCount !== null &&
+  colorCounts.orange === 0 &&
+  usedRare >= rareCount
+){
+  return false;
+}
 
   for(let color in SHIPS){
     const colorMask = colorMasks[color] || 0;
@@ -2771,19 +2803,26 @@ function computeForcedTiles(allBoards) {
     if (buckets) {
       const keys = Object.keys(buckets);
 
-      if (keys.length === 1) {
-        forcedTiles[i] = keys[0] === "0" ? "miss" : keys[0];
-      }
+if (keys.length === 1) {
+  const forced = keys[0] === "0" ? "miss" : keys[0];
+
+  if (forced === 'miss' || !isAnonymousRareShip(forced)) {
+    forcedTiles[i] = forced;
+  }
+}
 
       continue;
     }
 
     const first = allBoards[0][i];
     const allSame = allBoards.every(b => b[i] === first);
-
-    if (allSame) {
-      forcedTiles[i] = first || 'miss';
-    }
+if (allSame) {
+  if (!first) {
+    forcedTiles[i] = 'miss';
+  } else if (!isAnonymousRareShip(first)) {
+    forcedTiles[i] = first;
+  }
+}
   }
 
   return forcedTiles;
@@ -3996,8 +4035,15 @@ function isColorDisabled(color, counts, usedRare){
 
   if(RARE_COLORS.includes(color)){
     if(rareCount !== null){
-      let isUsed = counts[color] > 0;
-      if(!isUsed && usedRare.length >= rareCount){
+      const isUsed = counts[color] > 0;
+      const orangeReserved = counts.orange === 0 ? 1 : 0;
+      const effectiveUsedRare = usedRare.length + orangeReserved;
+
+      if(
+        !isUsed &&
+        color !== 'orange' &&
+        effectiveUsedRare >= rareCount
+      ){
         return true;
       }
     }
@@ -4222,13 +4268,6 @@ function boardTileMatchesSelectedColor(board, tileIndex, color) {
 
   if (color === 'miss') {
     return !boardColor;
-  }
-
-  if (
-    RARE_COLORS.includes(color) &&
-    !getUsedRare().includes(color)
-  ) {
-    return isRareBoardColor(boardColor);
   }
 
   return boardColor === color;
