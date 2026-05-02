@@ -509,6 +509,13 @@ button {
     ) right / 3px 100% no-repeat;
 }
 
+.rainbow-highlight.recommended-best::before,
+.rainbow-highlight.recommended-second::before,
+.rainbow-highlight.recommended-safe::before,
+.rainbow-highlight.recommended-progress::before {
+  content: none !important;
+}
+
 .top-info-divider::after {
   content: "";
   position: absolute;
@@ -718,7 +725,6 @@ button {
     rgba(255,255,255,0.4) 33px 36px
   );
 }
-
 
   .confidence { margin-top: 10px; font-size: 14px; }
 </style>
@@ -3786,6 +3792,12 @@ if (context.missEndsGame) {
 if (appState.specialGroup) {
   renderEquivalenceInfo(appState.specialGroup);
 
+  const rainbowCard = buildRainbowCandidateCard(appState.probs);
+
+  if (rainbowCard) {
+    box.innerHTML += "<br>" + rainbowCard;
+  }
+
   if (context.missEndsGame) {
     box.innerHTML = buildMissEndCard(context) + box.innerHTML;
   }
@@ -4428,13 +4440,6 @@ if(!label && appState.specialGroup?.shipMap?.[t.i]){
 }
 
 cell.classList.remove(
-  'recommended-best',
-  'recommended-second',
-  'recommended-safe',
-  'recommended-avoid',
-  'recommended-equal',
-  'recommended-size2',
-  'recommended-final',
   'stripe-overlay',
   'stripe-rainbow'
 );
@@ -4811,37 +4816,42 @@ function highlightAvoidGroup(data){
   const play = DOM.playBoard;
   clearRecommendations();
 
-let bestSet = new Set(data.tiles);
-let size2Set = new Set(data.size2Tiles || []);
+  let bestSet = new Set(data.tiles);
+  let size2Set = new Set(data.size2Tiles || []);
 
-for(let i=0;i<25;i++){
-  if(grid[i]) continue;
+  const partialTilesSet = getPartialShipTiles();
 
-if(bestSet.has(i)){
-  const sizes = (data.shipMap[i] || []).slice().sort((a,b)=>b-a);
+  const shownRareTiles = new Set([
+    ...(data.size2Tiles || []).filter(i => partialTilesSet.has(i)),
 
-  const isRainbowCandidate =
-    sizes.includes(2) &&
-    play[i].classList.contains('rainbow-highlight');
+    ...(data.size2Tiles || [])
+      .filter(i => !partialTilesSet.has(i))
+      .map(i => ({ i, p: data.probs[i] }))
+      .sort((a,b) => b.p - a.p)
+      .slice(0, 3)
+      .map(x => x.i)
+  ]);
 
-  if(isRainbowCandidate){
-    play[i].classList.add('recommended-label');
-  } else {
-    play[i].classList.add('recommended-equal');
+  for(let i=0;i<25;i++){
+    if(grid[i]) continue;
+
+    if(bestSet.has(i)){
+      play[i].classList.add('recommended-equal');
+
+      let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
+
+      if(sizes.length){
+        play[i].setAttribute("data-label", sizes.join("/"));
+      }
+    }
+    else if(size2Set.has(i) && shownRareTiles.has(i)){
+      play[i].classList.add('recommended-size2');
+    }
+    else {
+      play[i].classList.add('recommended-avoid');
+      play[i].textContent = "✕";
+    }
   }
-
-  if(sizes.length){
-    play[i].setAttribute("data-label", sizes.join("/"));
-  }
-}
-  else if(size2Set.has(i)){
-	play[i].classList.add('recommended-size2');
-  }
-  else {
-    play[i].classList.add('recommended-avoid');
-    play[i].textContent = "✕";
-  }
-}
 
   renderEquivalenceInfo(data);
 }
@@ -4922,12 +4932,25 @@ return `
   }
 }
 
+const partialTilesSet = getPartialShipTiles();
+
+const shownRareTiles = new Set([
+  ...size2Tiles.filter(i => partialTilesSet.has(i)),
+
+  ...size2Tiles
+    .filter(i => !partialTilesSet.has(i))
+    .map(i => ({ i, p: probs[i] }))
+    .sort((a,b) => b.p - a.p)
+    .slice(0, 3)
+    .map(x => x.i)
+]);
+
 const avoidTiles = [];
 
 for(let i = 0; i < 25; i++){
   if(grid[i] !== null) continue;
   if(bestTiles.includes(i)) continue;
-  if(size2Tiles.includes(i)) continue;
+  if(shownRareTiles.has(i)) continue;
 
   avoidTiles.push(i);
 }
