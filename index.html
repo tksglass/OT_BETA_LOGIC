@@ -1644,11 +1644,15 @@ function hasAnyValidBoard(){
 
       const cells = placementCells(opt);
 
-      cells.forEach(i => board[i] = ship);
+for (const i of cells) {
+  board[i] = ship;
+}
 
-      if(dfs(index + 1, occupiedMask | placementMask)) return true;
+if(dfs(index + 1, occupiedMask | placementMask)) return true;
 
-      cells.forEach(i => board[i] = null);
+for (const i of cells) {
+  board[i] = null;
+}
     }
 
     return false;
@@ -1660,6 +1664,10 @@ function hasAnyValidBoard(){
 // ===============================
 // T.06 SHIP PLACEMENT
 // ===============================
+
+function isAnonymousRareShip(ship){
+  return !!ship && ship.startsWith('rare_');
+}
 
 function getShipSize(color){
   if(color.startsWith('rare_')) return 2;
@@ -1933,6 +1941,7 @@ function getPartialShipTiles(){
 // ===============================
 // T.08 SIMULATION 
 // ===============================
+
 function runSimulation(){
 
   if (shouldSkipSimulation()) return;
@@ -2153,7 +2162,9 @@ if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
 
     if(placementMask & occupiedMask) continue;
 
-    cells.forEach(i=>board[i]=ship);
+    for (const i of cells) {
+  board[i] = ship;
+}
 
     if(backtrackPlace(
       ships,
@@ -2165,7 +2176,9 @@ if(index > 0 && getShipType(ships[index]) === getShipType(ships[index-1])){
       return true;
     }
 
-    cells.forEach(i=>board[i]=null);
+    for (const i of cells) {
+  board[i] = null;
+}
   }
 
   return false;
@@ -2227,7 +2240,9 @@ function mcmcStep(board, ships, placementsMap){
       const cells = placementCells(opt);
       const placementMask = opt.mask;
 
-      cells.forEach(i => newBoard[i] = ship);
+      for (const i of cells) {
+  newBoard[i] = ship;
+}
 
       occupiedMask |= placementMask;
       shipMasks[ship] = (shipMasks[ship] || 0) | placementMask;
@@ -2254,39 +2269,6 @@ function scoreBoard(board){
   }
 
   return score;
-}
-function prepareSortedShips() {
-  const ships = getShipList();
-
-  ships.sort((a, b) => {
-    const scoreA = getPlacementsCached(a).length - getKnownCellsCached(a).length * 5;
-    const scoreB = getPlacementsCached(b).length - getKnownCellsCached(b).length * 5;
-
-    if(scoreA !== scoreB) return scoreA - scoreB;
-
-    const aRare = a.startsWith('rare_');
-    const bRare = b.startsWith('rare_');
-
-    if(aRare && !bRare) return 1;
-    if(bRare && !aRare) return -1;
-
-    return 0;
-  });
-
-  return ships;
-}
-
-function buildPlacementsMap(ships) {
-  const map = {};
-
-  for (let ship of ships) {
-    const placements = getPlacementsCached(ship);
-    if (placements.length === 0) return null;
-
-    map[ship] = placements;
-  }
-
-  return map;
 }
 
 function initializeChains(ships, placementsMap, numChains) {
@@ -2342,7 +2324,11 @@ function collectSamples(chains, counts, seen, validSoFar) {
   for (let chain of chains) {
     const board = chain.board;
 
-    if (validSoFar % 500 === 0 && !isBoardValid(board, true)) continue;
+    if (
+  validSoFar > 0 &&
+  validSoFar % 500 === 0 &&
+  !isBoardValid(board, true)
+) continue;
 
     const key = boardKey(board);
     if (seen.has(key)) continue;
@@ -2466,10 +2452,6 @@ function canPlaceShip(
   if((placement.diagonalMask & shipMask) !== 0) return false;
 
   return true;
-}
-
-function isAnonymousRareShip(ship){
-  return !!ship && ship.startsWith('rare_');
 }
 
 function getLegalPlacementsForShip(
@@ -2680,8 +2662,27 @@ function enumerateAllBoards(ships, placementsMap) {
   
   const deadStates = new Set();
   
-  function dfsStateKey(remainingShips, occupiedMask, lastRarePlacementKey){
-  return remainingShips.join('|') + '|' + occupiedMask + '|' + lastRarePlacementKey;
+function dfsStateKey(
+  remainingShips,
+  occupiedMask,
+  lastRarePlacementKey,
+  shipMasks
+){
+  const shipMaskKey = Object
+    .keys(shipMasks)
+    .sort()
+    .map(ship => ship + ':' + shipMasks[ship])
+    .join(',');
+
+  return (
+    remainingShips.join('|') +
+    '|' +
+    occupiedMask +
+    '|' +
+    lastRarePlacementKey +
+    '|' +
+    shipMaskKey
+  );
 }
 
   const board = Array(25).fill(null);
@@ -2694,11 +2695,12 @@ function dfs(
   shipMasks = {}
 ) {
 
-  const stateKey = dfsStateKey(
-    remainingShips,
-    occupiedMask,
-    lastRarePlacementKey
-  );
+const stateKey = dfsStateKey(
+  remainingShips,
+  occupiedMask,
+  lastRarePlacementKey,
+  shipMasks
+);
 
   if (deadStates.has(stateKey)) {
     return;
@@ -2866,6 +2868,21 @@ function buildTileShipSizes(allBoards) {
 }
 
 function scoreCollapseForTile(allBoards, tile, probs) {
+  if (!scoreCollapseForTile._cache) {
+    scoreCollapseForTile._cache = new WeakMap();
+  }
+
+  let boardCache = scoreCollapseForTile._cache.get(allBoards);
+
+  if (!boardCache) {
+    boardCache = new Map();
+    scoreCollapseForTile._cache.set(allBoards, boardCache);
+  }
+
+  if (boardCache.has(tile)) {
+    return boardCache.get(tile);
+  }
+
   let buckets =
     allBoards === appState.allBoards
       ? outcomeBucketsCache?.[tile]
@@ -2891,12 +2908,16 @@ function scoreCollapseForTile(allBoards, tile, probs) {
     expectedRemaining += p * count;
   }
 
-  return {
+  const result = {
     i: tile,
     p: probs[tile],
     expectedRemaining,
     buckets
   };
+
+  boardCache.set(tile, result);
+
+  return result;
 }
 
 function getBestCollapseMove(
@@ -2957,11 +2978,12 @@ function scoreTwoStepCollapse(allBoards, firstTile, probs, unknownTiles) {
 
 function getBestTwoStepCollapseMove(allBoards, probs) {
   const unknownTiles = getUnknownTiles();
+  const getScore = makeCollapseScoreGetter(allBoards, probs);
 
   const candidates = [];
 
   for (const i of unknownTiles) {
-    candidates.push(scoreCollapseForTile(allBoards, i, probs));
+    candidates.push(getScore(i));
   }
 
   candidates.sort((a, b) => a.expectedRemaining - b.expectedRemaining);
@@ -3136,9 +3158,38 @@ function updateExactSolverUI(valid, preview = false) {
     `Exact boards: ${valid}${preview ? " (preview)" : ""}`;
 }
 
+function makeCollapseScoreGetter(allBoards, probs) {
+  const cache = new Map();
+
+  return function(tile) {
+    if (!cache.has(tile)) {
+      cache.set(tile, scoreCollapseForTile(allBoards, tile, probs));
+    }
+    return cache.get(tile);
+  };
+}
+
 // ===============================
 // T.11 MOVE STRATEGY
 // ===============================
+
+function highlightStartingCorners(){
+  const play = DOM.playBoard;
+
+  clearRecommendations();
+
+  const { huntMode } = getGameContext();
+
+  const openingTiles = huntMode
+    ? [6, 8, 16, 18]              
+    : [0, 4, 20, 24];  
+
+  openingTiles.forEach(i => {
+    if(!grid[i]) { 
+      play[i].classList.add('recommended-equal');
+    }
+  });
+}
 
 function getSafeModeProgressMove(allBoards, probs) {
   const unknown = getUnknownTiles();
@@ -3171,24 +3222,39 @@ if (partialCandidates.length) {
     }))
     .filter(x => x.rareP > 0);
 
-  if (rareCandidates.length) {
-    rareCandidates.sort((a, b) => {
-      if (b.rareP !== a.rareP) return b.rareP - a.rareP;
+if (rareCandidates.length) {
+  const getScore = makeCollapseScoreGetter(allBoards, probs);
 
-      return (
-        scoreCollapseForTile(allBoards, a.i, probs).expectedRemaining -
-        scoreCollapseForTile(allBoards, b.i, probs).expectedRemaining
-      );
-    });
+  let bestRare = null;
+  let bestRareP = -Infinity;
+  let bestExpectedRemaining = Infinity;
 
-    return withSafeMoveReason(
-  makeMoveObject(rareCandidates[0].i),
-  `This tile has the best chance to reveal an unfound rare ship (${(rareCandidates[0].rareP * 100).toFixed(1)}%).`
-);
+  for (const candidate of rareCandidates) {
+    const expectedRemaining =
+      getScore(candidate.i).expectedRemaining;
+
+    if (
+      candidate.rareP > bestRareP ||
+      (
+        candidate.rareP === bestRareP &&
+        expectedRemaining < bestExpectedRemaining
+      )
+    ) {
+      bestRare = candidate;
+      bestRareP = candidate.rareP;
+      bestExpectedRemaining = expectedRemaining;
+    }
   }
 
+  return withSafeMoveReason(
+    makeMoveObject(bestRare.i),
+    `This tile has the best chance to reveal an unfound rare ship (${(bestRare.rareP * 100).toFixed(1)}%).`
+  );
+}
+
 const tile = chooseBestProgressCandidate(progressTiles, allBoards, probs);
-const score = scoreCollapseForTile(allBoards, tile, probs);
+const getScore = makeCollapseScoreGetter(allBoards, probs);
+const score = getScore(tile);
 
 return withSafeMoveReason(
   makeMoveObject(tile),
@@ -3204,14 +3270,25 @@ function withSafeMoveReason(move, reason) {
 }
 
 function chooseBestProgressCandidate(tiles, allBoards, probs) {
-  return [...tiles].sort((a, b) => {
-    const aScore = scoreCollapseForTile(allBoards, a, probs).expectedRemaining;
-    const bScore = scoreCollapseForTile(allBoards, b, probs).expectedRemaining;
+  let bestTile = null;
+  let bestScore = Infinity;
+  let bestProb = Infinity;
 
-    if (aScore !== bScore) return aScore - bScore;
+  for (const tile of tiles) {
+    const score = scoreCollapseForTile(allBoards, tile, probs).expectedRemaining;
+    const p = probs[tile];
 
-    return probs[a] - probs[b];
-  })[0];
+    if (
+      score < bestScore ||
+      (score === bestScore && p < bestProb)
+    ) {
+      bestTile = tile;
+      bestScore = score;
+      bestProb = p;
+    }
+  }
+
+  return bestTile;
 }
 
 function chooseBestSafeCandidate(tiles, allBoards, probs) {
@@ -3272,6 +3349,201 @@ function getCandidateUnfoundColorBonus(tileIndex, allBoards){
   }
 
   return bonus;
+}
+
+function buildCandidates(probs) {
+  return probs
+    .map((p, i) => {
+      const candidate = { p, i };
+      const buckets = outcomeBucketsCache?.[i];
+
+      if (buckets && appState.allBoards?.length) {
+        let expectedRemaining = 0;
+
+        for (const key in buckets) {
+          const count = buckets[key];
+          const outcomeChance = count / appState.allBoards.length;
+
+          expectedRemaining += outcomeChance * count;
+        }
+
+        candidate.expectedRemaining = expectedRemaining;
+      }
+
+      return candidate;
+    })
+    .filter(c => !grid[c.i]);
+}
+
+function findGuaranteedMove(candidates, huntMode) {
+  const guaranteedHit = candidates.find(c => c.p === 1);
+  const guaranteedMiss = candidates.find(c => c.p === 0);
+
+  if(!huntMode){
+    return guaranteedMiss;
+  }
+
+  const foundColors = getFoundColors();
+
+	if(isEarlyGame()){
+	return null;
+	}
+
+  return guaranteedHit;
+}
+
+function rankCandidates(candidates, huntMode) {
+  const phase = getGamePhase();
+
+  if (!huntMode) {
+    const danger = phase === "late";
+
+    candidates.forEach(c => {
+      const p = c.p;
+
+      const blueChance = 1 - p;
+      const info = 2 * p * (1 - p);
+
+      let score = 0;
+
+      if(danger){
+        score += blueChance * 0.9;
+        score += info * 0.1;
+      } else {
+	  
+        score += blueChance * 0.45;
+        score += info * 0.55;
+      }
+
+      score += (c.i % 7) * 0.0001;
+
+      c.score = score;
+    });
+
+    candidates.sort((a, b) => b.score - a.score);
+    return;
+  }
+
+  const partialTiles = getPartialShipTiles();
+  const canUseUnfoundBonus = !!appState.allBoards;
+
+  const adjacentCache = {};
+
+  function adjacent(i){
+    if(adjacentCache[i] === undefined){
+      adjacentCache[i] = isAdjacentToKnown(i);
+    }
+
+    return adjacentCache[i];
+  }
+
+  const hasNonAdjacentCandidate = candidates.some(c =>
+    !adjacent(c.i)
+  );
+
+  candidates.forEach(c => {
+    const p = c.p;
+
+    const info = 2 * p * (1 - p);
+    const blueRisk = 1 - p;
+
+    const unfoundColorBonus = canUseUnfoundBonus
+      ? getCandidateUnfoundColorBonus(c.i, appState.allBoards)
+      : 0;
+
+    let score = 0;
+
+if(phase === "early"){
+  const lowMissAggroExplore =
+    huntMode &&
+    rareCount >= 4 &&
+    getHitMissCounts().misses <= 1;
+
+  if(lowMissAggroExplore){
+    score += unfoundColorBonus * 2.5;
+    score += info * 1.1;
+    score += p * 0.08;
+    score -= blueRisk * 0.12;
+
+    if(p >= 0.95){
+      score -= 1.0;
+    } else if(p >= 0.85){
+      score -= 0.45;
+    }
+  } else {
+    score += unfoundColorBonus * 1.2;
+    score += info * 0.75;
+    score += p * 0.35;
+    score -= blueRisk * 0.25;
+  }
+
+  if(hasNonAdjacentCandidate && adjacent(c.i)){
+    score -= 100;
+  }
+}
+
+    else if(phase === "mid"){
+      score += unfoundColorBonus * 0.8;
+      score += info * 0.65;
+      score += p * 0.55;
+      score -= blueRisk * 0.2;
+
+      if(partialTiles.has(c.i)){
+        score -= 0.12;
+      }
+    }
+
+    else {
+      score += p * 0.85;
+      score += info * 0.25;
+      score += unfoundColorBonus * 0.25;
+      score -= blueRisk * 0.1;
+    }
+
+    score += (c.i % 7) * 0.0001;
+
+    c.score = score;
+  });
+
+  candidates.sort((a, b) => b.score - a.score);
+}
+
+function selectTopMoves(candidates, huntMode) {
+  let topMoves = candidates.slice(0, 2);
+
+  let safest = !huntMode
+    ? [...candidates].sort((a, b) => a.p - b.p)[0]
+    : null;
+
+  const best = topMoves[0];
+
+  if (safest && best && safest.i === best.i) {
+    topMoves = topMoves.filter(m => m.i !== safest.i);
+  }
+
+  topMoves = topMoves.map(m => ({ ...m, type: 'top' }));
+
+  if (safest) {
+    safest = { ...safest, type: 'safe' };
+  }
+
+  return { topMoves, safest };
+}
+
+function updateRecommendationState(probs, topMoves, safest) {
+  const allMoves = [...topMoves];
+  if (safest) allMoves.push(safest);
+
+  lastProbs = probs;
+  lastTopMoves = allMoves;
+
+  appState.probs = probs;
+  appState.topMoves = allMoves;
+  appState.isGuaranteed = false;
+}
+
+function getRecommendationContext() {
+  return getGameContext();
 }
 
 // ===============================
@@ -4156,48 +4428,6 @@ cell.classList.add('rainbow-highlight');
 }
 }
 
-function queueHeatmapPreview(tileIndex) {
-  if (lastHoveredTile === tileIndex) return;
-
-  lastHoveredTile = tileIndex;
-
-  if (hoverPreviewTimer) {
-    clearTimeout(hoverPreviewTimer);
-  }
-
-  hoverPreviewTimer = setTimeout(() => {
-    showHeatmapPreview(tileIndex);
-  }, 75);
-}
-
-function cancelHeatmapPreview() {
-  if (hoverPreviewTimer) {
-    clearTimeout(hoverPreviewTimer);
-    hoverPreviewTimer = null;
-  }
-
-  lastHoveredTile = null;
-  clearHeatmapPreview();
-}
-
-function highlightStartingCorners(){
-  const play = DOM.playBoard;
-
-  clearRecommendations();
-
-  const { huntMode } = getGameContext();
-
-  const openingTiles = huntMode
-    ? [6, 8, 16, 18]              
-    : [0, 4, 20, 24];  
-
-  openingTiles.forEach(i => {
-    if(!grid[i]) { 
-      play[i].classList.add('recommended-equal');
-    }
-  });
-}
-
 function clearHeatmapPreview() {
   if (!heatmapPreviewActive) return;
 
@@ -4516,47 +4746,6 @@ function highlightRecommendations(probs) {
   updateRecommendationState(probs, topMoves, safest);
 }
 
-function buildCandidates(probs) {
-  return probs
-    .map((p, i) => {
-      const candidate = { p, i };
-      const buckets = outcomeBucketsCache?.[i];
-
-      if (buckets && appState.allBoards?.length) {
-        let expectedRemaining = 0;
-
-        for (const key in buckets) {
-          const count = buckets[key];
-          const outcomeChance = count / appState.allBoards.length;
-
-          expectedRemaining += outcomeChance * count;
-        }
-
-        candidate.expectedRemaining = expectedRemaining;
-      }
-
-      return candidate;
-    })
-    .filter(c => !grid[c.i]);
-}
-
-function findGuaranteedMove(candidates, huntMode) {
-  const guaranteedHit = candidates.find(c => c.p === 1);
-  const guaranteedMiss = candidates.find(c => c.p === 0);
-
-  if(!huntMode){
-    return guaranteedMiss;
-  }
-
-  const foundColors = getFoundColors();
-
-	if(isEarlyGame()){
-	return null;
-	}
-
-  return guaranteedHit;
-}
-
 function applyGuaranteedMove(move, probs, play) {
   const cell = play[move.i];
 
@@ -4577,144 +4766,6 @@ function applyGuaranteedMove(move, probs, play) {
   appState.isGuaranteed = true;
 }
 
-function rankCandidates(candidates, huntMode) {
-  const phase = getGamePhase();
-
-  if (!huntMode) {
-    const danger = phase === "late";
-
-    candidates.forEach(c => {
-      const p = c.p;
-
-      const blueChance = 1 - p;
-      const info = 2 * p * (1 - p);
-
-      let score = 0;
-
-      if(danger){
-        score += blueChance * 0.9;
-        score += info * 0.1;
-      } else {
-	  
-        score += blueChance * 0.45;
-        score += info * 0.55;
-      }
-
-      score += (c.i % 7) * 0.0001;
-
-      c.score = score;
-    });
-
-    candidates.sort((a, b) => b.score - a.score);
-    return;
-  }
-
-  const partialTiles = getPartialShipTiles();
-  const canUseUnfoundBonus = !!appState.allBoards;
-
-  const adjacentCache = {};
-
-  function adjacent(i){
-    if(adjacentCache[i] === undefined){
-      adjacentCache[i] = isAdjacentToKnown(i);
-    }
-
-    return adjacentCache[i];
-  }
-
-  const hasNonAdjacentCandidate = candidates.some(c =>
-    !adjacent(c.i)
-  );
-
-  candidates.forEach(c => {
-    const p = c.p;
-
-    const info = 2 * p * (1 - p);
-    const blueRisk = 1 - p;
-
-    const unfoundColorBonus = canUseUnfoundBonus
-      ? getCandidateUnfoundColorBonus(c.i, appState.allBoards)
-      : 0;
-
-    let score = 0;
-
-if(phase === "early"){
-  const lowMissAggroExplore =
-    huntMode &&
-    rareCount >= 4 &&
-    getHitMissCounts().misses <= 1;
-
-  if(lowMissAggroExplore){
-    score += unfoundColorBonus * 2.5;
-    score += info * 1.1;
-    score += p * 0.08;
-    score -= blueRisk * 0.12;
-
-    if(p >= 0.95){
-      score -= 1.0;
-    } else if(p >= 0.85){
-      score -= 0.45;
-    }
-  } else {
-    score += unfoundColorBonus * 1.2;
-    score += info * 0.75;
-    score += p * 0.35;
-    score -= blueRisk * 0.25;
-  }
-
-  if(hasNonAdjacentCandidate && adjacent(c.i)){
-    score -= 100;
-  }
-}
-
-    else if(phase === "mid"){
-      score += unfoundColorBonus * 0.8;
-      score += info * 0.65;
-      score += p * 0.55;
-      score -= blueRisk * 0.2;
-
-      if(partialTiles.has(c.i)){
-        score -= 0.12;
-      }
-    }
-
-    else {
-      score += p * 0.85;
-      score += info * 0.25;
-      score += unfoundColorBonus * 0.25;
-      score -= blueRisk * 0.1;
-    }
-
-    score += (c.i % 7) * 0.0001;
-
-    c.score = score;
-  });
-
-  candidates.sort((a, b) => b.score - a.score);
-}
-
-function selectTopMoves(candidates, huntMode) {
-  let topMoves = candidates.slice(0, 2);
-
-  let safest = !huntMode
-    ? [...candidates].sort((a, b) => a.p - b.p)[0]
-    : null;
-
-  const best = topMoves[0];
-
-  if (safest && best && safest.i === best.i) {
-    topMoves = topMoves.filter(m => m.i !== safest.i);
-  }
-
-  topMoves = topMoves.map(m => ({ ...m, type: 'top' }));
-
-  if (safest) {
-    safest = { ...safest, type: 'safe' };
-  }
-
-  return { topMoves, safest };
-}
-
 function applyHighlights(play, topMoves, safest) {
   const best = topMoves[0];
   const alternative = appState.collapseMove || topMoves[1];
@@ -4730,22 +4781,6 @@ function applyHighlights(play, topMoves, safest) {
   if (safest) {
     play[safest.i].classList.add('recommended-safe');
   }
-}
-
-function updateRecommendationState(probs, topMoves, safest) {
-  const allMoves = [...topMoves];
-  if (safest) allMoves.push(safest);
-
-  lastProbs = probs;
-  lastTopMoves = allMoves;
-
-  appState.probs = probs;
-  appState.topMoves = allMoves;
-  appState.isGuaranteed = false;
-}
-
-function getRecommendationContext() {
-  return getGameContext();
 }
 
 function highlightAvoidGroup(data){
@@ -5053,27 +5088,6 @@ function shuffle(arr){
   return arr;
 }
 
-function createBoards(){
-  const play=document.getElementById('playBoard');
-  const heat=document.getElementById('heatmap');
-
-  play.innerHTML='';
-  heat.innerHTML='';
-
-for(let i=0;i<25;i++){
-  let cell=document.createElement('div');
-  cell.className='cell';
-  cell.onclick=()=>handleCellClick(i);
-cell.addEventListener('mouseenter', () => queueHeatmapPreview(i));
-cell.addEventListener('mouseleave', cancelHeatmapPreview);
-  play.appendChild(cell);
-
-  let h=document.createElement('div');
-  h.className='cell';
-  heat.appendChild(h);
-}
-}
-
 function placementCells(placement){
   return placement.cells ?? placement;
 }
@@ -5219,6 +5233,40 @@ function getColorMaskCached(color){
 
   colorMaskCache[color] = mask;
   return mask;
+}
+
+function prepareSortedShips() {
+  const ships = getShipList();
+
+  ships.sort((a, b) => {
+    const scoreA = getPlacementsCached(a).length - getKnownCellsCached(a).length * 5;
+    const scoreB = getPlacementsCached(b).length - getKnownCellsCached(b).length * 5;
+
+    if(scoreA !== scoreB) return scoreA - scoreB;
+
+    const aRare = a.startsWith('rare_');
+    const bRare = b.startsWith('rare_');
+
+    if(aRare && !bRare) return 1;
+    if(bRare && !aRare) return -1;
+
+    return 0;
+  });
+
+  return ships;
+}
+
+function buildPlacementsMap(ships) {
+  const map = {};
+
+  for (let ship of ships) {
+    const placements = getPlacementsCached(ship);
+    if (placements.length === 0) return null;
+
+    map[ship] = placements;
+  }
+
+  return map;
 }
 
 // ===============================
@@ -5456,9 +5504,54 @@ window.loadHash = function(){
   loadFromHash(hash);
 };
 
+function queueHeatmapPreview(tileIndex) {
+  if (lastHoveredTile === tileIndex) return;
+
+  lastHoveredTile = tileIndex;
+
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
+  }
+
+  hoverPreviewTimer = setTimeout(() => {
+    showHeatmapPreview(tileIndex);
+  }, 75);
+}
+
+function cancelHeatmapPreview() {
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = null;
+  }
+
+  lastHoveredTile = null;
+  clearHeatmapPreview();
+}
+
 // ===============================
 // T.17 INITIALIZATION
 // ===============================
+
+function createBoards(){
+  const play=document.getElementById('playBoard');
+  const heat=document.getElementById('heatmap');
+
+  play.innerHTML='';
+  heat.innerHTML='';
+
+for(let i=0;i<25;i++){
+  let cell=document.createElement('div');
+  cell.className='cell';
+  cell.onclick=()=>handleCellClick(i);
+cell.addEventListener('mouseenter', () => queueHeatmapPreview(i));
+cell.addEventListener('mouseleave', cancelHeatmapPreview);
+  play.appendChild(cell);
+
+  let h=document.createElement('div');
+  h.className='cell';
+  heat.appendChild(h);
+}
+}
 
 function cacheDomLists(){
   DOM_LISTS.colorButtons = [...document.querySelectorAll('.color-btn')];
