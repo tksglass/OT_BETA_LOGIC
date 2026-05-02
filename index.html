@@ -2389,7 +2389,13 @@ const bestProb = analysis.bestGroup.length
   ? probs[analysis.bestGroup[0]]
   : null;
 
-if (huntMode && !isEarlyGame() && analysis.bestGroup.length >= 2 && bestProb < 1) {
+if (
+  !shouldForceHeuristics() &&
+  huntMode &&
+  !isEarlyGame() &&
+  analysis.bestGroup.length >= 2 &&
+  bestProb < 1
+) {
   applyEquivalenceResult(analysis, probs);
   updateExactSolverUI(valid);
   return;
@@ -3173,6 +3179,15 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // T.11 MOVE STRATEGY
 // ===============================
 
+function shouldForceHeuristics() {
+  const { misses, huntMode } = getGameContext();
+
+  return (
+    huntMode &&
+    misses < 3
+  );
+}
+
 function highlightStartingCorners(){
   const play = DOM.playBoard;
 
@@ -3372,7 +3387,10 @@ function buildCandidates(probs) {
 
       return candidate;
     })
-    .filter(c => !grid[c.i]);
+    .filter(c =>
+  !grid[c.i] &&
+  !(shouldForceHeuristics() && c.p >= 0.999)
+);
 }
 
 function findGuaranteedMove(candidates, huntMode) {
@@ -3383,11 +3401,13 @@ function findGuaranteedMove(candidates, huntMode) {
     return guaranteedMiss;
   }
 
-  const foundColors = getFoundColors();
+  if (shouldForceHeuristics()) {
+    return null;
+  }
 
-	if(isEarlyGame()){
-	return null;
-	}
+  if(isEarlyGame()){
+    return null;
+  }
 
   return guaranteedHit;
 }
