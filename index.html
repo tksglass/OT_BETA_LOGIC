@@ -614,11 +614,20 @@ button {
   box-shadow: 0 0 10px 4px rgba(16,185,129,0.8);
 }
 
+.recommended-danger {
+  outline: 3px solid #dc2626;
+  box-shadow: 0 0 10px 4px rgba(220,38,38,0.7);
+}
+
+.recommended-uncertainty {
+  outline: 3px solid #f97316;
+  box-shadow: 0 0 10px 4px rgba(249,115,22,0.75);
+}
+
 .recommended-avoid {
   outline: 3px solid #ef4444;
   position: relative;
 }
-
 .recommended-avoid::after {
   content: "✕";
   color: #ef4444;
@@ -645,7 +654,7 @@ button {
 
 .recommended-label::after {
   content: attr(data-label);
-  color: #22c55e;
+  color: var(--label-color, #22c55e);
   font-weight: bold;
   position: absolute;
   inset: 0;
@@ -658,6 +667,10 @@ button {
   pointer-events: none;
 
   font-size: 16px;
+}
+
+.recommended-label[data-label*="×"]::after {
+  font-size: 14px;
 }
 
 .recommended-size2::after {
@@ -749,7 +762,7 @@ button {
     </div>
 
     <div class="section">
-      <span class="label">8/9 Color Starting Mode:</span>
+      <span class="label">Game Mode:</span>
 <button id="modeSafe" onclick="setMode('safe', this)">
   Safe
 </button>
@@ -859,6 +872,10 @@ const MODE = {
 };
 
 const MAX_MISSES = 5;
+
+const PRECALC_BOARD_LIMIT = 4000;
+const PRECALC_MAX_DEPTH = 23;
+const PRECALC_UNKNOWN_TILE_LIMIT = 15;
 
 const COLOR_TO_ID = {
   teal: 0,
@@ -1254,10 +1271,6 @@ DOM_LISTS.rareButtons.forEach(b=>{
   b.classList.remove('disabled');
 });
 
-DOM_LISTS.modeButtons.forEach(b=>{
-  b.classList.add('disabled');
-});
-
 }
 
 // ===============================
@@ -1283,6 +1296,8 @@ function resetModeAndCache() {
   appState.specialGroup = null;
   appState.forcedTiles = null;
   appState.collapseMove = null;
+  appState.noEquivalencePlan = null;
+  appState.uncertaintyMove = null;
 }
 
 function ensureConfigLocked() {
@@ -1346,7 +1361,15 @@ function deepClone(obj) {
             ? [...obj.winStrategy.line]
             : obj.winStrategy.line
         }
-      : obj.winStrategy
+      : obj.winStrategy,
+
+    noEquivalencePlan: obj.noEquivalencePlan
+      ? JSON.parse(JSON.stringify(obj.noEquivalencePlan))
+      : obj.noEquivalencePlan,
+
+    uncertaintyMove: obj.uncertaintyMove
+      ? { ...obj.uncertaintyMove }
+      : obj.uncertaintyMove
   };
 }
 
@@ -1432,7 +1455,9 @@ function createEmptyAppState(){
     isGuaranteed: false,
     specialGroup: null,
 	safeOverride: false,
-    collapseMove: null
+    collapseMove: null,
+    noEquivalencePlan: null,
+    uncertaintyMove: null
   };
 }
 
@@ -1788,6 +1813,10 @@ function getPlacementsCached(color){
 // T.07 GAME STATE
 // ===============================
 
+function getDefaultModeForRareCount(n) {
+  return n <= 3 ? "safe" : "aggressive";
+}
+
 function getFoundColors(){
   return getGridStats().foundColors;
 }
@@ -1832,17 +1861,12 @@ function getGameContext() {
   const { hits, misses } = getHitMissCounts();
 
   const naturalAggressive = hits >= 5 && misses >= 3;
+  const defaultMode = getDefaultModeForRareCount(rareCount);
+  const mode = forcedStartMode || defaultMode;
 
-  let huntMode = naturalAggressive;
-
-if (rareCount >= 4) {
-  const defaultStartMode = "aggressive";
-  const startMode = forcedStartMode || defaultStartMode;
-
-  huntMode =
-    startMode === "aggressive" ||
+  const huntMode =
+    mode === "aggressive" ||
     naturalAggressive;
-}
 
   return {
     hits,
@@ -2199,7 +2223,9 @@ appState = {
   isTrueEndgame: false,
   isGuaranteed: false,
   specialGroup: null,
-  collapseMove: null
+  collapseMove: null,
+  noEquivalencePlan: null,
+  uncertaintyMove: null
 };
 
   DOM.confidence.textContent =
@@ -2381,6 +2407,24 @@ appState.allBoards = allBoards;
 
 renderHeatmap(probs);
 
+const effectiveUnknownTiles = getEffectiveUnknownTilesForPrecalc();
+
+if (
+  allBoards.length <= PRECALC_BOARD_LIMIT &&
+  effectiveUnknownTiles.length <= PRECALC_UNKNOWN_TILE_LIMIT
+) {
+  const noEquivalencePlan = findNoEquivalenceStrategy(allBoards, probs);
+
+  if (noEquivalencePlan) {
+    applyNoEquivalencePlan(noEquivalencePlan, probs, allBoards);
+    updateExactSolverUI(valid);
+    return;
+  }
+
+  appState.uncertaintyMove =
+    getBestUncertaintyRemovalMove(allBoards, probs);
+}
+
 if (handleTwoBoardEndgame(valid, probs, allBoards)) {
   updateExactSolverUI(valid);
   return;
@@ -2512,7 +2556,7 @@ if(
 
 function buildExactCaches(allBoards) {
   const outcomeBuckets = Array.from({ length: 25 }, () => ({}));
-  const tileSizeSets = Array.from({ length: 25 }, () => new Set());
+  const tileSizeShipSets = Array.from({ length: 25 }, () => ({}));
   const unfoundCounts = Array.from({ length: 25 }, () => ({}));
   const hitMasks = [];
 
@@ -2537,7 +2581,13 @@ function buildExactCaches(allBoards) {
 
       if (grid[i]) continue;
 
-      tileSizeSets[i].add(getShipSize(color));
+      const size = getShipSize(color);
+
+      if (!tileSizeShipSets[i][size]) {
+        tileSizeShipSets[i][size] = new Set();
+      }
+
+      tileSizeShipSets[i][size].add(color);
 
       if (
         !isRareShipId(color) &&
@@ -2557,7 +2607,7 @@ function buildExactCaches(allBoards) {
   for (let i = 0; i < 25; i++) {
     if (grid[i]) continue;
 
-    tileShipSizes[i] = [...tileSizeSets[i]].sort((a, b) => b - a);
+    tileShipSizes[i] = expandTileSizeShipSets(tileSizeShipSets[i]);
 
     for (const color in unfoundCounts[i]) {
       unfoundBonus[i] += unfoundCounts[i][color] / allBoards.length;
@@ -2571,6 +2621,178 @@ function buildExactCaches(allBoards) {
     hitMasks,
     equivalenceGroups: buildEquivalenceGroupsFromHitMasks(hitMasks)
   };
+}
+
+function buildPrecalcContext(allBoards) {
+  let allBoardSet = 0n;
+
+  const hitMasks = [];
+  const tileHitBoardSets = Array(25).fill(0n);
+  const outcomeBoardSetsByTile = Array.from(
+    { length: 25 },
+    () => ({})
+  );
+
+  for (let b = 0; b < allBoards.length; b++) {
+    const board = allBoards[b];
+    const boardBit = 1n << BigInt(b);
+
+    allBoardSet |= boardBit;
+
+    let hitMask = 0;
+
+    for (let i = 0; i < 25; i++) {
+      const color = board[i];
+      const outcome = color || 0;
+
+      if (!outcomeBoardSetsByTile[i][outcome]) {
+        outcomeBoardSetsByTile[i][outcome] = 0n;
+      }
+
+      outcomeBoardSetsByTile[i][outcome] |= boardBit;
+
+      if (color) {
+        hitMask |= cellMask(i);
+        tileHitBoardSets[i] |= boardBit;
+      }
+    }
+
+    hitMasks[b] = hitMask;
+  }
+
+  return {
+    allBoardSet,
+    hitMasks,
+    tileHitBoardSets,
+    outcomeBoardSetsByTile,
+    bitCountCache: new Map(),
+    splitScoreCache: new Map()
+  };
+}
+
+function getBoardSetCount(boardSet, ctx) {
+  const key = boardSet.toString(36);
+
+  if (ctx.bitCountCache.has(key)) {
+    return ctx.bitCountCache.get(key);
+  }
+
+  const count = bitCountBigInt(boardSet);
+
+  ctx.bitCountCache.set(key, count);
+
+  return count;
+}
+
+function bitCountBigInt(value) {
+  let count = 0;
+
+  while (value !== 0n) {
+    value &= value - 1n;
+    count++;
+  }
+
+  return count;
+}
+
+function getTileSplitScoreForBoardSet(tile, boardSet, ctx) {
+  const key = tile + "|" + boardSet.toString(36);
+
+  if (ctx.splitScoreCache.has(key)) {
+    return ctx.splitScoreCache.get(key);
+  }
+
+  const buckets = bucketBoardSetByOutcome(boardSet, tile, ctx);
+
+  let score = 0;
+
+  for (const outcome in buckets) {
+    const count = getBoardSetCount(buckets[outcome], ctx);
+    score += count * count;
+  }
+
+  ctx.splitScoreCache.set(key, score);
+
+  return score;
+}
+
+function getStrategyCandidatesForBoardSet(
+  boardSet,
+  knownMask,
+  hits,
+  misses,
+  ctx
+) {
+  const { huntMode } = getGameContext();
+  const boardCount = getBoardSetCount(boardSet, ctx);
+  const tiles = [];
+
+  for (let i = 0; i < 25; i++) {
+    if ((knownMask & cellMask(i)) !== 0) continue;
+
+    const hitCount = getBoardSetCount(
+      boardSet & ctx.tileHitBoardSets[i],
+      ctx
+    );
+
+    const p = boardCount ? hitCount / boardCount : 0;
+
+    if (huntMode && p === 0) continue;
+    if (!huntMode && p === 1) continue;
+
+    tiles.push(i);
+  }
+
+  return tiles;
+}
+
+function wouldTriggerEquivalenceForBoardSet(boardSet, knownMask, ctx) {
+  const { huntMode } = getGameContext();
+
+  if (
+    shouldForceHeuristics() ||
+    !huntMode ||
+    isEarlyGame() ||
+    getBoardSetCount(boardSet, ctx) <= 1
+  ) {
+    return false;
+  }
+
+  const patterns = new Map();
+
+  for (let i = 0; i < 25; i++) {
+    if ((knownMask & cellMask(i)) !== 0) continue;
+
+    const pattern = boardSet & ctx.tileHitBoardSets[i];
+
+    if (pattern === boardSet) continue;
+
+    const key = pattern.toString(36);
+    const count = patterns.get(key) || 0;
+
+    if (count >= 1) {
+      return true;
+    }
+
+    patterns.set(key, count + 1);
+  }
+
+  return false;
+}
+
+function bucketBoardSetByOutcome(boardSet, tile, ctx) {
+  const buckets = {};
+  const outcomeSets = ctx.outcomeBoardSetsByTile[tile];
+
+  for (const outcome in outcomeSets) {
+    const nextBoardSet = boardSet & outcomeSets[outcome];
+
+    if (nextBoardSet !== 0n) {
+      buckets[outcome] = nextBoardSet;
+    }
+  }
+
+  return buckets;
 }
 
 function buildEquivalenceGroupsFromHitMasks(hitMasks) {
@@ -2858,25 +3080,487 @@ function getUnknownTiles(){
   return tiles;
 }
 
+function getEffectiveUnknownTilesForPrecalc(){
+  const tiles = [];
+  const forcedTiles = appState.forcedTiles || {};
+
+  for(let i = 0; i < 25; i++){
+    if(grid[i] !== null) continue;
+
+    if (
+      Object.prototype.hasOwnProperty.call(forcedTiles, i)
+    ) {
+      continue;
+    }
+
+    tiles.push(i);
+  }
+
+  return tiles;
+}
+
+
+
+function getCurrentKnownMask() {
+  let mask = 0;
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) {
+      mask |= cellMask(i);
+    }
+  }
+
+  return mask;
+}
+
+function getUnknownTilesFromKnownMask(knownMask) {
+  const tiles = [];
+
+  for (let i = 0; i < 25; i++) {
+    if ((knownMask & cellMask(i)) === 0) {
+      tiles.push(i);
+    }
+  }
+
+  return tiles;
+}
+
+function bucketBoardsByOutcome(boards, tile) {
+  const buckets = {};
+
+  for (const board of boards) {
+    const key = getOutcomeKey(board, tile);
+
+    if (!buckets[key]) {
+      buckets[key] = [];
+    }
+
+    buckets[key].push(board);
+  }
+
+  return buckets;
+}
+
+function findNoEquivalenceStrategy(allBoards, probs) {
+  const knownMask = getCurrentKnownMask();
+  const { hits, misses } = getHitMissCounts();
+
+  const ctx = buildPrecalcContext(allBoards);
+
+  for (let depthLimit = 1; depthLimit <= PRECALC_MAX_DEPTH; depthLimit++) {
+    const memo = new Map();
+
+    const plan = searchNoEquivalenceStrategy(
+      ctx.allBoardSet,
+      knownMask,
+      hits,
+      misses,
+      0,
+      depthLimit,
+      memo,
+      ctx
+    );
+
+    if (plan) return plan;
+  }
+
+  return null;
+}
+
+function searchNoEquivalenceStrategy(
+  boardSet,
+  knownMask,
+  hits,
+  misses,
+  depth,
+  depthLimit,
+  memo,
+  ctx
+) {
+  const boardCount = getBoardSetCount(boardSet, ctx);
+
+  if (boardCount <= 1) {
+    return [];
+  }
+
+  if (wouldTriggerEquivalenceForBoardSet(boardSet, knownMask, ctx)) {
+    return null;
+  }
+
+  if (depth >= depthLimit) {
+    return null;
+  }
+
+  const key =
+    boardSet.toString(36) +
+    "|" + knownMask +
+    "|" + hits +
+    "|" + misses;
+
+  if (memo.has(key)) {
+    return memo.get(key);
+  }
+
+const candidates = getStrategyCandidatesForBoardSet(
+  boardSet,
+  knownMask,
+  hits,
+  misses,
+  ctx
+).sort((a, b) =>
+  getTileSplitScoreForBoardSet(a, boardSet, ctx) -
+  getTileSplitScoreForBoardSet(b, boardSet, ctx)
+);
+
+  for (const tile of candidates) {
+    const nextKnownMask = knownMask | cellMask(tile);
+
+    const buckets = bucketBoardSetByOutcome(
+      boardSet,
+      tile,
+      ctx
+    );
+
+    const outcomes = Object.keys(buckets);
+
+    if (outcomes.length <= 1) continue;
+
+    let valid = true;
+    const branches = {};
+
+    for (const outcome of outcomes) {
+      const nextCounts = getNextPathCounts(hits, misses, outcome);
+
+      if (doesPathOutcomeEndGame(hits, misses, outcome)) {
+        valid = false;
+        break;
+      }
+
+      const nextBoardSet = buckets[outcome];
+
+      if (wouldTriggerEquivalenceForBoardSet(nextBoardSet, nextKnownMask, ctx)) {
+        valid = false;
+        break;
+      }
+
+      const branchPlan = searchNoEquivalenceStrategy(
+        nextBoardSet,
+        nextKnownMask,
+        nextCounts.hits,
+        nextCounts.misses,
+        depth + 1,
+        depthLimit,
+        memo,
+        ctx
+      );
+
+      if (!branchPlan) {
+        valid = false;
+        break;
+      }
+
+branches[outcome] = {
+  boards: getBoardSetCount(nextBoardSet, ctx),
+  plan: branchPlan
+};
+    }
+
+    if (valid) {
+      const plan = [{
+        i: tile,
+        boards: boardCount,
+        branches
+      }];
+
+      memo.set(key, plan);
+      return plan;
+    }
+  }
+
+  memo.set(key, null);
+  return null;
+}
+
+function isBlueOutcome(outcome) {
+  return outcome === "0" || outcome === 0;
+}
+
+function getNextPathCounts(hits, misses, outcome) {
+  if (isBlueOutcome(outcome)) {
+    return {
+      hits,
+      misses: misses + 1
+    };
+  }
+
+  return {
+    hits: hits + 1,
+    misses
+  };
+}
+
+function doesPathOutcomeEndGame(hits, misses, outcome) {
+  const nextCounts = getNextPathCounts(hits, misses, outcome);
+
+  return shouldEndGameOnMiss({
+    newColor: isBlueOutcome(outcome) ? "miss" : "hit",
+    hits: nextCounts.hits,
+    misses: nextCounts.misses
+  });
+}
+
+function wouldTriggerEquivalenceWithKnownMask(boards, knownMask) {
+  const { huntMode } = getGameContext();
+
+  if (
+    shouldForceHeuristics() ||
+    !huntMode ||
+    isEarlyGame() ||
+    boards.length <= 1
+  ) {
+    return false;
+  }
+
+  const probs = computeProbabilitiesForKnownMask(boards, knownMask);
+  const groups = buildEquivalenceGroupsForKnownMask(boards, knownMask);
+
+  return groups.some(group =>
+    group.length >= 2 &&
+    probs[group[0]] < 1
+  );
+}
+
+function computeProbabilitiesForKnownMask(boards, knownMask) {
+  const counts = Array(25).fill(0);
+
+  for (const board of boards) {
+    for (let i = 0; i < 25; i++) {
+      if ((knownMask & cellMask(i)) !== 0) continue;
+      if (board[i]) counts[i]++;
+    }
+  }
+
+  return counts.map(count =>
+    boards.length ? count / boards.length : 0
+  );
+}
+
+function buildEquivalenceGroupsForKnownMask(boards, knownMask) {
+  const hitMasks = boards.map(boardToMask);
+  const groups = [];
+
+  for (let i = 0; i < 25; i++) {
+    if ((knownMask & cellMask(i)) !== 0) continue;
+
+    const mask = cellMask(i);
+    let matchedGroup = null;
+
+    for (const group of groups) {
+      const representative = group[0];
+      const representativeMask = cellMask(representative);
+
+      let samePattern = true;
+
+      for (const hitMask of hitMasks) {
+        if (
+          Boolean(hitMask & mask) !==
+          Boolean(hitMask & representativeMask)
+        ) {
+          samePattern = false;
+          break;
+        }
+      }
+
+      if (samePattern) {
+        matchedGroup = group;
+        break;
+      }
+    }
+
+    if (matchedGroup) {
+      matchedGroup.push(i);
+    } else {
+      groups.push([i]);
+    }
+  }
+
+  return groups;
+}
+
+function applyNoEquivalencePlan(plan, probs, allBoards) {
+  const first = plan[0];
+
+  if (!first) return;
+
+  const move = {
+    i: first.i,
+    p: probs[first.i],
+    type: "no-equivalence",
+    reason: "This starts a complete move path that avoids equivalence mode."
+  };
+
+  appState.probs = probs;
+  appState.topMoves = [move];
+  appState.isTrueEndgame = false;
+  appState.isGuaranteed = false;
+  appState.specialGroup = null;
+  appState.collapseMove = null;
+  appState.noEquivalencePlan = plan;
+  appState.uncertaintyMove = null;
+
+  lastProbs = probs;
+  lastTopMoves = [move];
+  lastGuaranteed = false;
+
+  clearRecommendations();
+  DOM.playBoard[first.i].classList.add('recommended-best');
+  renderForcedOverlays();
+}
+
+function getBestUncertaintyRemovalMove(allBoards, probs) {
+  const knownMask = getCurrentKnownMask();
+  let best = null;
+
+  for (const tile of getUnknownTilesFromKnownMask(knownMask)) {
+    const p = probs[tile];
+
+    if (p <= 0 || p >= 1) {
+      continue;
+    }
+
+    const score = scoreEquivalenceReductionMove(
+      allBoards,
+      tile,
+      knownMask
+    );
+
+    if (
+      !best ||
+      score.equivalencePressure < best.equivalencePressure ||
+      (
+        score.equivalencePressure === best.equivalencePressure &&
+        score.expectedRemaining < best.expectedRemaining
+      )
+    ) {
+      best = score;
+    }
+  }
+
+  return best;
+}
+
+function scoreEquivalenceReductionMove(boards, tile, knownMask) {
+  const buckets = bucketBoardsByOutcome(boards, tile);
+  const total = boards.length;
+  const nextKnownMask = knownMask | cellMask(tile);
+
+  let equivalencePressure = 0;
+  let expectedRemaining = 0;
+
+  for (const outcome in buckets) {
+    const nextBoards = buckets[outcome];
+    const weight = nextBoards.length / total;
+
+    equivalencePressure +=
+      weight *
+      measureEquivalencePressure(nextBoards, nextKnownMask);
+
+    expectedRemaining +=
+      weight *
+      nextBoards.length;
+  }
+
+  return {
+    i: tile,
+    equivalencePressure,
+    expectedRemaining
+  };
+}
+
+function measureEquivalencePressure(boards, knownMask) {
+  const probs = computeProbabilitiesForKnownMask(boards, knownMask);
+  const groups = buildEquivalenceGroupsForKnownMask(boards, knownMask);
+
+  let pressure = 0;
+
+  for (const group of groups) {
+    if (group.length < 2) continue;
+    if (probs[group[0]] >= 1) continue;
+
+    pressure += group.length * boards.length;
+  }
+
+  return pressure;
+}
+
+function getOutcomeLabel(outcome) {
+  if (outcome === "0" || outcome === 0) {
+    return "BLUE";
+  }
+
+  return String(outcome).toUpperCase();
+}
+
 function buildTileShipSizes(allBoards) {
   const tileMap = {};
 
   for (let i = 0; i < 25; i++) {
     if (grid[i]) continue;
 
-    const sizes = new Set();
+    const sizeShipSets = {};
 
     for (const board of allBoards) {
       const color = board[i];
       if (!color) continue;
 
-      sizes.add(getShipSize(color));
+      const size = getShipSize(color);
+
+      if (!sizeShipSets[size]) {
+        sizeShipSets[size] = new Set();
+      }
+
+      sizeShipSets[size].add(color);
     }
 
-    tileMap[i] = [...sizes].sort((a, b) => b - a);
+    tileMap[i] = expandTileSizeShipSets(sizeShipSets);
   }
 
   return tileMap;
+}
+
+function expandTileSizeShipSets(sizeShipSets) {
+  const sizes = [];
+
+  Object.keys(sizeShipSets)
+    .map(Number)
+    .sort((a, b) => b - a)
+    .forEach(size => {
+      const count = sizeShipSets[size].size;
+
+      for (let n = 0; n < count; n++) {
+        sizes.push(size);
+      }
+    });
+
+  return sizes;
+}
+
+function formatShipSizeLabel(sizes) {
+  const counts = {};
+
+  for (const size of sizes) {
+    counts[size] = (counts[size] || 0) + 1;
+  }
+
+  return Object.keys(counts)
+    .map(Number)
+    .sort((a, b) => b - a)
+    .map(size =>
+      counts[size] > 1
+        ? `${size}×${counts[size]}`
+        : `${size}`
+    )
+    .join("/");
 }
 
 function scoreCollapseForTile(allBoards, tile, probs) {
@@ -3595,13 +4279,13 @@ function updateModeButtons(){
   safeBtn.classList.remove('active-btn', 'disabled');
   aggressiveBtn.classList.remove('active-btn', 'disabled');
 
-if(configLocked || rareCount === null || rareCount < 4){
-  safeBtn.classList.add('disabled');
-  aggressiveBtn.classList.add('disabled');
-  return;
-}
+  if(rareCount === null){
+    safeBtn.classList.add('disabled');
+    aggressiveBtn.classList.add('disabled');
+    return;
+  }
 
-const defaultMode = "aggressive";
+const defaultMode = getDefaultModeForRareCount(rareCount);
 const mode = forcedStartMode || defaultMode;
 
   if(mode === "safe"){
@@ -3668,6 +4352,7 @@ function renderUI() {
 renderOpeningHints(hasStarted);
 renderHeatmapIfAvailable();
 renderRecommendationsIfNeeded(hasStarted);
+renderDangerRecommendationHighlight();
 applyRainbowHighlights(appState.probs);
 renderForcedTilesIfPresent();
 
@@ -3707,6 +4392,26 @@ function renderRecommendationsIfNeeded(hasStarted) {
 
     return;
   }
+  
+  if (appState.noEquivalencePlan?.length) {
+  clearRecommendations();
+
+  const first = appState.noEquivalencePlan[0];
+
+  if (first && grid[first.i] === null) {
+    DOM.playBoard[first.i].classList.add("recommended-danger");
+  }
+
+  return;
+}
+
+if (!appState.safeOverride && appState.uncertaintyMove?.i !== undefined) {
+  const move = appState.uncertaintyMove;
+
+  if (grid[move.i] === null) {
+    DOM.playBoard[move.i].classList.add("recommended-danger");
+  }
+}
 
   if (appState.specialGroup) {
     highlightAvoidGroup(appState.specialGroup);
@@ -3716,6 +4421,33 @@ function renderRecommendationsIfNeeded(hasStarted) {
   if (appState.probs) {
     highlightRecommendations(appState.probs);
   }
+}
+
+function renderDangerRecommendationHighlight() {
+  if (appState.safeOverride || appState.isGuaranteed) return;
+
+  const context = getInfoContext();
+
+  const move =
+    appState.noEquivalencePlan?.[0] ||
+    (
+      context.missEndsGame
+        ? null
+        : appState.uncertaintyMove
+    );
+
+  if (!move || move.i === undefined) return;
+  if (grid[move.i] !== null) return;
+
+  if (
+    appState.uncertaintyMove &&
+    move.i === appState.uncertaintyMove.i &&
+    getMatchingRecommendationForUncertaintyMove(move)
+  ) {
+    return;
+  }
+
+  DOM.playBoard[move.i].classList.add("recommended-danger");
 }
 
 function renderForcedTilesIfPresent() {
@@ -3813,7 +4545,13 @@ appendPreGameMessages(messages, context);
 appendSafeModeProgressCard(messages);
 
 if (appState.probs && appState.topMoves?.length) {
+  if (handleNoEquivalencePlanInfo(messages)) {
+    box.innerHTML = messages.join("<br>");
+    return;
+  }
+
   if (handleGuaranteedInfo(messages)) {
+    appendUncertaintyMoveCard(messages, context);
     box.innerHTML = messages.join("<br>");
     return;
   }
@@ -3824,6 +4562,7 @@ if (appState.probs && appState.topMoves?.length) {
 }
 
 appendRainbowCandidateCard(messages);
+appendUncertaintyMoveCard(messages, context);
 appendFallback(messages);
 
 box.innerHTML = messages.join("<br>");
@@ -3848,6 +4587,100 @@ function buildMissEndCard(ctx) {
       <div>Any blue tile will end the run.</div>
     </div>
   `;
+}
+
+function handleNoEquivalencePlanInfo(messages) {
+  const plan = appState.noEquivalencePlan;
+
+  if (!plan || !plan.length) return false;
+
+  const first = plan[0];
+  const [r, c] = indexToCoord(first.i);
+
+  messages.push(
+    makeCard(
+      "No-Equivalence Strategy Found",
+      `
+        A complete move path was found that avoids equivalence mode.
+        This recommendation supersedes normal move ranking.
+        <br><br>
+        Start with:
+        <br>
+        <b>Row ${r + 1}, Col ${c + 1}</b>
+      `,
+      "info-red"
+    )
+  );
+
+  return true;
+}
+
+function getMatchingRecommendationForUncertaintyMove(move) {
+  if (!move || move.i === undefined) return null;
+
+  if (appState.collapseMove?.i === move.i) {
+    return "Play the 2-Step Collapse move.";
+  }
+
+  const topMoves = appState.topMoves || [];
+
+  const safeMove = topMoves.find(m => m.type === "safe");
+  if (safeMove?.i === move.i) {
+    return "Play the Safest Move.";
+  }
+
+  const bestMove = topMoves.find(m => m.type !== "safe");
+  if (bestMove?.i === move.i) {
+    return "Play the Strategically Valuable move.";
+  }
+
+  return null;
+}
+
+function appendUncertaintyMoveCard(messages, context) {
+
+ if (
+    appState.safeOverride ||
+    appState.isGuaranteed ||
+    context?.missEndsGame
+  ) {
+    return;
+  }
+
+  const move = appState.uncertaintyMove;
+
+  if (!move) return;
+
+  const matchingRecommendation =
+    getMatchingRecommendationForUncertaintyMove(move);
+
+  const [r, c] = indexToCoord(move.i);
+
+  messages.push(
+    makeCard(
+      "Unavoidable Guess",
+      `
+        All possible move paths eventually reach an equivalence decision.
+        <br><br>
+        ${
+          matchingRecommendation
+            ? `
+              Best move to reduce that uncertainty:
+              <br>
+              <b>${matchingRecommendation}</b>
+            `
+            : `
+              Best move to reduce that uncertainty:
+              <br>
+              <b>Row ${r + 1}, Col ${c + 1}</b>
+            `
+        }
+        <br><br>
+        Expected boards: <b>${move.expectedRemaining.toFixed(1)}</b>
+      `,
+      "info-red"
+    )
+  );
 }
 
 function updateTopInfoBox() {
@@ -4083,8 +4916,7 @@ function appendPreGameMessages(messages, ctx) {
         "Tips",
         `
         • $OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles<br><br>
-        • 8 and 9 colors default to aggressive mode (finding non-blues.)<br>
-        • You can change the starting mode, but cannot change it after starting<br><br>
+        • 8 and 9 colors default to aggressive mode (finding non-blues.)<br><br>
         • Unclicked guaranteed tiles get stripes in their color. Clicking them before the solver tells you to could lead to worse outcomes.<br><br>
 	    • The solver may know a tile is not blue, but not what color it really is. These are marked with ? in the center.<br><br>
 	    • While Exact solving is active, you can hover over a tile to get calculations of future probabilities based on the current selected color.<br><br>
@@ -4391,10 +5223,6 @@ function lockConfigUI(){
   document.querySelectorAll('[onclick^="setRare"]').forEach(btn=>{
     btn.classList.add('disabled');
   });
-
-document.querySelectorAll('[onclick^="setMode"]').forEach(b=>{
-  b.classList.add('disabled');
-});
 
 }
 
@@ -4703,6 +5531,9 @@ function clearRecommendations(){
     removeClassIfPresent(c, 'recommended-best');
     removeClassIfPresent(c, 'recommended-second');
     removeClassIfPresent(c, 'recommended-safe');
+	removeClassIfPresent(c, 'recommended-progress');
+	removeClassIfPresent(c, 'recommended-danger');
+    removeClassIfPresent(c, 'recommended-uncertainty');
     removeClassIfPresent(c, 'recommended-avoid');
     removeClassIfPresent(c, 'recommended-equal');
     removeClassIfPresent(c, 'recommended-size2');
@@ -4840,13 +5671,21 @@ function highlightAvoidGroup(data){
 
       let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
 
-      if(sizes.length){
-        play[i].setAttribute("data-label", sizes.join("/"));
-      }
+if(sizes.length){
+  play[i].setAttribute("data-label", formatShipSizeLabel(sizes));
+}
     }
-    else if(size2Set.has(i) && shownRareTiles.has(i)){
-      play[i].classList.add('recommended-size2');
-    }
+else if(size2Set.has(i) && shownRareTiles.has(i)){
+  const sizes = (data.shipMap[i] || []).slice().sort((a,b)=>b-a);
+
+if(sizes.length){
+  play[i].classList.add('recommended-label');
+  play[i].setAttribute("data-label", formatShipSizeLabel(sizes));
+  play[i].style.setProperty("--label-color", "#92400e");
+} else {
+  play[i].classList.add('recommended-size2');
+}
+}
     else {
       play[i].classList.add('recommended-avoid');
       play[i].textContent = "✕";
@@ -5317,6 +6156,16 @@ function buildPlacementsMap(ships) {
 // T.15 HASH CREATION / LOADING
 // ===============================
 
+function getBoardsHash(boards) {
+  let hash = 0;
+
+  for (let i = 0; i < boards.length; i++) {
+    hash ^= boardToMask(boards[i]);
+  }
+
+  return hash;
+}
+
 function createBitWriter(){
   let bits = [];
 
@@ -5430,9 +6279,9 @@ function loadFromHash(hash){
 
     resetAll();
 
-    rareCount = rareCountVal;
-    forcedStartMode = rareCountVal >= 4 ? modeVal : null;
-	updateTopInfoVisibility();
+rareCount = rareCountVal;
+forcedStartMode = modeVal || "aggressive";
+updateTopInfoVisibility();
 
     document.querySelectorAll('[onclick^="setRare"]').forEach(b=>{
       b.classList.remove('active-btn');
@@ -5517,11 +6366,7 @@ window.setRare = function(n,btn){
   rareCount = n;
   updateTopInfoVisibility();
 
-if (n >= 4) {
-  forcedStartMode = "aggressive";
-} else {
-  forcedStartMode = null;
-}
+forcedStartMode = getDefaultModeForRareCount(n);
 
 updateModeButtons();
 
@@ -5541,15 +6386,18 @@ updateModeButtons();
 }
 
 window.setMode = function(mode, btn){
-  if(configLocked) return;
-  if(rareCount < 4) return;
+  if(rareCount === null) return;
 
   forcedStartMode = mode;
+
+  clearPlacementsCache();
+  appState = createEmptyAppState();
 
   updateModeButtons();
 
   runSimulation();
   renderUI();
+  updateColorAvailability();
 };
 
 window.generateHash = function(){
