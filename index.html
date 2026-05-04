@@ -1961,12 +1961,6 @@ function getFoundShipColorCount(){
   return getFoundColors().size;
 }
 
-function isShipDiscoveryPhase(){
-  const { huntMode } = getGameContext();
-
-  return huntMode && getFoundShipColorCount() < 6;
-}
-
 function isNormalMode() {
   return currentMode === MODE.NORMAL;
 }
@@ -3778,14 +3772,6 @@ function measureEquivalencePressure(boards, knownMask) {
   return pressure;
 }
 
-function getOutcomeLabel(outcome) {
-  if (outcome === "0" || outcome === 0) {
-    return "BLUE";
-  }
-
-  return String(outcome).toUpperCase();
-}
-
 function buildTileShipSizes(allBoards) {
   const tileMap = {};
 
@@ -3828,25 +3814,6 @@ function expandTileSizeShipSets(sizeShipSets) {
     });
 
   return sizes;
-}
-
-function buildShipSizeBadges(sizes) {
-  const counts = {};
-
-  for (const size of sizes) {
-    counts[size] = (counts[size] || 0) + 1;
-  }
-
-  return Object.keys(counts)
-    .map(Number)
-    .sort((a, b) => b - a)
-    .map(size => {
-      const count = counts[size];
-
-      return count > 1
-        ? `${size}<sup>${count}</sup>`
-        : `${size}`;
-    });
 }
 
 function scoreCollapseForTile(allBoards, tile, probs) {
@@ -4229,52 +4196,6 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // ===============================
 // T.11 MOVE STRATEGY
 // ===============================
-
-function getSafeModeClarityThresholds(allBoards, probs) {
-  const { hits, misses } = getHitMissCounts();
-  const tracking = getShipTracking();
-
-  const blueWouldTriggerMissEndsGame =
-    hits >= 5 &&
-    (misses + 1) >= 2;
-
-  if (blueWouldTriggerMissEndsGame) {
-    return {
-      requireGuaranteedBlue: false,
-      minBlueChance: 1.01,
-      maxBluePenalty: 0,
-      minClarityGain: Infinity
-    };
-  }
-
-  const pressure =
-    misses >= 2 ||
-    tracking.incomplete >= 1;
-
-  const highUncertainty =
-    allBoards.length >= 400;
-
-  let minClarityGain = 2.1;
-  let minBlueChance = 0.68;
-  let maxBluePenalty = 0.08;
-
-  if (pressure) {
-    minClarityGain = 2.35;
-    minBlueChance = 0.64;
-    maxBluePenalty = 0.10;
-  }
-
-  if (highUncertainty) {
-    minClarityGain += 0.2;
-  }
-
-  return {
-    requireGuaranteedBlue: false,
-    minBlueChance,
-    maxBluePenalty,
-    minClarityGain
-  };
-}
 
 function makeMoveObject(i) {
   return {
@@ -6798,45 +6719,6 @@ function boardKey(board){
   return key;
 }
 
-function getUnknownTilesCached(knownMask, ctx) {
-  if (!ctx.unknownTilesCache) {
-    ctx.unknownTilesCache = new Map();
-  }
-
-  if (ctx.unknownTilesCache.has(knownMask)) {
-    return ctx.unknownTilesCache.get(knownMask);
-  }
-
-  const tiles = [];
-
-  for (let i = 0; i < 25; i++) {
-    if ((knownMask & (1 << i)) === 0) {
-      tiles.push(i);
-    }
-  }
-
-  ctx.unknownTilesCache.set(knownMask, tiles);
-
-  return tiles;
-}
-
-function violatesDiagonalMask(placementMask, colorMask){
-  let mask = placementMask;
-
-  while(mask){
-    const bit = mask & -mask;
-    const i = BIT_INDEX[bit];
-
-    if(DIAGONAL_MASKS[i] & colorMask){
-      return true;
-    }
-
-    mask &= mask - 1;
-  }
-
-  return false;
-}
-
 function cellsToMask(cells){
   let mask = 0;
   for(const i of cells){
@@ -7000,16 +6882,6 @@ function buildPlacementsMap(ships) {
 // ===============================
 // T.15 HASH CREATION / LOADING
 // ===============================
-
-function getBoardsHash(boards) {
-  let hash = 0;
-
-  for (let i = 0; i < boards.length; i++) {
-    hash ^= boardToMask(boards[i]);
-  }
-
-  return hash;
-}
 
 function createBitWriter(){
   let bits = [];
