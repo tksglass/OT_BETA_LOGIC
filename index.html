@@ -964,9 +964,9 @@ const MODE = {
 
 const MAX_MISSES = 5;
 
-const PRECALC_BOARD_LIMIT = 3500;
-const PRECALC_MAX_DEPTH = 15;
-const PRECALC_UNKNOWN_TILE_LIMIT = 15;
+const PRECALC_BOARD_LIMIT = 2500;
+const PRECALC_MAX_DEPTH = 10;
+const PRECALC_UNKNOWN_TILE_LIMIT = 12;
 
 const COLOR_TO_ID = {
   teal: 0,
@@ -2554,12 +2554,22 @@ const { huntMode } = getGameContext();
 
 let normalClarityMove = null;
 
-if (!huntMode && !appState.isGuaranteed && !appState.isTrueEndgame) {
-  normalClarityMove = getSafeModeProgressMove(
-    allBoards,
-    probs,
-    getSafeModeClarityThresholds(allBoards, probs)
-  );
+const { hits, misses } = getHitMissCounts();
+
+if (
+  !huntMode &&
+  hits >= 4 &&
+  misses < 2 &&
+  !appState.isGuaranteed &&
+  !appState.isTrueEndgame
+) {
+
+normalClarityMove = getSafeModeProgressMove(allBoards, probs, {
+  requireGuaranteedBlue: false,
+  minBlueChance: 0,
+  maxBluePenalty: 1,
+  minClarityGain: 1.0
+});
 
   if (normalClarityMove) {
     appState.safeOverride = false;
@@ -3485,7 +3495,7 @@ const candidates = getStrategyCandidatesForBoardSet(
 ).sort((a, b) =>
   getTileSplitScoreForBoardSet(a, boardSet, ctx) -
   getTileSplitScoreForBoardSet(b, boardSet, ctx)
-).slice(0, 8);
+).slice(0, 5);
 
   for (const tile of candidates) {
     const nextKnownMask = knownMask | cellMask(tile);
@@ -4861,7 +4871,10 @@ function renderRecommendationsIfNeeded(hasStarted) {
 if (!appState.safeOverride && appState.uncertaintyMove?.i !== undefined) {
   const move = appState.uncertaintyMove;
 
-  if (grid[move.i] === null) {
+  if (
+    isRareClarifyingTile(move.i) &&
+    grid[move.i] === null
+  ) {
     DOM.playBoard[move.i].classList.add("recommended-danger");
   }
 }
@@ -4901,8 +4914,16 @@ function renderDangerRecommendationHighlight() {
         : appState.uncertaintyMove
     );
 
-  if (!move || move.i === undefined) return;
-  if (grid[move.i] !== null) return;
+if (!move || move.i === undefined) return;
+if (grid[move.i] !== null) return;
+
+if (
+  appState.uncertaintyMove &&
+  move.i === appState.uncertaintyMove.i &&
+  !isRareClarifyingTile(move.i)
+) {
+  return;
+}
 
   if (
     appState.uncertaintyMove &&
@@ -5105,6 +5126,18 @@ function getMatchingRecommendationForUncertaintyMove(move) {
   return null;
 }
 
+function isRareClarifyingTile(tile) {
+  if (tile === undefined || tile === null) return false;
+
+  const partialTiles = getPartialShipTiles();
+
+  if (partialTiles.has(tile)) {
+    return true;
+  }
+
+  return getUnfoundRareProbability(tile, appState.allBoards || []) > 0;
+}
+
 function appendUncertaintyMoveCard(messages, context) {
 
  if (
@@ -5115,9 +5148,10 @@ function appendUncertaintyMoveCard(messages, context) {
     return;
   }
 
-  const move = appState.uncertaintyMove;
+const move = appState.uncertaintyMove;
 
-  if (!move) return;
+if (!move) return;
+if (!isRareClarifyingTile(move.i)) return;
 
   const matchingRecommendation =
     getMatchingRecommendationForUncertaintyMove(move);
@@ -5318,7 +5352,7 @@ function appendNormalClarityMoveCard(messages) {
     makeCard(
       "Optional Clarity Move",
       `
-        This is not overriding the main recommendation, but it may improve future board clarity.
+        You are in a very safe position. Consider this risky, but board-clarifying move.
         <br><br>
         <span style="color:#06b6d4; font-weight:bold">Row ${r + 1}, Col ${c + 1}</span>
         <br><br>
@@ -6351,10 +6385,15 @@ function formatEquivalenceMoveLine(tile, data) {
   const overlap = getTileOverlapCount(tile, data);
   const ev = getTileAverageEV(tile, data);
 
+  const overlapText =
+    overlap > 1
+      ? `${overlap}-Ship Overlap; `
+      : "No overlap; ";
+
   return `
     <span class="coord-good">Row ${r + 1}, Col ${c + 1}</span>
     <span style="opacity:0.85">
-      — ${overlap}-Ship Overlap; EV: ${ev.toFixed(0)}
+      — ${overlapText}EV: ${ev.toFixed(0)}
     </span>
   `;
 }
