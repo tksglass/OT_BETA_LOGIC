@@ -813,6 +813,70 @@ button {
   );
 }
 
+.playboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.heatmap-toggle {
+  all: unset;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #ddd;
+}
+
+.heatmap-toggle:hover {
+  background: #ccc;
+}
+
+.heatmap-toggle:active {
+  background: #bbb;
+}
+
+.auto-hits-btn {
+  all: unset;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: #ddd;
+}
+
+.auto-hits-btn:hover {
+  background: #ccc;
+}
+
+.auto-hits-btn:active {
+  background: #bbb;
+}
+
+.auto-hits-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.auto-hits-btn.pulse {
+  animation: autoHitsPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes autoHitsPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(76,175,80,0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(76,175,80,0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(76,175,80,0);
+  }
+}
+
+
+
   .confidence { margin-top: 10px; font-size: 14px; }
 </style>
 </head>
@@ -873,7 +937,12 @@ button {
 <div class="boards">
 
  <div class="board-container">
+  <div class="playboard-header">
   <h3>Play Board</h3>
+  <button id="autoHitsBtn" class="auto-hits-btn" onclick="autoPlaceGuaranteedHits()">
+    Auto Fill Hits
+  </button>
+</div>
 
   <div class="board-wrapper">
 
@@ -1128,6 +1197,7 @@ let hoverPreviewTimer = null;
 let lastHoveredTile = null;
 let heatmapPreviewActive = false;
 let heatmapMode = "probability";
+let lastAutoFillHitCount = 0;
 
 const DOM_LISTS = {
   colorButtons: null,
@@ -1250,6 +1320,59 @@ function recordMove(index, prevColor, newColor) {
   redoStack = [];
 }
 
+window.autoPlaceGuaranteedHits = function(){
+  if (currentMode === MODE.GAME_OVER) return;
+  if (rareCount === null) return;
+  if (!appState.forcedTiles) return;
+  
+  const btn = document.getElementById('autoHitsBtn');
+btn?.classList.remove('pulse');
+
+  const forcedHits = Object.entries(appState.forcedTiles)
+    .map(([index, color]) => ({
+      index: Number(index),
+      color
+    }))
+    .filter(({ index, color }) =>
+      grid[index] === null &&
+      color &&
+      color !== 'miss' &&
+      !isAnonymousRareShip(color)
+    );
+
+  if (forcedHits.length === 0) return;
+
+  const historySnapshot = createHistorySnapshot();
+
+  isLoadingHash = true;
+
+  try {
+    ensureConfigLocked();
+
+    for (const { index, color } of forcedHits) {
+      const prevColor = grid[index];
+
+      grid[index] = color;
+      recordMove(index, prevColor, color);
+    }
+
+    saveHistorySnapshot(historySnapshot);
+    redoStack = [];
+  } finally {
+    isLoadingHash = false;
+  }
+
+  clearPlacementsCache();
+  render();
+
+  appState = createEmptyAppState();
+
+  runSimulation();
+  updateColorAvailability();
+  renderUI();
+  updateBoardLock();
+};
+
 window.undoMove = function(){
   if(history.length === 0) return;
 
@@ -1370,11 +1493,46 @@ DOM_LISTS.rareButtons.forEach(b=>{
   b.classList.remove('disabled');
 });
 
+lastAutoFillHitCount = 0;
+updateAutoHitsButton();
+
 }
 
 // ===============================
 // T.04 FLOW CONTROLLERS
 // ===============================
+
+function getAutoFillForcedHits() {
+  if (!appState.forcedTiles) return [];
+
+  return Object.entries(appState.forcedTiles)
+    .map(([index, color]) => ({
+      index: Number(index),
+      color
+    }))
+    .filter(({ index, color }) =>
+      grid[index] === null &&
+      color &&
+      color !== 'miss' &&
+      !isAnonymousRareShip(color)
+    );
+}
+
+function updateAutoHitsButton() {
+  const btn = document.getElementById('autoHitsBtn');
+  if (!btn) return;
+
+  const count = getAutoFillForcedHits().length;
+
+  btn.disabled = count === 0;
+  btn.textContent = count > 0 ? `Fill Hits (${count})` : 'Fill Hits';
+
+  const hasNewForcedHits = count > lastAutoFillHitCount;
+
+  btn.classList.toggle('pulse', hasNewForcedHits && count > 0);
+
+  lastAutoFillHitCount = count;
+}
 
 function isGameOver() {
   const gameOver = currentMode === MODE.GAME_OVER;
@@ -4741,6 +4899,8 @@ applyRainbowHighlights(appState.probs);
 renderForcedTilesIfPresent();
 
   updateInfoBox();
+  updateAutoHitsButton();
+  
 }
 
 function hasGameStarted() {
