@@ -321,7 +321,9 @@ button {
   position: relative;
   overflow: hidden;
 }
-  .cell:hover { transform: scale(1.05); }
+  .cell:hover {
+  filter: brightness(1.10);
+}
 
   .disabled {
     opacity: 0.4;
@@ -652,25 +654,29 @@ button {
   position: relative;
 }
 
-.recommended-label::after {
-  content: attr(data-label);
-  color: var(--label-color, #22c55e);
-  font-weight: bold;
+.size-badges {
   position: absolute;
   inset: 0;
 
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
 
   z-index: 20;
   pointer-events: none;
-
-  font-size: 16px;
 }
 
-.recommended-label[data-label*="×"]::after {
-  font-size: 14px;
+.size-badge {
+  font-size: 13px;
+  font-weight: bold;
+  color: var(--label-color, #22c55e);
+  line-height: 1;
+}
+
+.size-badge sup {
+  font-size: 9px;
 }
 
 .recommended-size2::after {
@@ -2415,7 +2421,7 @@ if (
 ) {
   const noEquivalencePlan = findNoEquivalenceStrategy(allBoards, probs);
 
-  if (noEquivalencePlan) {
+  if (noEquivalencePlan && noEquivalencePlan.length) {
     applyNoEquivalencePlan(noEquivalencePlan, probs, allBoards);
     updateExactSolverUI(valid);
     return;
@@ -3161,7 +3167,7 @@ function findNoEquivalenceStrategy(allBoards, probs) {
       ctx
     );
 
-    if (plan) return plan;
+        if (plan && plan.length) return plan;
   }
 
   return null;
@@ -3545,7 +3551,7 @@ function expandTileSizeShipSets(sizeShipSets) {
   return sizes;
 }
 
-function formatShipSizeLabel(sizes) {
+function buildShipSizeBadges(sizes) {
   const counts = {};
 
   for (const size of sizes) {
@@ -3555,12 +3561,13 @@ function formatShipSizeLabel(sizes) {
   return Object.keys(counts)
     .map(Number)
     .sort((a, b) => b - a)
-    .map(size =>
-      counts[size] > 1
-        ? `${size}×${counts[size]}`
-        : `${size}`
-    )
-    .join("/");
+    .map(size => {
+      const count = counts[size];
+
+      return count > 1
+        ? `${size}<sup>${count}</sup>`
+        : `${size}`;
+    });
 }
 
 function scoreCollapseForTile(allBoards, tile, probs) {
@@ -3967,6 +3974,22 @@ return withSafeMoveReason(
 );
 }
 
+function renderShipSizeBadges(cell, sizes) {
+  const badges = buildShipSizeBadges(sizes);
+
+  let container = cell.querySelector('.size-badges');
+
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'size-badges';
+    cell.appendChild(container);
+  }
+
+  container.innerHTML = badges
+    .map(b => `<div class="size-badge">${b}</div>`)
+    .join("");
+}
+
 function withSafeMoveReason(move, reason) {
   return {
     ...move,
@@ -4285,13 +4308,12 @@ function updateModeButtons(){
     return;
   }
 
-const defaultMode = getDefaultModeForRareCount(rareCount);
-const mode = forcedStartMode || defaultMode;
+  const { huntMode } = getGameContext();
 
-  if(mode === "safe"){
-    safeBtn.classList.add('active-btn');
-  } else {
+  if(huntMode){
     aggressiveBtn.classList.add('active-btn');
+  } else {
+    safeBtn.classList.add('active-btn');
   }
 }
 
@@ -4342,6 +4364,7 @@ function resetPlayCellVisualState(cell) {
 function renderUI() {
   const hasStarted = hasGameStarted();
 
+  updateModeButtons();
   clearRecommendations();
 
   if (isGameOverMode()) {
@@ -5547,6 +5570,9 @@ function clearRecommendations(){
       c.removeAttribute("data-label");
     }
 
+    const badge = c.querySelector('.size-badges');
+    if (badge) badge.remove();
+
     if (c.textContent !== "") {
       c.textContent = "";
     }
@@ -5672,7 +5698,7 @@ function highlightAvoidGroup(data){
       let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
 
 if(sizes.length){
-  play[i].setAttribute("data-label", formatShipSizeLabel(sizes));
+  renderShipSizeBadges(play[i], sizes);
 }
     }
 else if(size2Set.has(i) && shownRareTiles.has(i)){
@@ -5680,8 +5706,8 @@ else if(size2Set.has(i) && shownRareTiles.has(i)){
 
 if(sizes.length){
   play[i].classList.add('recommended-label');
-  play[i].setAttribute("data-label", formatShipSizeLabel(sizes));
   play[i].style.setProperty("--label-color", "#92400e");
+  renderShipSizeBadges(play[i], sizes);
 } else {
   play[i].classList.add('recommended-size2');
 }
