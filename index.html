@@ -596,40 +596,48 @@ button {
   border-radius: 6px;
 }
 
-  .recommended-best {
+.recommended-best {
   outline: 3px solid #a855f7;
-  box-shadow: 0 0 10px 4px rgba(168,85,247,0.8);
+  outline-offset: -3px;
 }
 
 .recommended-second {
   outline: 3px solid #b45309;
-  box-shadow: 0 0 10px 4px rgba(180,83,9,0.6);
+  outline-offset: -3px;
 }
 
 .recommended-safe {
   outline: 3px solid #22c55e;
-  box-shadow: 0 0 10px 4px rgba(34,197,94,0.8);
+  outline-offset: -3px;
 }
 
 .recommended-progress {
   outline: 3px solid #06b6d4;
-  box-shadow: 0 0 10px 4px rgba(16,185,129,0.8);
+  outline-offset: -3px;
 }
 
 .recommended-danger {
   outline: 3px solid #dc2626;
-  box-shadow: 0 0 10px 4px rgba(220,38,38,0.7);
+  outline-offset: -3px;
 }
 
 .recommended-uncertainty {
   outline: 3px solid #f97316;
-  box-shadow: 0 0 10px 4px rgba(249,115,22,0.75);
+  outline-offset: -3px;
+}
+
+.recommended-equal {
+  outline: 3px solid #22c55e;
+  outline-offset: -3px;
+  position: relative;
 }
 
 .recommended-avoid {
   outline: 3px solid #ef4444;
+  outline-offset: -3px;
   position: relative;
 }
+
 .recommended-avoid::after {
   content: "✕";
   color: #ef4444;
@@ -637,9 +645,9 @@ button {
   position: absolute;
 }
 
-.recommended-equal {
-  outline: 3px solid #22c55e;
-  position: relative;
+.recommended-high-ev {
+  outline: 3px solid #facc15;
+  outline-offset: -3px;
 }
 
 .recommended-equal::after {
@@ -657,6 +665,7 @@ button {
 .size-badges {
   position: absolute;
   inset: 0;
+  z-index: 20;
 
   display: flex;
   flex-direction: column;
@@ -669,14 +678,15 @@ button {
 }
 
 .size-badge {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: bold;
   color: var(--label-color, #22c55e);
   line-height: 1;
 }
 
-.size-badge sup {
-  font-size: 9px;
+.ev-badge {
+  font-size: 11px;
+  opacity: 0.9;
 }
 
 .recommended-size2::after {
@@ -689,7 +699,7 @@ button {
 
 .recommended-final {
   outline: 3px solid #a855f7;
-  box-shadow: 0 0 12px 4px rgba(168,85,247,0.9);
+  outline-offset: -3px;
   position: relative;
 }
 
@@ -714,8 +724,10 @@ button {
 .cell.stripe-overlay::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: 3px;
+  border-radius: 4px;
   pointer-events: none;
+  z-index: 1;
 
   background-image: repeating-linear-gradient(
     45deg,
@@ -868,6 +880,18 @@ const SHIPS={
   rainbow:2,
 };
 const RARE_COLORS=['orange','red','black','white','rainbow'];
+
+const TILE_EV = {
+  miss: 10,
+  teal: 20,
+  green: 35,
+  yellow: 55,
+  orange: 90,
+  white: 100,
+  black: 120,
+  red: 150,
+  rainbow: 500
+};
 
 const MODE = {
   NORMAL: 0,
@@ -1028,6 +1052,7 @@ let gridMask = 0;
 let outcomeBucketsCache = null;
 let tileShipSizesCache = null;
 let unfoundBonusCache = null;
+let tileEVStatsCache = null;
 let hitMasksCache = null;
 let equivalenceGroupsCache = null;
 
@@ -1475,6 +1500,7 @@ function clearPlacementsCache() {
   outcomeBucketsCache = null;
   tileShipSizesCache = null;
   unfoundBonusCache = null;
+  tileEVStatsCache = null;
   hitMasksCache = null;
   equivalenceGroupsCache = null;
 }
@@ -2404,6 +2430,7 @@ const exactCaches = buildExactCaches(allBoards);
 outcomeBucketsCache = exactCaches.outcomeBuckets;
 tileShipSizesCache = exactCaches.tileShipSizes;
 unfoundBonusCache = exactCaches.unfoundBonus;
+tileEVStatsCache = exactCaches.tileEVStats;
 hitMasksCache = exactCaches.hitMasks;
 equivalenceGroupsCache = exactCaches.equivalenceGroups;
 
@@ -2564,6 +2591,9 @@ function buildExactCaches(allBoards) {
   const outcomeBuckets = Array.from({ length: 25 }, () => ({}));
   const tileSizeShipSets = Array.from({ length: 25 }, () => ({}));
   const unfoundCounts = Array.from({ length: 25 }, () => ({}));
+  const tileEVTotals = Array(25).fill(0);
+  const tileHitEVTotals = Array(25).fill(0);
+  const tileHitCounts = Array(25).fill(0);
   const hitMasks = [];
 
   const foundColors = getFoundColors();
@@ -2581,7 +2611,12 @@ function buildExactCaches(allBoards) {
 
       outcomeBuckets[i][key]++;
 
+      tileEVTotals[i] += getOutcomeEV(color);
+
       if (!color) continue;
+
+      tileHitEVTotals[i] += getOutcomeEV(color);
+      tileHitCounts[i]++;
 
       hitMask |= cellMask(i);
 
@@ -2609,11 +2644,21 @@ function buildExactCaches(allBoards) {
 
   const tileShipSizes = {};
   const unfoundBonus = Array(25).fill(0);
+  const tileEVStats = {};
 
   for (let i = 0; i < 25; i++) {
     if (grid[i]) continue;
 
     tileShipSizes[i] = expandTileSizeShipSets(tileSizeShipSets[i]);
+
+    tileEVStats[i] = {
+      avgHitEV: tileHitCounts[i]
+        ? tileHitEVTotals[i] / tileHitCounts[i]
+        : 0,
+      weightedEV: allBoards.length
+        ? tileEVTotals[i] / allBoards.length
+        : 0
+    };
 
     for (const color in unfoundCounts[i]) {
       unfoundBonus[i] += unfoundCounts[i][color] / allBoards.length;
@@ -2624,9 +2669,80 @@ function buildExactCaches(allBoards) {
     outcomeBuckets,
     tileShipSizes,
     unfoundBonus,
+    tileEVStats,
     hitMasks,
     equivalenceGroups: buildEquivalenceGroupsFromHitMasks(hitMasks)
   };
+}
+
+function getOutcomeEV(color) {
+  if (!color) return TILE_EV.miss;
+
+  if (TILE_EV[color] !== undefined) {
+    return TILE_EV[color];
+  }
+
+  if (isAnonymousRareShip(color)) {
+    return getAverageUnfoundRareEV();
+  }
+
+  return 0;
+}
+
+function getAverageUnfoundRareEV() {
+  const foundColors = getFoundColors();
+
+  const availableRareColors = RARE_COLORS.filter(color =>
+    !foundColors.has(color)
+  );
+
+  if (!availableRareColors.length) return 0;
+
+  const total = availableRareColors.reduce(
+    (sum, color) => sum + TILE_EV[color],
+    0
+  );
+
+  return total / availableRareColors.length;
+}
+
+function getTileEVStats(allBoards) {
+  if (allBoards === appState.allBoards && tileEVStatsCache) {
+    return tileEVStatsCache;
+  }
+
+  return buildTileEVStats(allBoards);
+}
+
+function buildTileEVStats(allBoards) {
+  const stats = {};
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i]) continue;
+
+    let totalEV = 0;
+    let hitEV = 0;
+    let hitCount = 0;
+
+    for (const board of allBoards) {
+      const color = board[i];
+      const ev = getOutcomeEV(color);
+
+      totalEV += ev;
+
+      if (color) {
+        hitEV += ev;
+        hitCount++;
+      }
+    }
+
+    stats[i] = {
+      avgHitEV: hitCount ? hitEV / hitCount : 0,
+      weightedEV: allBoards.length ? totalEV / allBoards.length : 0
+    };
+  }
+
+  return stats;
 }
 
 function buildPrecalcContext(allBoards) {
@@ -3796,6 +3912,7 @@ function analyzeEquivalence(allBoards, probs) {
     .flatMap(g => g.group);
 
   const tileShipSizes = getTileShipSizes(allBoards);
+  const tileEVStats = getTileEVStats(allBoards);
   const partialTiles = getPartialShipTiles();
 
   const size2Tiles = Object.keys(tileShipSizes)
@@ -3818,6 +3935,7 @@ function analyzeEquivalence(allBoards, probs) {
     probs,
     allBoards,
     shipMap: tileShipSizes,
+    evMap: tileEVStats,
     size2Tiles
   };
 }
@@ -3847,6 +3965,7 @@ function applyEquivalenceResult(data, probs) {
       tiles: data.bestGroup,
       size2Tiles: data.size2Tiles,
       shipMap: data.shipMap,
+      evMap: data.evMap,
       probs,
       collapseMove: data.collapseMove || null
     };
@@ -3974,9 +4093,7 @@ return withSafeMoveReason(
 );
 }
 
-function renderShipSizeBadges(cell, sizes) {
-  const badges = buildShipSizeBadges(sizes);
-
+function renderShipSizeBadges(cell, sizes, evStats = null) {
   let container = cell.querySelector('.size-badges');
 
   if (!container) {
@@ -3985,9 +4102,10 @@ function renderShipSizeBadges(cell, sizes) {
     cell.appendChild(container);
   }
 
-  container.innerHTML = badges
-    .map(b => `<div class="size-badge">${b}</div>`)
-    .join("");
+  container.innerHTML =
+    evStats && evStats.avgHitEV
+      ? `<div class="size-badge ev-badge">EV ${evStats.avgHitEV.toFixed(0)}</div>`
+      : "";
 }
 
 function withSafeMoveReason(move, reason) {
@@ -5560,6 +5678,7 @@ function clearRecommendations(){
     removeClassIfPresent(c, 'recommended-avoid');
     removeClassIfPresent(c, 'recommended-equal');
     removeClassIfPresent(c, 'recommended-size2');
+	removeClassIfPresent(c, 'recommended-high-ev');
     removeClassIfPresent(c, 'recommended-final');
     removeClassIfPresent(c, 'stripe-overlay');
     removeClassIfPresent(c, 'stripe-rainbow');
@@ -5665,6 +5784,43 @@ function applyHighlights(play, topMoves, safest) {
   }
 }
 
+function getTileOverlapCount(tile, data) {
+  return (data.shipMap?.[tile] || []).length;
+}
+
+function getTileAverageEV(tile, data) {
+  return data.evMap?.[tile]?.avgHitEV || 0;
+}
+
+function getHighestEVTile(tiles, data) {
+  let bestTile = null;
+  let bestEV = -Infinity;
+
+  for (const tile of tiles) {
+    const ev = getTileAverageEV(tile, data);
+
+    if (ev > bestEV) {
+      bestEV = ev;
+      bestTile = tile;
+    }
+  }
+
+  return bestTile;
+}
+
+function formatEquivalenceMoveLine(tile, data) {
+  const [r, c] = indexToCoord(tile);
+  const overlap = getTileOverlapCount(tile, data);
+  const ev = getTileAverageEV(tile, data);
+
+  return `
+    <span class="coord-good">Row ${r + 1}, Col ${c + 1}</span>
+    <span style="opacity:0.85">
+      — ${overlap}-Ship Overlap; EV: ${ev.toFixed(0)}
+    </span>
+  `;
+}
+
 function highlightAvoidGroup(data){
   if(currentMode !== MODE.NORMAL) return;
   
@@ -5675,6 +5831,7 @@ function highlightAvoidGroup(data){
 
   let bestSet = new Set(data.tiles);
   let size2Set = new Set(data.size2Tiles || []);
+  const highestEVTile = getHighestEVTile(data.tiles || [], data);
 
   const partialTilesSet = getPartialShipTiles();
 
@@ -5698,7 +5855,11 @@ function highlightAvoidGroup(data){
       let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
 
 if(sizes.length){
-  renderShipSizeBadges(play[i], sizes);
+  renderShipSizeBadges(play[i], sizes, data.evMap?.[i]);
+}
+
+if(i === highestEVTile){
+  play[i].classList.add('recommended-high-ev');
 }
     }
 else if(size2Set.has(i) && shownRareTiles.has(i)){
@@ -5707,9 +5868,7 @@ else if(size2Set.has(i) && shownRareTiles.has(i)){
 if(sizes.length){
   play[i].classList.add('recommended-label');
   play[i].style.setProperty("--label-color", "#92400e");
-  renderShipSizeBadges(play[i], sizes);
-} else {
-  play[i].classList.add('recommended-size2');
+  renderShipSizeBadges(play[i], sizes, data.evMap?.[i]);
 }
 }
     else {
@@ -5731,19 +5890,22 @@ function renderEquivalenceInfo(data){
   let content = `<br>
   `;
 
-  if(bestTiles.length){
-    const bestProb = (probs[bestTiles[0]] * 100).toFixed(1);
+if(bestTiles.length){
+  const sortedBestTiles = [...bestTiles].sort((a, b) =>
+    getTileAverageEV(b, data) - getTileAverageEV(a, data)
+  );
 
-    let coords = bestTiles.map(i=>{
-      let [r,c] = indexToCoord(i);
-      return `<span class="coord-good">Row ${r+1}, Col ${c+1}</span>`;
-    }).join("<br>");
+  const bestProb = (probs[sortedBestTiles[0]] * 100).toFixed(1);
 
-    content += `
-      <b>Best Moves (~${bestProb}%)</b><br>
-      ${coords}<br><br>
-    `;
-  }
+  let coords = sortedBestTiles.map(i =>
+    formatEquivalenceMoveLine(i, data)
+  ).join("<br>");
+
+  content += `
+    <b>Best Moves (~${bestProb}%)</b><br>
+    ${coords}<br><br>
+  `;
+}
 
 if(size2Tiles.length){
 
