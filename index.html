@@ -4813,7 +4813,7 @@ function appendUncertaintyMoveCard(messages, context) {
             : `
               Best move to reduce that uncertainty:
               <br>
-              <b>Row ${r + 1}, Col ${c + 1}</b>
+              <b style="color:#dc2626">Row ${r + 1}, Col ${c + 1}</b>
             `
         }
         <br><br>
@@ -5062,7 +5062,8 @@ function appendPreGameMessages(messages, ctx) {
 	    • The solver may know a tile is not blue, but not what color it really is. These are marked with ? in the center.<br><br>
 	    • While Exact solving is active, you can hover over a tile to get calculations of future probabilities based on the current selected color.<br><br>
         • "Alternative" recommendations are just the 2nd best move. These later become "2-Step Collapse" moves, which calculate 2 moves into the future to reduce board counts.<br><br>
-        `,
+        • Expected sphere value (EV) is shown when probabilities are tied. You can use it to decide tie breakers.
+		`,
         "info-blue info-hint"
       )
     );
