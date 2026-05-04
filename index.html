@@ -964,9 +964,9 @@ const MODE = {
 
 const MAX_MISSES = 5;
 
-const PRECALC_BOARD_LIMIT = 3500;
-const PRECALC_MAX_DEPTH = 15;
-const PRECALC_UNKNOWN_TILE_LIMIT = 15;
+const PRECALC_BOARD_LIMIT = 4000;
+const PRECALC_MAX_DEPTH = 20;
+const PRECALC_UNKNOWN_TILE_LIMIT = 20;
 
 const COLOR_TO_ID = {
   teal: 0,
@@ -1446,9 +1446,17 @@ function deepClone(obj) {
       ? { ...obj.collapseMove }
       : obj.collapseMove,
 
-    allBoards: obj.allBoards
-      ? obj.allBoards.map(board => [...board])
-      : obj.allBoards,
+allBoards: obj.allBoards
+  ? obj.allBoards.map(board =>
+      isMaskBoard(board)
+        ? {
+            __maskBoard: true,
+            hitMask: board.hitMask,
+            colorMasks: { ...board.colorMasks }
+          }
+        : [...board]
+    )
+  : obj.allBoards,
 
     winStrategy: obj.winStrategy
       ? {
@@ -2665,10 +2673,10 @@ function buildExactCaches(allBoards) {
   const foundColors = getFoundColors();
 
   for (const board of allBoards) {
-    let hitMask = 0;
+    const hitMask = boardToMask(board);
 
     for (let i = 0; i < 25; i++) {
-      const color = board[i];
+      const color = getBoardColorAt(board, i);
       const key = color || 0;
 
       if (!outcomeBuckets[i][key]) {
@@ -2683,8 +2691,6 @@ function buildExactCaches(allBoards) {
 
       tileHitEVTotals[i] += getOutcomeEV(color);
       tileHitCounts[i]++;
-
-      hitMask |= cellMask(i);
 
       if (grid[i]) continue;
 
@@ -2791,7 +2797,7 @@ function buildTileEVStats(allBoards) {
     let hitCount = 0;
 
     for (const board of allBoards) {
-      const color = board[i];
+      const color = getBoardColorAt(board, i);
       const ev = getOutcomeEV(color);
 
       totalEV += ev;
@@ -2809,6 +2815,20 @@ function buildTileEVStats(allBoards) {
   }
 
   return stats;
+}
+
+function getCachedBuckets(boardSet, tile, ctx) {
+  const key = tile + "|" + boardSet.toString(36);
+
+  if (ctx.bucketCache.has(key)) {
+    return ctx.bucketCache.get(key);
+  }
+
+  const buckets = bucketBoardSetByOutcome(boardSet, tile, ctx);
+
+  ctx.bucketCache.set(key, buckets);
+
+  return buckets;
 }
 
 function buildPrecalcContext(allBoards) {
@@ -2830,7 +2850,7 @@ function buildPrecalcContext(allBoards) {
     let hitMask = 0;
 
     for (let i = 0; i < 25; i++) {
-      const color = board[i];
+      const color = getBoardColorAt(board, i);
       const outcome = color || 0;
 
       if (!outcomeBoardSetsByTile[i][outcome]) {
@@ -2848,14 +2868,21 @@ function buildPrecalcContext(allBoards) {
     hitMasks[b] = hitMask;
   }
 
-  return {
-    allBoardSet,
-    hitMasks,
-    tileHitBoardSets,
-    outcomeBoardSetsByTile,
-    bitCountCache: new Map(),
-    splitScoreCache: new Map()
-  };
+const { huntMode } = getGameContext();
+
+return {
+  allBoardSet,
+  hitMasks,
+  tileHitBoardSets,
+  outcomeBoardSetsByTile,
+  huntMode,
+  forceHeuristics: shouldForceHeuristics(),
+  earlyGame: isEarlyGame(),
+  bitCountCache: new Map(),
+  splitScoreCache: new Map(),
+  bucketCache: new Map(),
+  unknownTilesCache: new Map()
+};
 }
 
 function getBoardSetCount(boardSet, ctx) {
@@ -2890,7 +2917,7 @@ function getTileSplitScoreForBoardSet(tile, boardSet, ctx) {
     return ctx.splitScoreCache.get(key);
   }
 
-  const buckets = bucketBoardSetByOutcome(boardSet, tile, ctx);
+  const buckets = getCachedBuckets(boardSet, tile, ctx);
 
   let score = 0;
 
@@ -2911,7 +2938,7 @@ function getStrategyCandidatesForBoardSet(
   misses,
   ctx
 ) {
-  const { huntMode } = getGameContext();
+  const huntMode = ctx.huntMode;
   const boardCount = getBoardSetCount(boardSet, ctx);
   const tiles = [];
 
@@ -2935,12 +2962,12 @@ function getStrategyCandidatesForBoardSet(
 }
 
 function wouldTriggerEquivalenceForBoardSet(boardSet, knownMask, ctx) {
-  const { huntMode } = getGameContext();
+  const huntMode = ctx.huntMode;
 
   if (
-    shouldForceHeuristics() ||
+    ctx.forceHeuristics ||
     !huntMode ||
-    isEarlyGame() ||
+    ctx.earlyGame ||
     getBoardSetCount(boardSet, ctx) <= 1
   ) {
     return false;
@@ -3130,22 +3157,26 @@ const stateKey = dfsStateKey(
 
   const validBefore = valid;
 
-  if (remainingShips.length === 0) {
-      const key = boardKey(board);
-      if (seen.has(key)) return;
+if (remainingShips.length === 0) {
+    const snapshot = makeMaskBoard(shipMasks, occupiedMask);
+    const key = maskBoardKey(snapshot);
 
-      seen.add(key);
-      valid++;
+    if (seen.has(key)) return;
 
-      const snapshot = [...board];
-      allBoards.push(snapshot);
+    seen.add(key);
+    valid++;
 
-      for (let i = 0; i < 25; i++) {
-        if (board[i]) counts[i]++;
-      }
+    allBoards.push(snapshot);
 
-      return;
+    let mask = occupiedMask;
+    while (mask) {
+      const bit = mask & -mask;
+      counts[BIT_INDEX[bit]]++;
+      mask &= mask - 1;
     }
+
+    return;
+  }
 
 const choice = selectNextShipIndex(
   remainingShips,
@@ -3238,8 +3269,11 @@ if (keys.length === 1) {
       continue;
     }
 
-    const first = allBoards[0][i];
-    const allSame = allBoards.every(b => b[i] === first);
+    const first = getBoardColorAt(allBoards[0], i);
+    const allSame = allBoards.every(
+      b => getBoardColorAt(b, i) === first
+    );
+
 if (allSame) {
   if (!first) {
     forcedTiles[i] = 'miss';
@@ -3253,7 +3287,7 @@ if (allSame) {
 }
 
 function getOutcomeKey(board, tile) {
-  return board[tile] || 0;
+  return getBoardColorAt(board, tile) || 0;
 }
 
 function getUnknownTiles(){
@@ -3335,19 +3369,20 @@ function findNoEquivalenceStrategy(allBoards, probs) {
 
   const ctx = buildPrecalcContext(allBoards);
 
-  for (let depthLimit = 1; depthLimit <= PRECALC_MAX_DEPTH; depthLimit++) {
-    const memo = new Map();
+const memo = new Map();
 
-    const plan = searchNoEquivalenceStrategy(
-      ctx.allBoardSet,
-      knownMask,
-      hits,
-      misses,
-      0,
-      depthLimit,
-      memo,
-      ctx
-    );
+for (let depthLimit = 1; depthLimit <= PRECALC_MAX_DEPTH; depthLimit++) {
+
+const plan = searchNoEquivalenceStrategy(
+  ctx.allBoardSet,
+  knownMask,
+  hits,
+  misses,
+  0,
+  depthLimit,
+  memo,
+  ctx
+);
 
         if (plan && plan.length) return plan;
   }
@@ -3379,11 +3414,12 @@ function searchNoEquivalenceStrategy(
     return null;
   }
 
-  const key =
-    boardSet.toString(36) +
-    "|" + knownMask +
-    "|" + hits +
-    "|" + misses;
+const key =
+  boardSet.toString(36) +
+  "|" + knownMask +
+  "|" + hits +
+  "|" + misses +
+  "|" + (depthLimit - depth);
 
   if (memo.has(key)) {
     return memo.get(key);
@@ -3398,7 +3434,7 @@ const candidates = getStrategyCandidatesForBoardSet(
 ).sort((a, b) =>
   getTileSplitScoreForBoardSet(a, boardSet, ctx) -
   getTileSplitScoreForBoardSet(b, boardSet, ctx)
-);
+).slice(0, 8);
 
   for (const tile of candidates) {
     const nextKnownMask = knownMask | cellMask(tile);
@@ -3524,7 +3560,7 @@ function computeProbabilitiesForKnownMask(boards, knownMask) {
   for (const board of boards) {
     for (let i = 0; i < 25; i++) {
       if ((knownMask & cellMask(i)) !== 0) continue;
-      if (board[i]) counts[i]++;
+      if (getBoardColorAt(board, i)) counts[i]++;
     }
   }
 
@@ -3698,7 +3734,7 @@ function buildTileShipSizes(allBoards) {
     const sizeShipSets = {};
 
     for (const board of allBoards) {
-      const color = board[i];
+      const color = getBoardColorAt(board, i);
       if (!color) continue;
 
       const size = getShipSize(color);
@@ -4061,6 +4097,13 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // T.11 MOVE STRATEGY
 // ===============================
 
+function makeMoveObject(i) {
+  return {
+    i,
+    p: appState.probs ? appState.probs[i] : 0
+  };
+}
+
 function shouldForceHeuristics() {
   const { misses, huntMode } = getGameContext();
 
@@ -4159,21 +4202,6 @@ return withSafeMoveReason(
 );
 }
 
-function renderShipSizeBadges(cell, sizes, evStats = null) {
-  let container = cell.querySelector('.size-badges');
-
-  if (!container) {
-    container = document.createElement('div');
-    container.className = 'size-badges';
-    cell.appendChild(container);
-  }
-
-  container.innerHTML =
-    evStats && evStats.avgHitEV
-      ? `<div class="size-badge ev-badge">EV ${evStats.avgHitEV.toFixed(0)}</div>`
-      : "";
-}
-
 function withSafeMoveReason(move, reason) {
   return {
     ...move,
@@ -4219,7 +4247,7 @@ function getUnfoundRareProbability(tile, allBoards) {
   let count = 0;
 
   for (const board of allBoards) {
-    const color = board[tile];
+    const color = getBoardColorAt(board, tile);
 
     if (!color) continue;
 
@@ -4244,7 +4272,7 @@ function getCandidateUnfoundColorBonus(tileIndex, allBoards){
   const unfoundHitsByColor = {};
 
   for(const board of allBoards){
-    const color = board[tileIndex];
+    const color = getBoardColorAt(board, tileIndex);
 
     if(!color) continue;
     if(isRareShipId(color)) continue;
@@ -5231,13 +5259,6 @@ function collapseFinalMoveCandidatesByOutcome(candidates, b1, b2){
   return Object.values(groups).map(group => group[0]);
 }
 
-function makeMoveObject(i) {
-  return {
-    i,
-    p: appState.probs ? appState.probs[i] : 0
-  };
-}
-
 function appendStrategyMessages(messages, ctx) {
 if (appState.safeOverride) return;
   const { probs, topMoves } = appState;
@@ -5379,17 +5400,6 @@ function updateColorAvailability(){
   }
 }
 
-function getColorCounts(){
-  let counts = {};
-  for(let c in SHIPS) counts[c] = 0;
-
-  for(let i=0;i<25;i++){
-    if(grid[i]) counts[grid[i]]++;
-  }
-
-  return counts;
-}
-
 function isColorDisabled(color, counts, usedRare){
 
   if(getShipSize(color) && counts[color] >= getShipSize(color)){
@@ -5449,6 +5459,45 @@ function showError(msg){
 // ===============================
 // T.13 VISUALS
 // ===============================
+
+function queueHeatmapPreview(tileIndex) {
+  if (lastHoveredTile === tileIndex) return;
+
+  lastHoveredTile = tileIndex;
+
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
+  }
+
+  hoverPreviewTimer = setTimeout(() => {
+    showHeatmapPreview(tileIndex);
+  }, 75);
+}
+
+function cancelHeatmapPreview() {
+  if (hoverPreviewTimer) {
+    clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = null;
+  }
+
+  lastHoveredTile = null;
+  clearHeatmapPreview();
+}
+
+function renderShipSizeBadges(cell, sizes, evStats = null) {
+  let container = cell.querySelector('.size-badges');
+
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'size-badges';
+    cell.appendChild(container);
+  }
+
+  container.innerHTML =
+    evStats && evStats.avgHitEV
+      ? `<div class="size-badge ev-badge">EV ${evStats.avgHitEV.toFixed(0)}</div>`
+      : "";
+}
 
 function applyRainbowHighlights(probs){
   if(!probs) return;
@@ -5578,7 +5627,7 @@ function getScenarioBoardsForSelectedColor(tileIndex) {
 }
 
 function boardTileMatchesSelectedColor(board, tileIndex, color) {
-  const boardColor = board[tileIndex];
+  const boardColor = getBoardColorAt(board, tileIndex);
 
   if (color === 'miss') {
     return !boardColor;
@@ -5642,7 +5691,7 @@ function getPreviewGameContext(tileIndex, scenarioBoards) {
       for (let i = 0; i < 25; i++) {
         if (i === tileIndex) continue;
         if (grid[i] !== null) continue;
-        if (board[i]) return false;
+        if (getBoardColorAt(board, i)) return false;
       }
       return true;
     });
@@ -5699,7 +5748,7 @@ function computePreviewProbs(boards) {
 
   for (const board of boards) {
     for (let i = 0; i < 25; i++) {
-      if (board[i]) counts[i]++;
+      if (getBoardColorAt(board, i)) counts[i]++;
     }
   }
 
@@ -6259,6 +6308,17 @@ function makeCard(title, content, colorClass){
 // T.14 GRID UTILS
 // ===============================
 
+function getColorCounts(){
+  let counts = {};
+  for(let c in SHIPS) counts[c] = 0;
+
+  for(let i=0;i<25;i++){
+    if(grid[i]) counts[grid[i]]++;
+  }
+
+  return counts;
+}
+
 function getGridStats(){
   if(gridStatsCache) return gridStatsCache;
 
@@ -6308,6 +6368,13 @@ function getGridStats(){
   };
 
   return gridStatsCache;
+}
+
+function maskBoardKey(board){
+  return Object.keys(board.colorMasks)
+    .sort()
+    .map(color => color + ":" + board.colorMasks[color])
+    .join("|");
 }
 
 function maskToCells(mask){
@@ -6416,6 +6483,18 @@ function boardKey(board){
   return key;
 }
 
+function getUnknownTilesCached(knownMask, ctx) {
+  if (ctx.unknownTilesCache.has(knownMask)) {
+    return ctx.unknownTilesCache.get(knownMask);
+  }
+
+const tiles = getUnknownTilesCached(knownMask, ctx);
+
+  ctx.unknownTilesCache.set(knownMask, tiles);
+
+  return tiles;
+}
+
 function clearKnownCellsCache(){
   knownCellsCache = {};
 }
@@ -6484,7 +6563,46 @@ function canPlaceWithSameShipOverlap(
   return true;
 }
 
+function makeMaskBoard(shipMasks, hitMask){
+  return {
+    __maskBoard: true,
+    hitMask,
+    colorMasks: { ...shipMasks }
+  };
+}
+
+function isMaskBoard(board){
+  return board && board.__maskBoard === true;
+}
+
+function maskBoardKey(board){
+  return Object.keys(board.colorMasks)
+    .sort()
+    .map(ship => ship + ':' + board.colorMasks[ship])
+    .join(',');
+}
+
+function getBoardColorAt(board, i){
+  if (!isMaskBoard(board)) {
+    return board[i] || null;
+  }
+
+  const mask = cellMask(i);
+
+  for (const color in board.colorMasks) {
+    if (board.colorMasks[color] & mask) {
+      return color;
+    }
+  }
+
+  return null;
+}
+
 function boardToMask(board){
+  if (isMaskBoard(board)) {
+    return board.hitMask;
+  }
+
   let mask = 0;
 
   for(let i = 0; i < 25; i++){
@@ -6833,30 +6951,6 @@ window.loadHash = function(){
 
   loadFromHash(hash);
 };
-
-function queueHeatmapPreview(tileIndex) {
-  if (lastHoveredTile === tileIndex) return;
-
-  lastHoveredTile = tileIndex;
-
-  if (hoverPreviewTimer) {
-    clearTimeout(hoverPreviewTimer);
-  }
-
-  hoverPreviewTimer = setTimeout(() => {
-    showHeatmapPreview(tileIndex);
-  }, 75);
-}
-
-function cancelHeatmapPreview() {
-  if (hoverPreviewTimer) {
-    clearTimeout(hoverPreviewTimer);
-    hoverPreviewTimer = null;
-  }
-
-  lastHoveredTile = null;
-  clearHeatmapPreview();
-}
 
 // ===============================
 // T.17 INITIALIZATION
