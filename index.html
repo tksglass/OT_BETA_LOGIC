@@ -5760,12 +5760,13 @@ function getOpeningHintText(){
 }
 
 function updateBoardLock(){
-  const board=document.getElementById('playBoard');
-  if(selectedColor && rareCount!==null){
-    board.classList.remove('disabled');
-  } else {
-    board.classList.add('disabled');
-  }
+  const board = document.getElementById('playBoard');
+
+  const locked =
+    rareCount === null ||
+    currentMode === MODE.GAME_OVER;
+
+  board.classList.toggle('disabled', locked);
 }
 
 function updateColorAvailability(){
