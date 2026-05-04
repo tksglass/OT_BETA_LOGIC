@@ -1115,8 +1115,11 @@ let outcomeBucketsCache = null;
 let tileShipSizesCache = null;
 let unfoundBonusCache = null;
 let tileEVStatsCache = null;
+let hitCountsCache = null;
+let rareUnfoundCountsCache = null;
 let hitMasksCache = null;
 let equivalenceGroupsCache = null;
+let precalcContextCache = null;
 
 let configLocked = false;
 let isLoadingHash = false;
@@ -1392,8 +1395,9 @@ function resetModeAndCache() {
   appState.specialGroup = null;
   appState.forcedTiles = null;
   appState.collapseMove = null;
-  appState.noEquivalencePlan = null;
-  appState.uncertaintyMove = null;
+appState.noEquivalencePlan = null;
+appState.uncertaintyMove = null;
+appState.clarityMove = null;
 }
 
 function ensureConfigLocked() {
@@ -1562,6 +1566,7 @@ function createEmptyAppState(){
     collapseMove: null,
     noEquivalencePlan: null,
 	safeOverrideSource: null,
+    clarityMove: null,
     uncertaintyMove: null
   };
 }
@@ -1574,9 +1579,12 @@ function clearPlacementsCache() {
   outcomeBucketsCache = null;
   tileShipSizesCache = null;
   unfoundBonusCache = null;
-  tileEVStatsCache = null;
-  hitMasksCache = null;
-  equivalenceGroupsCache = null;
+tileEVStatsCache = null;
+hitCountsCache = null;
+rareUnfoundCountsCache = null;
+hitMasksCache = null;
+equivalenceGroupsCache = null;
+precalcContextCache = null;
 }
 
 // ===============================
@@ -2324,14 +2332,8 @@ function finalizeSimulation({ counts, valid, attempts }) {
   const probs = counts.map(c => (valid ? c / valid : 0));
 
 appState = {
-  probs,
-  topMoves: null,
-  isTrueEndgame: false,
-  isGuaranteed: false,
-  specialGroup: null,
-  collapseMove: null,
-  noEquivalencePlan: null,
-  uncertaintyMove: null
+  ...createEmptyAppState(),
+  probs
 };
 
   DOM.confidence.textContent =
@@ -2505,6 +2507,8 @@ outcomeBucketsCache = exactCaches.outcomeBuckets;
 tileShipSizesCache = exactCaches.tileShipSizes;
 unfoundBonusCache = exactCaches.unfoundBonus;
 tileEVStatsCache = exactCaches.tileEVStats;
+hitCountsCache = exactCaches.hitCounts;
+rareUnfoundCountsCache = exactCaches.rareUnfoundCounts;
 hitMasksCache = exactCaches.hitMasks;
 equivalenceGroupsCache = exactCaches.equivalenceGroups;
 
@@ -2548,19 +2552,19 @@ analysis.collapseMove = getBestTwoStepCollapseMove(allBoards, probs);
 
 const { huntMode } = getGameContext();
 
-if (!huntMode && !appState.isGuaranteed && !appState.isTrueEndgame) {
-const safeMove = getSafeModeProgressMove(
-  allBoards,
-  probs,
-  getSafeModeClarityThresholds(allBoards, probs)
-);
+let normalClarityMove = null;
 
-  if (safeMove) {
-    appState.safeOverride = true;
-	appState.safeOverrideSource = "generalClarity";
-    appState.topMoves = [safeMove];
-    updateExactSolverUI(valid);
-    return;
+if (!huntMode && !appState.isGuaranteed && !appState.isTrueEndgame) {
+  normalClarityMove = getSafeModeProgressMove(
+    allBoards,
+    probs,
+    getSafeModeClarityThresholds(allBoards, probs)
+  );
+
+  if (normalClarityMove) {
+    appState.safeOverride = false;
+    appState.safeOverrideSource = "generalClarity";
+    appState.clarityMove = normalClarityMove;
   }
 }
 
@@ -2683,9 +2687,11 @@ function buildExactCaches(allBoards) {
   const tileSizeShipSets = Array.from({ length: 25 }, () => ({}));
   const unfoundCounts = Array.from({ length: 25 }, () => ({}));
   const tileEVTotals = Array(25).fill(0);
-  const tileHitEVTotals = Array(25).fill(0);
-  const tileHitCounts = Array(25).fill(0);
-  const hitMasks = [];
+const tileHitEVTotals = Array(25).fill(0);
+const tileHitCounts = Array(25).fill(0);
+const hitMasks = [];
+const hitCounts = Array(25).fill(0);
+const rareUnfoundCounts = Array(25).fill(0);
 
   const foundColors = getFoundColors();
 
@@ -2704,10 +2710,22 @@ function buildExactCaches(allBoards) {
 
       tileEVTotals[i] += getOutcomeEV(color);
 
-      if (!color) continue;
+if (!color) continue;
 
-      tileHitEVTotals[i] += getOutcomeEV(color);
-      tileHitCounts[i]++;
+hitCounts[i]++;
+
+if (
+  isRareShipId(color) &&
+  (
+    isAnonymousRareShip(color) ||
+    !foundColors.has(color)
+  )
+) {
+  rareUnfoundCounts[i]++;
+}
+
+tileHitEVTotals[i] += getOutcomeEV(color);
+tileHitCounts[i]++;
 
       if (grid[i]) continue;
 
@@ -2754,14 +2772,16 @@ function buildExactCaches(allBoards) {
     }
   }
 
-  return {
-    outcomeBuckets,
-    tileShipSizes,
-    unfoundBonus,
-    tileEVStats,
-    hitMasks,
-    equivalenceGroups: buildEquivalenceGroupsFromHitMasks(hitMasks)
-  };
+return {
+  outcomeBuckets,
+  tileShipSizes,
+  unfoundBonus,
+  tileEVStats,
+  hitCounts,
+  rareUnfoundCounts,
+  hitMasks,
+  equivalenceGroups: buildEquivalenceGroupsFromHitMasks(hitMasks)
+};
 }
 
 function getOutcomeEV(color) {
@@ -2846,6 +2866,20 @@ function getCachedBuckets(boardSet, tile, ctx) {
   ctx.bucketCache.set(key, buckets);
 
   return buckets;
+}
+
+function getPrecalcContext(allBoards) {
+  if (allBoards === appState.allBoards && precalcContextCache) {
+    return precalcContextCache;
+  }
+
+  const ctx = buildPrecalcContext(allBoards);
+
+  if (allBoards === appState.allBoards) {
+    precalcContextCache = ctx;
+  }
+
+  return ctx;
 }
 
 function buildPrecalcContext(allBoards) {
@@ -3880,6 +3914,59 @@ function getBestCollapseMove(
 }
 
 function scoreTwoStepCollapse(allBoards, firstTile, probs, unknownTiles) {
+  if (allBoards !== appState.allBoards) {
+    return scoreTwoStepCollapseArrayFallback(
+      allBoards,
+      firstTile,
+      probs,
+      unknownTiles
+    );
+  }
+
+  const ctx = getPrecalcContext(allBoards);
+  const firstBuckets = ctx.outcomeBoardSetsByTile[firstTile];
+
+  let expectedRemaining = 0;
+  const totalBoards = allBoards.length;
+
+  for (const outcome in firstBuckets) {
+    const boardSet = firstBuckets[outcome];
+    const firstCount = getBoardSetCount(boardSet, ctx);
+    const pFirst = firstCount / totalBoards;
+
+    let bestSecondScore = Infinity;
+
+    for (const secondTile of unknownTiles) {
+      if (secondTile === firstTile) continue;
+
+      const splitScore =
+        getTileSplitScoreForBoardSet(secondTile, boardSet, ctx);
+
+      const expectedAfterSecond = splitScore / firstCount;
+
+      if (expectedAfterSecond < bestSecondScore) {
+        bestSecondScore = expectedAfterSecond;
+      }
+    }
+
+    if (bestSecondScore < Infinity) {
+      expectedRemaining += pFirst * bestSecondScore;
+    }
+  }
+
+  return {
+    i: firstTile,
+    p: probs[firstTile],
+    expectedRemaining
+  };
+}
+
+function scoreTwoStepCollapseArrayFallback(
+  allBoards,
+  firstTile,
+  probs,
+  unknownTiles
+) {
   const firstBuckets = {};
 
   for (const board of allBoards) {
@@ -3915,6 +4002,10 @@ function scoreTwoStepCollapse(allBoards, firstTile, probs, unknownTiles) {
 }
 
 function getBestTwoStepCollapseMove(allBoards, probs) {
+  if (allBoards.length > 5000) {
+    return null;
+  }
+
   const unknownTiles = getUnknownTiles();
   const getScore = makeCollapseScoreGetter(allBoards, probs);
 
@@ -4714,6 +4805,7 @@ renderOpeningHints(hasStarted);
 renderHeatmapIfAvailable();
 renderRecommendationsIfNeeded(hasStarted);
 renderDangerRecommendationHighlight();
+renderClarityMoveHighlight();
 applyRainbowHighlights(appState.probs);
 renderForcedTilesIfPresent();
 
@@ -4782,6 +4874,18 @@ if (!appState.safeOverride && appState.uncertaintyMove?.i !== undefined) {
   if (appState.probs) {
     highlightRecommendations(appState.probs);
   }
+}
+
+function renderClarityMoveHighlight() {
+  if (appState.safeOverride) return;
+  if (!appState.clarityMove) return;
+
+  const move = appState.clarityMove;
+
+  if (move.i === undefined) return;
+  if (grid[move.i] !== null) return;
+
+  DOM.playBoard[move.i].classList.add("recommended-progress");
 }
 
 function renderDangerRecommendationHighlight() {
@@ -4904,6 +5008,7 @@ appendSetupMessages(messages, context);
 appendOpeningHint(messages, context);
 appendPreGameMessages(messages, context);
 appendSafeModeProgressCard(messages);
+appendNormalClarityMoveCard(messages);
 
 if (appState.probs) {
   if (handleEndgameInfo(messages, box)) return;
@@ -5198,6 +5303,30 @@ function renderGameOverCard() {
     "Game Over",
     "Just blame the solver. It's always the computer's fault.",
     "info-purple"
+  );
+}
+
+function appendNormalClarityMoveCard(messages) {
+  if (!appState.clarityMove) return;
+  if (appState.safeOverride) return;
+
+  const move = appState.clarityMove;
+  const reason = move.reason || "This tile helps reduce future board uncertainty.";
+  const [r, c] = indexToCoord(move.i);
+
+  messages.push(
+    makeCard(
+      "Optional Clarity Move",
+      `
+        This is not overriding the main recommendation, but it may improve future board clarity.
+        <br><br>
+        <span style="color:#06b6d4; font-weight:bold">Row ${r + 1}, Col ${c + 1}</span>
+        <br><br>
+        <b>Why this tile?</b><br>
+        ${reason}
+      `,
+      "info-progress"
+    )
   );
 }
 
@@ -5626,7 +5755,7 @@ function cancelHeatmapPreview() {
   clearHeatmapPreview();
 }
 
-function renderShipSizeBadges(cell, sizes, evStats = null) {
+function renderEVBadge(cell, evStats = null) {
   let container = cell.querySelector('.size-badges');
 
   if (!container) {
@@ -5635,10 +5764,8 @@ function renderShipSizeBadges(cell, sizes, evStats = null) {
     cell.appendChild(container);
   }
 
-  container.innerHTML =
-    evStats && evStats.avgHitEV
-      ? `<div class="size-badge ev-badge">EV ${evStats.avgHitEV.toFixed(0)}</div>`
-      : "";
+  const ev = evStats?.avgHitEV || 0;
+  container.innerHTML = `<div class="size-badge ev-badge">EV ${ev.toFixed(0)}</div>`;
 }
 
 function applyRainbowHighlights(probs){
@@ -5658,13 +5785,6 @@ for(const t of tiles){
   const cell = play[t.i];
 
 let label = cell.getAttribute("data-label");
-
-if(!label && appState.specialGroup?.shipMap?.[t.i]){
-  label = appState.specialGroup.shipMap[t.i]
-    .slice()
-    .sort((a,b)=>b-a)
-    .join("/");
-}
 
 cell.classList.remove(
   'stripe-overlay',
@@ -6267,27 +6387,23 @@ function highlightAvoidGroup(data){
   for(let i=0;i<25;i++){
     if(grid[i]) continue;
 
-    if(bestSet.has(i)){
-      play[i].classList.add('recommended-equal');
-	  play[i].style.setProperty("--label-color", "#22c55e");
+ if (bestSet.has(i)) {
+  play[i].classList.add('recommended-equal');
+  play[i].style.setProperty("--label-color", "#22c55e");
 
-      let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
+  renderEVBadge(play[i], data.evMap?.[i]);
 
-if(sizes.length){
-  renderShipSizeBadges(play[i], sizes, data.evMap?.[i]);
+  if (i === highestEVTile) {
+    play[i].classList.add('recommended-high-ev');
+  }
 }
-
-if(i === highestEVTile){
-  play[i].classList.add('recommended-high-ev');
-}
-    }
 else if(size2Set.has(i) && shownRareTiles.has(i)){
   const sizes = (data.shipMap[i] || []).slice().sort((a,b)=>b-a);
 
 if(sizes.length){
   play[i].classList.add('recommended-label');
   play[i].style.setProperty("--label-color", "#92400e");
-  renderShipSizeBadges(play[i], sizes, data.evMap?.[i]);
+  renderEVBadge(play[i], data.evMap?.[i]);
 }
 }
     else {
