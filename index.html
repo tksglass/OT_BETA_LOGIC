@@ -940,7 +940,7 @@ button {
   <div class="playboard-header">
   <h3>Play Board</h3>
   <button id="autoHitsBtn" class="auto-hits-btn" onclick="autoPlaceGuaranteedHits()">
-    Auto Fill Hits
+    Fill Hits
   </button>
 </div>
 
@@ -2708,10 +2708,17 @@ let normalClarityMove = null;
 
 const { hits, misses } = getHitMissCounts();
 
+const hitHeavyExtreme =
+  hits >= 4 &&
+  misses < 2;
+
+const missHeavyExtreme =
+  misses >= 4 &&
+  hits < 2;
+
 if (
   !huntMode &&
-  hits >= 4 &&
-  misses < 2 &&
+  (hitHeavyExtreme || missHeavyExtreme) &&
   !appState.isGuaranteed &&
   !appState.isTrueEndgame
 ) {
