@@ -116,6 +116,62 @@ button {
   transition: background-color 0.5s ease;
 }
 
+.heatmap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.heatmap-toggle {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 8px;
+
+  background: #f3f4f6;
+  color: #111827;
+
+  border: 1px solid #9ca3af;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.7),
+    0 2px 4px rgba(0,0,0,0.15);
+
+  cursor: pointer;
+
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease,
+    background 0.15s ease;
+}
+
+.heatmap-toggle:hover {
+  background: #e5e7eb;
+}
+
+.heatmap-toggle:active {
+  transform: translateY(1px);
+
+  box-shadow:
+    inset 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.heatmap-toggle.active-btn {
+  background: #2563eb;
+  color: white;
+
+  border-color: #1e3a8a;
+
+  box-shadow:
+    inset 0 1px 2px rgba(255,255,255,0.3),
+    0 2px 6px rgba(37,99,235,0.4);
+}
+
+.heatmap-toggle.disabled {
+  opacity: 0.4;
+  cursor: default;
+  box-shadow: none;
+}
+
 .heatmap-subtitle {
   font-size: 12px;
   color: #374151;
@@ -844,7 +900,12 @@ button {
 </div>
 <br>
   <div class="board-container">
-<h3 id="heatmapTitle">Heatmap</h3>
+<div class="heatmap-header">
+  <h3 id="heatmapTitle">Probability Heatmap</h3>
+  <button id="heatmapToggleBtn" class="heatmap-toggle disabled" onclick="toggleHeatmapMode()">
+    EV
+  </button>
+</div>
 <div id="heatmapSubtitle" class="heatmap-subtitle"></div>
 <div id="heatmap" class="board"></div>
 <div id="confidence" class="confidence"></div>
@@ -903,8 +964,8 @@ const MODE = {
 
 const MAX_MISSES = 5;
 
-const PRECALC_BOARD_LIMIT = 4000;
-const PRECALC_MAX_DEPTH = 23;
+const PRECALC_BOARD_LIMIT = 3500;
+const PRECALC_MAX_DEPTH = 15;
 const PRECALC_UNKNOWN_TILE_LIMIT = 15;
 
 const COLOR_TO_ID = {
@@ -928,6 +989,7 @@ const DOM = {
   heatmap: null,
   heatmapTitle: null,
   heatmapSubtitle: null,
+  heatmapToggleBtn: null,
   infoBox: null,
   topInfoBox: null,
   confidence: null,
@@ -1062,6 +1124,7 @@ let isLoadingHash = false;
 let hoverPreviewTimer = null;
 let lastHoveredTile = null;
 let heatmapPreviewActive = false;
+let heatmapMode = "probability";
 
 const DOM_LISTS = {
   colorButtons: null,
@@ -1271,7 +1334,9 @@ DOM.heatmapSubtitle.classList.remove('error');
 setTextIfChanged(DOM.heatmapSubtitle, "");
 
 heatmapPreviewActive = false;
+heatmapMode = "probability";
 lastHoveredTile = null;
+updateHeatmapToggle();
 
   DOM.confidence.textContent = "";
   DOM.modeLabel.textContent = "";
@@ -2435,10 +2500,11 @@ hitMasksCache = exactCaches.hitMasks;
 equivalenceGroupsCache = exactCaches.equivalenceGroups;
 
 appState.allBoards = allBoards;
+appState.probs = probs;
 
-  appState.forcedTiles = computeForcedTiles(allBoards);
+appState.forcedTiles = computeForcedTiles(allBoards);
 
-renderHeatmap(probs);
+renderSelectedHeatmap();
 
 const effectiveUnknownTiles = getEffectiveUnknownTilesForPrecalc();
 
@@ -4515,7 +4581,7 @@ function renderOpeningHints(hasStarted) {
 
 function renderHeatmapIfAvailable() {
   if (appState.probs) {
-    renderHeatmap(appState.probs);
+    renderSelectedHeatmap();;
   }
 }
 
@@ -5059,10 +5125,10 @@ function appendPreGameMessages(messages, ctx) {
         • $OT will not end at 4 blue clicks if you have not yet found 5 non-blue tiles<br><br>
         • 8 and 9 colors default to aggressive mode (finding non-blues.)<br><br>
         • Unclicked guaranteed tiles get stripes in their color. Clicking them before the solver tells you to could lead to worse outcomes.<br><br>
-	    • The solver may know a tile is not blue, but not what color it really is. These are marked with ? in the center.<br><br>
+	    • After exact solving activates, you can toggle the heatmap to an expected sphere value (EV) heatmap. <br><br>
 	    • While Exact solving is active, you can hover over a tile to get calculations of future probabilities based on the current selected color.<br><br>
         • "Alternative" recommendations are just the 2nd best move. These later become "2-Step Collapse" moves, which calculate 2 moves into the future to reduce board counts.<br><br>
-        • Expected sphere value (EV) is shown when probabilities are tied. You can use it to decide tie breakers.
+        • EV is shown when probabilities are tied. You can use it to decide tie breakers.
 		`,
         "info-blue info-hint"
       )
@@ -5428,26 +5494,13 @@ function clearHeatmapPreview() {
 
   heatmapPreviewActive = false;
 
-  setTextIfChanged(DOM.heatmapTitle, "Heatmap");
+  DOM.heatmapSubtitle.classList.remove('error');
 
-DOM.heatmapSubtitle.classList.remove('error');
+  renderSelectedHeatmap();
 
-if (appState.allBoards) {
-  setTextIfChanged(
-    DOM.heatmapSubtitle,
-    "Hover tile to see next move probabilities."
-  );
-} else {
-  setTextIfChanged(DOM.heatmapSubtitle, "");
-}
-
-  if (appState.probs) {
-    renderHeatmap(appState.probs);
-  } else {
-    resetHeatmapUI();
+  if (appState.allBoards) {
+    updateExactSolverUI(appState.allBoards.length);
   }
-  
-   updateExactSolverUI(appState.allBoards.length);
 }
 
 function showHeatmapPreview(tileIndex) {
@@ -5461,32 +5514,49 @@ function showHeatmapPreview(tileIndex) {
 
   heatmapPreviewActive = true;
 
-setTextIfChanged(DOM.heatmapTitle, "Heatmap");
-
-if (scenarioBoards.length === 0) {
-  DOM.heatmapSubtitle.classList.add('error');
+  const titlePrefix =
+    heatmapMode === "ev"
+      ? "EV Heatmap"
+      : "Probability Heatmap";
 
   setTextIfChanged(
-    DOM.heatmapSubtitle,
-    `Impossible board state if Row ${r + 1}, Col ${c + 1} is ${colorLabel}`
+    DOM.heatmapTitle,
+    `${titlePrefix} Preview`
   );
-} else {
+
+  if (scenarioBoards.length === 0) {
+    DOM.heatmapSubtitle.classList.add('error');
+
+    setTextIfChanged(
+      DOM.heatmapSubtitle,
+      `Impossible board state if Row ${r + 1}, Col ${c + 1} is ${colorLabel}`
+    );
+
+    resetHeatmapUI();
+    updateExactSolverUI(0, true);
+    return;
+  }
+
   DOM.heatmapSubtitle.classList.remove('error');
 
   setTextIfChanged(
     DOM.heatmapSubtitle,
     `If Row ${r + 1}, Col ${c + 1} is ${colorLabel}`
   );
-}
 
   const preview = buildPreviewHeatmapState(tileIndex, scenarioBoards);
 
-  renderHeatmapWithContext(
-    preview.probs,
-    preview.huntMode,
-    preview.mode,
-    preview.label
-  );
+  if (heatmapMode === "ev") {
+    renderPreviewEVHeatmap(scenarioBoards);
+  } else {
+    renderHeatmapWithContext(
+      preview.probs,
+      preview.huntMode,
+      preview.mode,
+      preview.label
+    );
+  }
+
   updateExactSolverUI(scenarioBoards.length, true);
 }
 
@@ -5634,6 +5704,151 @@ function computePreviewProbs(boards) {
   }
 
   return counts.map(c => c / boards.length);
+}
+
+function updateHeatmapToggle() {
+  const btn = DOM.heatmapToggleBtn;
+
+  if (!btn) return;
+
+  const canToggle =
+    !!appState.allBoards &&
+    !!tileEVStatsCache &&
+    !heatmapPreviewActive;
+
+  btn.classList.remove('active-btn', 'disabled');
+
+  if (!canToggle) {
+    btn.classList.add('disabled');
+    btn.textContent = "EV";
+    return;
+  }
+
+  if (heatmapMode === "ev") {
+    btn.classList.add('active-btn');
+    btn.textContent = "Prob";
+  } else {
+    btn.textContent = "EV";
+  }
+}
+
+function renderSelectedHeatmap() {
+  updateHeatmapToggle();
+
+  if (
+    heatmapMode === "ev" &&
+    appState.allBoards &&
+    tileEVStatsCache
+  ) {
+    renderEVHeatmap();
+    return;
+  }
+
+  if (appState.probs) {
+    renderHeatmap(appState.probs);
+    setTextIfChanged(DOM.heatmapTitle, "Probability Heatmap");
+    return;
+  }
+
+  resetHeatmapUI();
+  setTextIfChanged(DOM.heatmapTitle, "Heatmap");
+}
+
+function renderEVHeatmap() {
+  const heat = DOM.heatmap;
+  const values = Array(25).fill(0);
+
+  let maxEV = 0;
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) continue;
+
+    const ev = tileEVStatsCache?.[i]?.weightedEV || 0;
+    values[i] = ev;
+
+    if (ev > maxEV) {
+      maxEV = ev;
+    }
+  }
+
+  for (let i = 0; i < 25; i++) {
+    const cell = heat[i];
+
+    if (grid[i] !== null) {
+      setBackgroundIfChanged(cell, '');
+      setTextIfChanged(cell, '');
+      continue;
+    }
+
+    const ev = values[i];
+    const intensity = maxEV ? ev / maxEV : 0;
+
+    const red = 255;
+    const green = Math.round(255 - 160 * intensity);
+    const blue = Math.round(255 - 160 * intensity);
+
+    setBackgroundIfChanged(
+      cell,
+      `rgb(${red}, ${green}, ${blue})`
+    );
+
+    setTextIfChanged(
+      cell,
+      ev ? `EV ${ev.toFixed(0)}` : "EV 0"
+    );
+  }
+
+  setTextIfChanged(DOM.heatmapTitle, "EV Heatmap");
+  setTextIfChanged(
+    DOM.heatmapSubtitle,
+    "Expected tile value, including blue as EV 10."
+  );
+}
+
+function renderPreviewEVHeatmap(scenarioBoards) {
+  const heat = DOM.heatmap;
+  const stats = buildTileEVStats(scenarioBoards);
+  const values = Array(25).fill(0);
+
+  let maxEV = 0;
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) continue;
+
+    const ev = stats[i]?.weightedEV || 0;
+    values[i] = ev;
+
+    if (ev > maxEV) {
+      maxEV = ev;
+    }
+  }
+
+  for (let i = 0; i < 25; i++) {
+    const cell = heat[i];
+
+    if (grid[i] !== null) {
+      setBackgroundIfChanged(cell, '');
+      setTextIfChanged(cell, '');
+      continue;
+    }
+
+    const ev = values[i];
+    const intensity = maxEV ? ev / maxEV : 0;
+
+    const red = 255;
+    const green = Math.round(255 - 160 * intensity);
+    const blue = Math.round(255 - 160 * intensity);
+
+    setBackgroundIfChanged(
+      cell,
+      `rgb(${red}, ${green}, ${blue})`
+    );
+
+    setTextIfChanged(
+      cell,
+      ev ? `EV ${ev.toFixed(0)}` : "EV 0"
+    );
+  }
 }
 
 function renderHeatmapWithContext(probs, huntMode, mode, label) {
@@ -6549,6 +6764,18 @@ if(!hasStarted){
 
 }
 
+window.toggleHeatmapMode = function() {
+  if (!appState.allBoards || !tileEVStatsCache) return;
+  if (heatmapPreviewActive) return;
+
+  heatmapMode =
+    heatmapMode === "probability"
+      ? "ev"
+      : "probability";
+
+  renderSelectedHeatmap();
+};
+
 window.setRare = function(n,btn){
   if(configLocked) return;
 
@@ -6666,6 +6893,7 @@ DOM.playBoard = document.getElementById('playBoard').children;
 DOM.heatmap = document.getElementById('heatmap').children;
 DOM.heatmapTitle = document.getElementById('heatmapTitle');
 DOM.heatmapSubtitle = document.getElementById('heatmapSubtitle');
+DOM.heatmapToggleBtn = document.getElementById('heatmapToggleBtn');
 DOM.infoBox = document.getElementById('infoBox');
 DOM.topInfoBox = document.getElementById('topInfoBox');
 DOM.confidence = document.getElementById('confidence');
