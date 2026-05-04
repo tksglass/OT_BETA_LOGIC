@@ -964,9 +964,9 @@ const MODE = {
 
 const MAX_MISSES = 5;
 
-const PRECALC_BOARD_LIMIT = 4000;
-const PRECALC_MAX_DEPTH = 20;
-const PRECALC_UNKNOWN_TILE_LIMIT = 20;
+const PRECALC_BOARD_LIMIT = 3500;
+const PRECALC_MAX_DEPTH = 15;
+const PRECALC_UNKNOWN_TILE_LIMIT = 15;
 
 const COLOR_TO_ID = {
   teal: 0,
@@ -1561,6 +1561,7 @@ function createEmptyAppState(){
 	safeOverride: false,
     collapseMove: null,
     noEquivalencePlan: null,
+	safeOverrideSource: null,
     uncertaintyMove: null
   };
 }
@@ -2514,6 +2515,16 @@ appState.forcedTiles = computeForcedTiles(allBoards);
 
 renderSelectedHeatmap();
 
+if (handleGuaranteedMove(probs, allBoards)) {
+  updateExactSolverUI(valid);
+  return;
+}
+
+if (handleTwoBoardEndgame(valid, probs, allBoards)) {
+  updateExactSolverUI(valid);
+  return;
+}
+
 const effectiveUnknownTiles = getEffectiveUnknownTilesForPrecalc();
 
 if (
@@ -2532,15 +2543,26 @@ if (
     getBestUncertaintyRemovalMove(allBoards, probs);
 }
 
-if (handleTwoBoardEndgame(valid, probs, allBoards)) {
-  updateExactSolverUI(valid);
-  return;
-}
-
 const analysis = analyzeEquivalence(allBoards, probs);
 analysis.collapseMove = getBestTwoStepCollapseMove(allBoards, probs);
 
 const { huntMode } = getGameContext();
+
+if (!huntMode && !appState.isGuaranteed && !appState.isTrueEndgame) {
+const safeMove = getSafeModeProgressMove(
+  allBoards,
+  probs,
+  getSafeModeClarityThresholds(allBoards, probs)
+);
+
+  if (safeMove) {
+    appState.safeOverride = true;
+	appState.safeOverrideSource = "generalClarity";
+    appState.topMoves = [safeMove];
+    updateExactSolverUI(valid);
+    return;
+  }
+}
 
 const bestProb = analysis.bestGroup.length
   ? probs[analysis.bestGroup[0]]
@@ -2554,11 +2576,6 @@ if (
   bestProb < 1
 ) {
   applyEquivalenceResult(analysis, probs);
-  updateExactSolverUI(valid);
-  return;
-}
-
-if (handleGuaranteedMove(probs, allBoards)) {
   updateExactSolverUI(valid);
   return;
 }
@@ -3932,8 +3949,16 @@ function getBestTwoStepCollapseMove(allBoards, probs) {
 function handleTwoBoardEndgame(valid, probs, allBoards) {
   if (valid !== 2) return false;
 
+  const [b1, b2] = allBoards;
+
+  const firstDifference = getUnknownTiles().find(i =>
+    b1[i] !== b2[i]
+  );
+
   appState.probs = probs;
-  appState.topMoves = [];
+  appState.topMoves = firstDifference !== undefined
+    ? [{ i: firstDifference, p: probs[firstDifference], type: "final" }]
+    : [];
   appState.isTrueEndgame = true;
   appState.isGuaranteed = false;
   appState.specialGroup = null;
@@ -3946,6 +3971,7 @@ function handleGuaranteedMove(probs, allBoards) {
   const { huntMode } = getGameContext();
   
   appState.safeOverride = false;
+  appState.safeOverrideSource = null;
 
   const candidates = probs
     .map((p, i) => ({ p, i }))
@@ -3961,7 +3987,12 @@ function handleGuaranteedMove(probs, allBoards) {
   }
   
   if (!huntMode && guaranteed.p === 0) {
-  const safeMove = getSafeModeProgressMove(allBoards, probs);
+const safeMove = getSafeModeProgressMove(allBoards, probs, {
+  requireGuaranteedBlue: false,
+  minBlueChance: 0,
+  maxBluePenalty: 1,
+  minClarityGain: 1.0
+});
 
   if (safeMove) {
     appState.probs = probs;
@@ -3971,6 +4002,7 @@ function handleGuaranteedMove(probs, allBoards) {
     appState.specialGroup = null;
     appState.collapseMove = null;
 	appState.safeOverride = true;
+	appState.safeOverrideSource = "guaranteedBlue";
 
 clearRecommendations();
 
@@ -4097,6 +4129,52 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // T.11 MOVE STRATEGY
 // ===============================
 
+function getSafeModeClarityThresholds(allBoards, probs) {
+  const { hits, misses } = getHitMissCounts();
+  const tracking = getShipTracking();
+
+  const blueWouldTriggerMissEndsGame =
+    hits >= 5 &&
+    (misses + 1) >= 2;
+
+  if (blueWouldTriggerMissEndsGame) {
+    return {
+      requireGuaranteedBlue: false,
+      minBlueChance: 1.01,
+      maxBluePenalty: 0,
+      minClarityGain: Infinity
+    };
+  }
+
+  const pressure =
+    misses >= 2 ||
+    tracking.incomplete >= 1;
+
+  const highUncertainty =
+    allBoards.length >= 400;
+
+  let minClarityGain = 2.1;
+  let minBlueChance = 0.68;
+  let maxBluePenalty = 0.08;
+
+  if (pressure) {
+    minClarityGain = 2.35;
+    minBlueChance = 0.64;
+    maxBluePenalty = 0.10;
+  }
+
+  if (highUncertainty) {
+    minClarityGain += 0.2;
+  }
+
+  return {
+    requireGuaranteedBlue: false,
+    minBlueChance,
+    maxBluePenalty,
+    minClarityGain
+  };
+}
+
 function makeMoveObject(i) {
   return {
     i,
@@ -4131,12 +4209,41 @@ function highlightStartingCorners(){
   });
 }
 
-function getSafeModeProgressMove(allBoards, probs) {
+function getSafeModeProgressMove(allBoards, probs, options = {}) {
+  const {
+    requireGuaranteedBlue = true,
+    minBlueChance = 0.75,
+    maxBluePenalty = 0.04,
+    minClarityGain = 2.0
+  } = options;
+
   const unknown = getUnknownTiles();
+
+  const safeBlueChance = i => 1 - probs[i];
+
+  const safestTile = chooseBestSafeCandidate(unknown, allBoards, probs);
+  const safestBlueChance = safestTile !== null
+    ? safeBlueChance(safestTile)
+    : 0;
 
   const progressTiles = unknown.filter(i => {
     const score = scoreCollapseForTile(allBoards, i, probs);
-    return score.expectedRemaining < allBoards.length;
+
+    if (score.expectedRemaining >= allBoards.length) return false;
+
+    if (requireGuaranteedBlue && safeBlueChance(i) < 1) return false;
+
+    if (!requireGuaranteedBlue) {
+      const blueChance = safeBlueChance(i);
+
+      if (blueChance < minBlueChance) return false;
+      if (blueChance < safestBlueChance - maxBluePenalty) return false;
+
+      const clarityGain = allBoards.length / score.expectedRemaining;
+      if (clarityGain < minClarityGain) return false;
+    }
+
+    return true;
   });
 
   if (!progressTiles.length) return null;
@@ -4169,15 +4276,21 @@ if (rareCandidates.length) {
   let bestRareP = -Infinity;
   let bestExpectedRemaining = Infinity;
 
+  let baselineExpected = Infinity;
+
   for (const candidate of rareCandidates) {
     const expectedRemaining =
       getScore(candidate.i).expectedRemaining;
 
+    if (candidate.rareP >= 0.2 && expectedRemaining < baselineExpected) {
+      baselineExpected = expectedRemaining;
+    }
+
     if (
-      candidate.rareP > bestRareP ||
+      expectedRemaining < bestExpectedRemaining ||
       (
-        candidate.rareP === bestRareP &&
-        expectedRemaining < bestExpectedRemaining
+        expectedRemaining === bestExpectedRemaining &&
+        candidate.rareP > bestRareP
       )
     ) {
       bestRare = candidate;
@@ -4185,10 +4298,23 @@ if (rareCandidates.length) {
       bestExpectedRemaining = expectedRemaining;
     }
   }
+  
+  const improvement =
+    baselineExpected < Infinity
+      ? baselineExpected / bestExpectedRemaining
+      : 1;
+
+  if (improvement < 1.6) {
+    bestRare = rareCandidates.reduce((best, c) =>
+      (c.rareP > (best?.rareP ?? -Infinity)) ? c : best
+    , null);
+  }
 
   return withSafeMoveReason(
     makeMoveObject(bestRare.i),
-    `This tile has the best chance to reveal an unfound rare ship (${(bestRare.rareP * 100).toFixed(1)}%).`
+    improvement >= 1.4
+      ? `This tile significantly reduces board uncertainty while still offering a ${(bestRare.rareP * 100).toFixed(1)}% rare chance.`
+      : `This tile has the best chance to reveal an unfound rare ship (${(bestRare.rareP * 100).toFixed(1)}%).`
   );
 }
 
@@ -4779,6 +4905,10 @@ appendOpeningHint(messages, context);
 appendPreGameMessages(messages, context);
 appendSafeModeProgressCard(messages);
 
+if (appState.probs) {
+  if (handleEndgameInfo(messages, box)) return;
+}
+
 if (appState.probs && appState.topMoves?.length) {
   if (handleNoEquivalencePlanInfo(messages)) {
     box.innerHTML = messages.join("<br>");
@@ -4790,8 +4920,6 @@ if (appState.probs && appState.topMoves?.length) {
     box.innerHTML = messages.join("<br>");
     return;
   }
-
-  if (handleEndgameInfo(messages, box)) return;
 
   appendStrategyMessages(messages, context);
 }
@@ -4853,10 +4981,6 @@ function handleNoEquivalencePlanInfo(messages) {
 function getMatchingRecommendationForUncertaintyMove(move) {
   if (!move || move.i === undefined) return null;
 
-  if (appState.collapseMove?.i === move.i) {
-    return "Play the 2-Step Collapse move.";
-  }
-
   const topMoves = appState.topMoves || [];
 
   const safeMove = topMoves.find(m => m.type === "safe");
@@ -4867,6 +4991,10 @@ function getMatchingRecommendationForUncertaintyMove(move) {
   const bestMove = topMoves.find(m => m.type !== "safe");
   if (bestMove?.i === move.i) {
     return "Play the Strategically Valuable move.";
+  }
+
+  if (appState.collapseMove?.i === move.i) {
+    return "Play the 2-Step Collapse move.";
   }
 
   return null;
@@ -5077,26 +5205,36 @@ function appendSafeModeProgressCard(messages) {
   if (!appState.safeOverride) return;
 
   const move = appState.topMoves?.[0];
-  const reason = move?.reason || "Reduce remaining board uncertainty.";
+  const reason =
+  appState.safeOverrideSource === "guaranteedBlue"
+    ? "This tile helps narrow the possible positions of remaining ships."
+    : (move?.reason || "Reduce remaining board uncertainty.");
   const [r, c] = move ? indexToCoord(move.i) : [null, null];
 
   const coordText = move
     ? `<br><br><span style="color:#06b6d4; font-weight:bold">Row ${r+1}, Col ${c+1}</span>`
     : "";
 
-  messages.push(
-    makeCard(
-      "Safe Mode Clarity Move",
-      `
-        Guaranteed blue moves are available, but Safe Mode is prioritizing board clarity instead.
-        ${coordText}
-        <br><br>
-        <b>Why this tile?</b><br>
-        ${reason}
-      `,
-      "info-progress"
-    )
-  );
+const hasGuaranteedBlue =
+  appState.safeOverrideSource === "guaranteedBlue";
+
+const introText = hasGuaranteedBlue
+  ? "Guaranteed blue moves are available, but Safe Mode is prioritizing board clarity instead."
+  : "Normal recommendations overridden to gain board clarity.";
+
+messages.push(
+  makeCard(
+    "Safe Mode Clarity Move",
+    `
+      ${introText}
+      ${coordText}
+      <br><br>
+      <b>Why this tile?</b><br>
+      ${reason}
+    `,
+    "info-progress"
+  )
+);
 }
 
 function handleStaticModes(box) {
@@ -5199,7 +5337,11 @@ const { huntMode } = getGameContext();
 
 for (let i = 0; i < 25; i++) {
   if (grid[i]) continue;
-  if (b1[i] === b2[i]) continue;
+
+  const c1 = getBoardColorAt(b1, i);
+  const c2 = getBoardColorAt(b2, i);
+
+  if (c1 === c2) continue;
 
   const p = appState.probs?.[i] ?? 0;
 
@@ -5247,7 +5389,7 @@ function collapseFinalMoveCandidatesByOutcome(candidates, b1, b2){
   const groups = {};
 
   for(const i of candidates){
-    const key = `${b1[i] || 0}|${b2[i] || 0}`;
+    const key = `${getBoardColorAt(b1, i) || 0}|${getBoardColorAt(b2, i) || 0}`;
 
     if(!groups[key]){
       groups[key] = [];
@@ -5633,16 +5775,23 @@ function boardTileMatchesSelectedColor(board, tileIndex, color) {
     return !boardColor;
   }
 
-  return boardColor === color;
-}
+  if (boardColor === color) {
+    return true;
+  }
 
-function isRareBoardColor(color) {
-  if (!color) return false;
+  const selectedIsUnfoundRare =
+    RARE_COLORS.includes(color) &&
+    !getUsedRare().includes(color) &&
+    color !== 'orange';
 
-  return (
-    RARE_COLORS.includes(color) ||
-    isAnonymousRareShip(color)
-  );
+  if (
+    selectedIsUnfoundRare &&
+    isAnonymousRareShip(boardColor)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 function buildPreviewHeatmapState(tileIndex, scenarioBoards) {
@@ -5948,11 +6097,13 @@ function clearRecommendations(){
     removeClassIfPresent(c, 'stripe-overlay');
     removeClassIfPresent(c, 'stripe-rainbow');
 	removeClassIfPresent(c, 'rainbow-highlight');
-    removeClassIfPresent(c, 'guaranteed-unknown');
+removeClassIfPresent(c, 'guaranteed-unknown');
 
-    if (c.hasAttribute("data-label")) {
-      c.removeAttribute("data-label");
-    }
+c.style.removeProperty("--label-color");
+
+if (c.hasAttribute("data-label")) {
+  c.removeAttribute("data-label");
+}
 
     const badge = c.querySelector('.size-badges');
     if (badge) badge.remove();
@@ -6058,19 +6209,21 @@ function getTileAverageEV(tile, data) {
 }
 
 function getHighestEVTile(tiles, data) {
-  let bestTile = null;
   let bestEV = -Infinity;
+  let bestTiles = [];
 
   for (const tile of tiles) {
     const ev = getTileAverageEV(tile, data);
 
     if (ev > bestEV) {
       bestEV = ev;
-      bestTile = tile;
+      bestTiles = [tile];
+    } else if (ev === bestEV) {
+      bestTiles.push(tile);
     }
   }
 
-  return bestTile;
+  return bestTiles.length === 1 ? bestTiles[0] : null;
 }
 
 function formatEquivalenceMoveLine(tile, data) {
@@ -6116,6 +6269,7 @@ function highlightAvoidGroup(data){
 
     if(bestSet.has(i)){
       play[i].classList.add('recommended-equal');
+	  play[i].style.setProperty("--label-color", "#22c55e");
 
       let sizes = (data.shipMap[i] || []).sort((a,b)=>b-a);
 
@@ -6308,6 +6462,19 @@ function makeCard(title, content, colorClass){
 // T.14 GRID UTILS
 // ===============================
 
+function clearKnownCellsCache(){
+  knownCellsCache = {};
+}
+
+function getKnownCellsCached(color){
+  if(knownCellsCache[color]) return knownCellsCache[color];
+
+  const cells = getKnownCells(color);
+  knownCellsCache[color] = cells;
+
+  return cells;
+}
+
 function getColorCounts(){
   let counts = {};
   for(let c in SHIPS) counts[c] = 0;
@@ -6368,13 +6535,6 @@ function getGridStats(){
   };
 
   return gridStatsCache;
-}
-
-function maskBoardKey(board){
-  return Object.keys(board.colorMasks)
-    .sort()
-    .map(color => color + ":" + board.colorMasks[color])
-    .join("|");
 }
 
 function maskToCells(mask){
@@ -6484,28 +6644,25 @@ function boardKey(board){
 }
 
 function getUnknownTilesCached(knownMask, ctx) {
+  if (!ctx.unknownTilesCache) {
+    ctx.unknownTilesCache = new Map();
+  }
+
   if (ctx.unknownTilesCache.has(knownMask)) {
     return ctx.unknownTilesCache.get(knownMask);
   }
 
-const tiles = getUnknownTilesCached(knownMask, ctx);
+  const tiles = [];
+
+  for (let i = 0; i < 25; i++) {
+    if ((knownMask & (1 << i)) === 0) {
+      tiles.push(i);
+    }
+  }
 
   ctx.unknownTilesCache.set(knownMask, tiles);
 
   return tiles;
-}
-
-function clearKnownCellsCache(){
-  knownCellsCache = {};
-}
-
-function getKnownCellsCached(color){
-  if(knownCellsCache[color]) return knownCellsCache[color];
-
-  const cells = getKnownCells(color);
-  knownCellsCache[color] = cells;
-
-  return cells;
 }
 
 function violatesDiagonalMask(placementMask, colorMask){
@@ -6576,10 +6733,21 @@ function isMaskBoard(board){
 }
 
 function maskBoardKey(board){
-  return Object.keys(board.colorMasks)
-    .sort()
-    .map(ship => ship + ':' + board.colorMasks[ship])
-    .join(',');
+  let key = "";
+
+  for (let i = 0; i < 25; i++) {
+    const color = getBoardColorAt(board, i);
+
+    if (!color) {
+      key += "x";
+    } else if (isRareShipId(color)) {
+      key += "R";
+    } else {
+      key += COLOR_TO_ID[color];
+    }
+  }
+
+  return key;
 }
 
 function getBoardColorAt(board, i){
