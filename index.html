@@ -3822,7 +3822,7 @@ const candidates = getStrategyCandidatesForBoardSet(
 ).sort((a, b) =>
   getTileSplitScoreForBoardSet(a, boardSet, ctx) -
   getTileSplitScoreForBoardSet(b, boardSet, ctx)
-).slice(0, 5);
+).slice(0, 7);
 
   for (const tile of candidates) {
     const nextKnownMask = knownMask | CELL_MASKS[tile];
@@ -5569,17 +5569,19 @@ if (!isRareClarifyingTile(move.i)) return;
         All possible move paths eventually reach an equivalence decision.
         <br><br>
         ${
-          matchingRecommendation
-            ? `
-              Best move to reduce that uncertainty:
-              <br>
-              <b>${matchingRecommendation}</b>
-            `
-            : `
-              Best move to reduce that uncertainty:
-              <br>
-              <b style="color:#dc2626">Row ${r + 1}, Col ${c + 1}</b>
-            `
+			matchingRecommendation
+				? `
+				Best move to reduce that uncertainty:
+				<br>
+				<b>${matchingRecommendation}</b>
+				<br>
+				<b style="color:#dc2626">Row ${r + 1}, Col ${c + 1}</b>
+  `
+				: `
+				Best move to reduce that uncertainty:
+				<br>
+				<b style="color:#dc2626">Row ${r + 1}, Col ${c + 1}</b>
+				`
         }
         <br><br>
         Expected boards: <b>${move.expectedRemaining.toFixed(1)}</b>
