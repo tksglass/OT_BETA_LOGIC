@@ -2362,17 +2362,37 @@ function handleForcedModes(ctx) {
 }
 
 function shouldRunExactSolver(ctx) {
-  let exactThreshold = 5;
+  const { hits, placedTiles } = ctx;
 
-  if (rareCount === 4) {
-    exactThreshold = 4;
-  } else if (rareCount === 3) {
-    exactThreshold = 4;
-  } else if (rareCount <= 2) {
-    exactThreshold = 3;
+  if (rareCount >= 4) {
+    return placedTiles >= 4 ||
+      (placedTiles === 3 && hits >= 2);
   }
 
-  return ctx.placedTiles >= exactThreshold;
+  if (rareCount <= 2) {
+    return placedTiles >= 4 ||
+      (placedTiles >= 2 && hits >= 1);
+  }
+
+if (placedTiles >= 5) return true;
+
+const nonRareHits = grid.filter(color =>
+  color &&
+  color !== 'miss' &&
+  !RARE_COLORS.includes(color)
+).length;
+
+const rareHits = grid.filter(color =>
+  RARE_COLORS.includes(color)
+).length;
+
+return (
+  (placedTiles === 3 && (
+    nonRareHits >= 1 ||
+    rareHits >= 2
+  )) ||
+  (placedTiles === 4 && hits >= 1)
+);
 }
 
 // ===============================
