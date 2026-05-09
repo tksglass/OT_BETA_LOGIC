@@ -2346,19 +2346,39 @@ function handleForcedModes(ctx) {
 
   if (!ctx.huntMode && noBlueRemaining) {
     currentMode = MODE.ALL_HITS;
-    appState = createEmptyAppState();
+
+    appState = {
+      ...createEmptyAppState(),
+      forcedTiles: computeStaticModeForcedTiles()
+    };
+
     renderUI();
     return true;
   }
 
   if (ctx.huntMode && allShipsDone) {
     currentMode = MODE.ALL_MISSES;
-    appState = createEmptyAppState();
+
+    appState = {
+      ...createEmptyAppState(),
+      forcedTiles: computeStaticModeForcedTiles()
+    };
+
     renderUI();
     return true;
   }
 
   return false;
+}
+
+function computeStaticModeForcedTiles() {
+  const { ships, placementsMap } = prepareExactSolver();
+  if (!ships || !placementsMap) return null;
+
+  const { allBoards } = enumerateAllBoardsMaskNative(ships, placementsMap);
+  if (!allBoards || allBoards.length === 0) return null;
+
+  return computeForcedTiles(allBoards);
 }
 
 function shouldRunExactSolver(ctx) {
@@ -6083,8 +6103,6 @@ function updateBoardLock(){
   const locked =
     rareCount === null ||
     currentMode === MODE.GAME_OVER ||
-    currentMode === MODE.ALL_HITS ||
-    currentMode === MODE.ALL_MISSES ||
     currentMode === MODE.TOUCH_GRASS;
 
   board.classList.toggle('disabled', locked);
