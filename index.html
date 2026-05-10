@@ -1229,6 +1229,8 @@ let heatmapPreviewActive = false;
 let heatmapMode = "probability";
 let lastAutoFillHitCount = 0;
 
+let showGambaHighlight = false;
+
 const DOM_LISTS = {
   colorButtons: null,
   rareButtons: null,
@@ -2811,6 +2813,16 @@ renderSelectedHeatmap();
 if (handleGuaranteedMove(probs, allBoards)) {
   updateExactSolverUI(valid);
   return;
+}
+
+if (valid <= WIN_CHAIN_BOARD_LIMIT) {
+  const winChain = findGuaranteedWinChainBitset(allBoards, probs);
+
+  if (winChain) {
+    applyWinChainResult(winChain, probs);
+    updateExactSolverUI(valid);
+    return;
+  }
 }
 
 if (handleTwoBoardEndgame(valid, probs, allBoards)) {
@@ -6890,10 +6902,16 @@ if(sizes.length){
   renderEVBadge(play[i], data.evMap?.[i]);
 }
 }
-    else if (gambaOption && i === gambaOption.i) {
-  play[i].classList.add('recommended-gamba');
-  renderEVBadge(play[i], data.evMap?.[i]);
+else if (gambaOption && i === gambaOption.i) {
+
+  if (showGambaHighlight) {
+    play[i].classList.add('recommended-gamba');
+    renderEVBadge(play[i], data.evMap?.[i]);
+  } else {
+    play[i].classList.add('recommended-avoid');
+  }
 }
+
 else {
   play[i].classList.add('recommended-avoid');
   play[i].textContent = "✕";
@@ -7043,23 +7061,37 @@ const gambaOption = getGambaOption(data, shownRareTiles);
 if (gambaOption) {
   const [r, c] = indexToCoord(gambaOption.i);
 
-  const gambaContent = `
-    <b>Row ${r + 1}, Col ${c + 1}</b><br>
-    EV: <b>${gambaOption.ev.toFixed(0)}</b><br>
-    Hit probability: <b>${(gambaOption.p * 100).toFixed(1)}%</b><br>
-    Unfound rare chance: <b>${(gambaOption.rareP * 100).toFixed(1)}%</b><br>
-    <span style="opacity:0.8">
-      This tile would normally be in the avoid group, but it has the highest EV so roll away.
-    </span>
-  `;
+  const gambaContent = showGambaHighlight
+    ? `
+      <b>Row ${r + 1}, Col ${c + 1}</b><br>
+      EV: <b>${gambaOption.ev.toFixed(0)}</b><br>
+      Hit probability: <b>${(gambaOption.p * 100).toFixed(1)}%</b><br>
+      Unfound rare chance: <b>${(gambaOption.rareP * 100).toFixed(1)}%</b><br>
+      <span style="opacity:0.8">
+        This tile would normally be in the avoid group, but it has the highest EV so roll away.
+      </span>
+    `
+    : `
+      Hidden gamba option available.
+      <br><br>
+      Click this card to reveal the tile, EV, and odds.
+    `;
 
-  messages.push(
-    makeCard(
-      "Gamba Option",
-      gambaContent,
-      "info-red"
-    )
-  );
+  messages.push(`
+    <div
+      class="info-card info-red"
+      onclick="toggleGambaHighlight()"
+      style="cursor:pointer"
+    >
+      <div class="info-card-title">
+        Gamba Option
+        <span style="font-size:12px; opacity:0.75">
+          (${showGambaHighlight ? "click to hide details" : "click to reveal details"})
+        </span>
+      </div>
+      <div>${gambaContent}</div>
+    </div>
+  `);
 }
 
 box.innerHTML = messages.join("<br>");
@@ -7622,6 +7654,11 @@ function getMovesForCurrentGrid(){
 // ===============================
 // T.16 EVENT BINDS
 // ===============================
+
+window.toggleGambaHighlight = function() {
+  showGambaHighlight = !showGambaHighlight;
+  renderUI();
+};
 
 window.selectColor = function(c,e){
 if(e.target.classList.contains('disabled')) return;
