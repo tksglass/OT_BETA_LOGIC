@@ -6008,7 +6008,17 @@ function getMatchingRecommendationForUncertaintyMove(move) {
   }
 
   if (appState.collapseMove?.i === move.i) {
-    return "Play the 2-Step Collapse move.";
+    return appState.collapseMove.isFutureCollapse
+      ? "Play the Future Collapse move."
+      : "Play the 2-Step Collapse move.";
+  }
+
+  const alternativeMove = topMoves
+    .filter(m => m.type !== "safe")
+    .find(m => m.i !== bestMove?.i);
+
+  if (alternativeMove?.i === move.i) {
+    return "Play the Alternative Strategic Move.";
   }
 
   return null;
