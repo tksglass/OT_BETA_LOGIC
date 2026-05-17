@@ -474,6 +474,11 @@ button {
   font-weight: bold;
 }
 
+.coord-progress {
+  color: #06b6d4;
+  font-weight: bold;
+}
+
 .coord-high-ev {
   color: #0369a1;
   font-weight: bold;
@@ -1340,6 +1345,8 @@ const DOM_LISTS = {
   modeButtons: null
 };
 
+let rareRulesCache = null;
+
 // ===============================
 // T.03 ACTIONS
 // ===============================
@@ -1608,7 +1615,7 @@ updateHeatmapToggle();
 currentMode = MODE.NORMAL;
 
 appState = createEmptyAppState();
-gridStatsCache = null;
+clearPlacementsCache();
 
 lastSpecialGroup = null;
 
@@ -1862,6 +1869,7 @@ rareUnfoundCountsCache = null;
 hitMasksCache = null;
 equivalenceGroupsCache = null;
 precalcContextCache = null;
+rareRulesCache = null;
 }
 
 // ===============================
@@ -1881,6 +1889,13 @@ for(const c of RARE_COLORS){
 }
 
 if(rareCount !== null && usedRare > rareCount) return false;
+
+if (
+  rareCount !== null &&
+  !isKnownRareStateAllowed()
+) {
+  return false;
+}
 
 if(
   rareCount !== null &&
@@ -2205,6 +2220,16 @@ function getPlacementsCached(color){
 // T.07 GAME STATE
 // ===============================
 
+function canAnonymousRareRepresentColor(color) {
+  if (!RARE_COLORS.includes(color)) return false;
+  if (color === "orange") return false;
+  if (getFoundColors().has(color)) return false;
+
+  return getPossibleRareSetsForMode().some(set =>
+    set.includes(color)
+  );
+}
+
 function getDefaultModeForRareCount(n) {
   return n <= 3 ? "safe" : "aggressive";
 }
@@ -2321,6 +2346,194 @@ ships.forEach(s => {
   const { misses: currentMisses } = getHitMissCounts();
 
   return totalBlue - currentMisses;
+}
+
+function getKnownRareColors() {
+  const { colorCounts } = getGridStats();
+
+  return RARE_COLORS.filter(color =>
+    colorCounts[color] > 0
+  );
+}
+
+function isKnownRareStateAllowed(knownRareColors = getKnownRareColors()) {
+  const set = new Set(knownRareColors);
+
+  if (rareCount === 2) {
+    if (set.has("red") || set.has("rainbow")) {
+      return false;
+    }
+  }
+
+  if (rareCount === 3) {
+    if (set.has("red") && set.has("rainbow")) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isRareColorAllowedByMode(color, knownRareColors = getKnownRareColors()) {
+  if (!RARE_COLORS.includes(color)) return true;
+
+  const knownSet = new Set(knownRareColors);
+
+  if (rareCount === 2) {
+    return color !== "red" && color !== "rainbow";
+  }
+
+  if (rareCount === 3) {
+    if (color === "red" && knownSet.has("rainbow")) return false;
+    if (color === "rainbow" && knownSet.has("red")) return false;
+  }
+
+  return true;
+}
+
+function chooseRareCombinations(items, count) {
+  if (count === 0) return [[]];
+  if (count < 0 || count > items.length) return [];
+
+  const result = [];
+
+  function dfs(start, combo) {
+    if (combo.length === count) {
+      result.push([...combo]);
+      return;
+    }
+
+    for (let i = start; i < items.length; i++) {
+      combo.push(items[i]);
+      dfs(i + 1, combo);
+      combo.pop();
+    }
+  }
+
+  dfs(0, []);
+  return result;
+}
+
+function isRareSetAllowedForMode(rareSet) {
+  const set = new Set(rareSet);
+
+  if (!set.has("orange")) return false;
+
+  if (rareCount === 2) {
+    return !set.has("red") && !set.has("rainbow");
+  }
+
+  if (rareCount === 3) {
+    return !(set.has("red") && set.has("rainbow"));
+  }
+
+  return true;
+}
+
+function getPossibleRareSetsForMode() {
+  if (rareRulesCache?.possibleRareSets) {
+    return rareRulesCache.possibleRareSets;
+  }
+
+  if (rareCount === null) return [];
+
+  const knownRareColors = getKnownRareColors();
+
+  const required = knownRareColors.includes("orange")
+    ? [...knownRareColors]
+    : ["orange", ...knownRareColors];
+
+  const uniqueRequired = [...new Set(required)];
+
+  if (uniqueRequired.length > rareCount) return [];
+  if (!isRareSetAllowedForMode(uniqueRequired)) return [];
+
+  const remainingCount = rareCount - uniqueRequired.length;
+
+  const available = RARE_COLORS.filter(color =>
+    !uniqueRequired.includes(color)
+  );
+
+  const result = chooseRareCombinations(available, remainingCount)
+    .map(extra => [...uniqueRequired, ...extra])
+    .filter(isRareSetAllowedForMode);
+
+  rareRulesCache ??= {};
+  rareRulesCache.possibleRareSets = result;
+
+  return result;
+}
+
+function getPossibleAnonymousRareColors() {
+  if (rareRulesCache?.anonymousRareColors) {
+    return rareRulesCache.anonymousRareColors;
+  }
+
+  const foundColors = getFoundColors();
+  const pool = [];
+
+  for (const rareSet of getPossibleRareSetsForMode()) {
+    for (const color of rareSet) {
+      if (color === "orange") continue;
+      if (foundColors.has(color)) continue;
+
+      pool.push(color);
+    }
+  }
+
+  rareRulesCache ??= {};
+  rareRulesCache.anonymousRareColors = pool;
+
+  return pool;
+}
+
+function getAnonymousRareEVByShipId() {
+  if (rareRulesCache?.anonymousRareEVByShipId) {
+    return rareRulesCache.anonymousRareEVByShipId;
+  }
+
+  const anonymousShips = getShipList().filter(isAnonymousRareShip);
+  const possibleRareSets = getPossibleRareSetsForMode();
+  const foundColors = getFoundColors();
+
+  const totals = {};
+  const counts = {};
+
+  for (const ship of anonymousShips) {
+    totals[ship] = 0;
+    counts[ship] = 0;
+  }
+
+  for (const rareSet of possibleRareSets) {
+    const hiddenColors = rareSet.filter(color =>
+      color !== "orange" &&
+      !foundColors.has(color)
+    );
+
+    if (!hiddenColors.length) continue;
+
+    const avgHiddenEV =
+      hiddenColors.reduce((sum, color) => sum + TILE_EV[color], 0) /
+      hiddenColors.length;
+
+    for (const ship of anonymousShips) {
+      totals[ship] += avgHiddenEV;
+      counts[ship]++;
+    }
+  }
+
+  const result = {};
+
+  for (const ship of anonymousShips) {
+    result[ship] = counts[ship]
+      ? totals[ship] / counts[ship]
+      : getAverageUnfoundRareEV();
+  }
+
+  rareRulesCache ??= {};
+  rareRulesCache.anonymousRareEVByShipId = result;
+
+  return result;
 }
 
 function getUsedRare(){
@@ -3152,6 +3365,7 @@ const hitCounts = Array(25).fill(0);
 const rareUnfoundCounts = Array(25).fill(0);
 
   const foundColors = getFoundColors();
+  const anonymousRareEVByShipId = getAnonymousRareEVByShipId();
 
   for (const board of allBoards) {
     const hitMask = boardToMask(board);
@@ -3166,7 +3380,7 @@ const rareUnfoundCounts = Array(25).fill(0);
 
       outcomeBuckets[i][key]++;
 
-      tileEVTotals[i] += getOutcomeEV(color);
+      tileEVTotals[i] += getOutcomeEV(color, anonymousRareEVByShipId);
 
 if (!color) continue;
 
@@ -3182,7 +3396,7 @@ if (
   rareUnfoundCounts[i]++;
 }
 
-tileHitEVTotals[i] += getOutcomeEV(color);
+tileHitEVTotals[i] += getOutcomeEV(color, anonymousRareEVByShipId);
 tileHitCounts[i]++;
 
       if (grid[i]) continue;
@@ -3242,7 +3456,7 @@ return {
 };
 }
 
-function getOutcomeEV(color) {
+function getOutcomeEV(color, anonymousRareEVByShipId = null) {
   if (!color) return TILE_EV.miss;
 
   if (TILE_EV[color] !== undefined) {
@@ -3250,18 +3464,15 @@ function getOutcomeEV(color) {
   }
 
   if (isAnonymousRareShip(color)) {
-    return getAverageUnfoundRareEV();
+    return anonymousRareEVByShipId?.[color] ??
+      getAverageUnfoundRareEV();
   }
 
   return 0;
 }
 
 function getAverageUnfoundRareEV() {
-  const foundColors = getFoundColors();
-
-  const availableRareColors = RARE_COLORS.filter(color =>
-    !foundColors.has(color)
-  );
+  const availableRareColors = getPossibleAnonymousRareColors();
 
   if (!availableRareColors.length) return 0;
 
@@ -3283,6 +3494,7 @@ function getTileEVStats(allBoards) {
 
 function buildTileEVStats(allBoards) {
   const stats = {};
+  const anonymousRareEVByShipId = getAnonymousRareEVByShipId();
 
   for (let i = 0; i < 25; i++) {
     if (grid[i]) continue;
@@ -3293,7 +3505,7 @@ function buildTileEVStats(allBoards) {
 
     for (const board of allBoards) {
       const color = getBoardColorAt(board, i);
-      const ev = getOutcomeEV(color);
+      const ev = getOutcomeEV(color, anonymousRareEVByShipId);
 
       totalEV += ev;
 
@@ -4883,8 +5095,12 @@ function getGambaOption(data, shownRareTiles = null) {
 
   const bestTiles = data.tiles || [];
   const bestSet = new Set(bestTiles);
-
   const shownSet = shownRareTiles || new Set();
+
+  const bestDisplayedEV = bestTiles.reduce((max, tile) => {
+    const ev = data.evMap?.[tile]?.weightedEV || 0;
+    return Math.max(max, ev);
+  }, -Infinity);
 
   const candidates = [];
 
@@ -4896,35 +5112,39 @@ function getGambaOption(data, shownRareTiles = null) {
     const rareP = getUnfoundRareProbability(i, data.allBoards);
     if (rareP <= 0) continue;
 
+    const ev = data.evMap?.[i]?.weightedEV || 0;
+
+    if (ev <= bestDisplayedEV) continue;
+
     candidates.push({
       i,
       p: data.probs[i] || 0,
       rareP,
-      ev: getTileAverageEV(i, data)
+      ev
     });
   }
 
   if (!candidates.length) return null;
 
-candidates.sort((a, b) => {
-  if (b.ev !== a.ev) return b.ev - a.ev;
-  if (b.rareP !== a.rareP) return b.rareP - a.rareP;
-  return b.p - a.p;
-});
+  candidates.sort((a, b) => {
+    if (b.ev !== a.ev) return b.ev - a.ev;
+    if (b.rareP !== a.rareP) return b.rareP - a.rareP;
+    return b.p - a.p;
+  });
 
-const best = candidates[0];
-const second = candidates[1];
+  const best = candidates[0];
+  const second = candidates[1];
 
-if (
-  second &&
-  Math.abs(best.ev - second.ev) < 0.000001 &&
-  Math.abs(best.rareP - second.rareP) < 0.000001 &&
-  Math.abs(best.p - second.p) < 0.000001
-) {
-  return null;
-}
+  if (
+    second &&
+    Math.abs(best.ev - second.ev) < 0.000001 &&
+    Math.abs(best.rareP - second.rareP) < 0.000001 &&
+    Math.abs(best.p - second.p) < 0.000001
+  ) {
+    return null;
+  }
 
-return best;
+  return best;
 }
 
 function analyzeEquivalence(allBoards, probs) {
@@ -6702,6 +6922,11 @@ function isColorDisabled(color, counts, usedRare){
   }
 
   if(RARE_COLORS.includes(color)){
+  
+if (!isRareColorAllowedByMode(color)) {
+  return true;
+}
+
     if(rareCount !== null){
       const isUsed = counts[color] > 0;
       const orangeReserved = counts.orange === 0 ? 1 : 0;
@@ -6792,6 +7017,12 @@ if (cell.classList.contains('recommended-second')) {
   }
 
 if (cell.classList.contains('recommended-progress')) {
+  if (
+    appState.specialGroup?.tiles?.includes(i)
+  ) {
+    return 'Equivalent Best Moves - Best Board Reduction';
+  }
+
   if (appState.safeOverride) {
     return appState.safeOverrideSource === "targetRareShips"
       ? "Rare Ship Targeting"
@@ -6889,7 +7120,7 @@ function renderEVBadge(cell, evStats = null) {
     cell.appendChild(container);
   }
 
-  const ev = evStats?.avgHitEV || 0;
+  const ev = evStats?.weightedEV || 0;
   container.innerHTML = `<div class="size-badge ev-badge">EV ${ev.toFixed(0)}</div>`;
 }
 
@@ -7028,10 +7259,8 @@ function boardTileMatchesSelectedColor(board, tileIndex, color) {
     return true;
   }
 
-  const selectedIsUnfoundRare =
-    RARE_COLORS.includes(color) &&
-    !getUsedRare().includes(color) &&
-    color !== 'orange';
+const selectedIsUnfoundRare =
+  canAnonymousRareRepresentColor(color);
 
   if (
     selectedIsUnfoundRare &&
@@ -7618,7 +7847,7 @@ function getTileOverlapCount(tile, data) {
 }
 
 function getTileAverageEV(tile, data) {
-  return data.evMap?.[tile]?.avgHitEV || 0;
+  return data.evMap?.[tile]?.weightedEV || 0;
 }
 
 function getHighestEVTile(tiles, data) {
@@ -7639,7 +7868,40 @@ function getHighestEVTile(tiles, data) {
   return bestTiles.length === 1 ? bestTiles[0] : null;
 }
 
-function formatEquivalenceMoveLine(tile, data, highestEVTile = null) {
+function getBestCollapseTile(tiles, data) {
+  if (!tiles?.length || !data?.allBoards?.length) return null;
+
+  let bestTile = null;
+  let bestExpectedRemaining = Infinity;
+
+  for (const tile of tiles) {
+    const collapse = scoreCollapseForTile(
+      data.allBoards,
+      tile,
+      data.probs
+    );
+
+    if (
+      collapse.expectedRemaining < bestExpectedRemaining ||
+      (
+        collapse.expectedRemaining === bestExpectedRemaining &&
+        getTileAverageEV(tile, data) > getTileAverageEV(bestTile, data)
+      )
+    ) {
+      bestTile = tile;
+      bestExpectedRemaining = collapse.expectedRemaining;
+    }
+  }
+
+  return bestTile;
+}
+
+function formatEquivalenceMoveLine(
+  tile,
+  data,
+  highestEVTile = null,
+  bestCollapseTile = null
+) {
   const [r, c] = indexToCoord(tile);
   const overlap = getTileOverlapCount(tile, data);
   const ev = getTileAverageEV(tile, data);
@@ -7649,17 +7911,54 @@ function formatEquivalenceMoveLine(tile, data, highestEVTile = null) {
       ? `${overlap}-Ship Overlap; `
       : "No overlap; ";
 
-  const coordClass =
-    tile === highestEVTile
-      ? "coord-high-ev"
-      : "coord-good";
+let coordClass = "coord-good";
 
-  return `
-    <span class="${coordClass}">Row ${r + 1}, Col ${c + 1}</span>
-    <span style="opacity:0.85">
-      — ${overlapText}EV: ${ev.toFixed(0)}
-    </span>
-  `;
+if (tile === highestEVTile) {
+  coordClass = "coord-high-ev";
+}
+
+if (tile === bestCollapseTile) {
+  coordClass = "coord-progress";
+}
+
+  const labels = [];
+
+  if (tile === highestEVTile) {
+    labels.push("Highest EV");
+  }
+
+  if (tile === bestCollapseTile) {
+    const collapse = scoreCollapseForTile(
+      data.allBoards,
+      tile,
+      data.probs
+    );
+
+    labels.push(
+      `Best board reduction`
+    );
+  }
+
+const labelText = labels.length
+  ? `<div style="
+       font-size:12px;
+       font-weight:bold;
+       opacity:0.9;
+       margin-bottom:2px;
+     ">
+       ${labels.map(x => `${x}:`).join("<br>")}
+     </div>`
+  : "";
+
+return `
+  ${labelText}
+
+  <span class="${coordClass}">Row ${r + 1}, Col ${c + 1}</span>
+
+  <span style="opacity:0.85">
+    — ${overlapText}EV: ${ev.toFixed(0)}
+  </span>
+`;
 }
 
 function highlightAvoidGroup(data){
@@ -7675,6 +7974,7 @@ function highlightAvoidGroup(data){
   let bestSet = new Set(data.tiles);
   let size2Set = new Set(data.size2Tiles || []);
   const highestEVTile = getHighestEVTile(data.tiles || [], data);
+  const bestCollapseTile = getBestCollapseTile(data.tiles || [], data);
 
   const partialTilesSet = getPartialShipTiles();
 
@@ -7695,8 +7995,13 @@ function highlightAvoidGroup(data){
     if(grid[i]) continue;
 
  if (bestSet.has(i)) {
-  play[i].classList.add('recommended-equal');
-  play[i].style.setProperty("--label-color", "#22c55e");
+  if (i === bestCollapseTile) {
+    play[i].classList.add('recommended-progress');
+    play[i].style.setProperty("--label-color", "#06b6d4");
+  } else {
+    play[i].classList.add('recommended-equal');
+    play[i].style.setProperty("--label-color", "#22c55e");
+  }
 
   renderEVBadge(play[i], data.evMap?.[i]);
 
@@ -7747,17 +8052,65 @@ function renderEquivalenceInfo(data){
   `;
 
 if(bestTiles.length){
-  const sortedBestTiles = [...bestTiles].sort((a, b) =>
-    getTileAverageEV(b, data) - getTileAverageEV(a, data)
-  );
+const sortedBestTiles = [...bestTiles].sort((a, b) => {
+  const collapseA = scoreCollapseForTile(data.allBoards, a, probs);
+  const collapseB = scoreCollapseForTile(data.allBoards, b, probs);
+
+  if (collapseA.expectedRemaining !== collapseB.expectedRemaining) {
+    return collapseA.expectedRemaining - collapseB.expectedRemaining;
+  }
+
+  return getTileAverageEV(b, data) - getTileAverageEV(a, data);
+});
 
   const bestProb = (probs[sortedBestTiles[0]] * 100).toFixed(1);
 
 const highestEVTile = getHighestEVTile(bestTiles, data);
+const bestCollapseTile = getBestCollapseTile(bestTiles, data);
 
-let coords = sortedBestTiles.map(i =>
-  formatEquivalenceMoveLine(i, data, highestEVTile)
-).join("<br>");
+const featuredTiles = [];
+const remainingTiles = [];
+
+for (const tile of sortedBestTiles) {
+  if (
+    tile === highestEVTile ||
+    tile === bestCollapseTile
+  ) {
+    featuredTiles.push(tile);
+  } else {
+    remainingTiles.push(tile);
+  }
+}
+
+const featuredHtml = featuredTiles.map(i =>
+  formatEquivalenceMoveLine(
+    i,
+    data,
+    highestEVTile,
+    bestCollapseTile
+  )
+).join("<br><br>");
+
+const remainingHtml = remainingTiles.length
+  ? `
+      <div style="
+        margin-top:10px;
+        padding-top:10px;
+        border-top:1px solid rgba(0,0,0,0.15);
+      ">
+        ${remainingTiles.map(i =>
+          formatEquivalenceMoveLine(
+            i,
+            data,
+            highestEVTile,
+            bestCollapseTile
+          )
+        ).join("<br>")}
+      </div>
+    `
+  : "";
+
+let coords = featuredHtml + remainingHtml;
 
   content += `
     <b>Best Moves (~${bestProb}%)</b><br>
@@ -8641,10 +8994,11 @@ window.toggleHeatmapMode = function() {
 window.setRare = function(n,btn){
   if(configLocked) return;
   
-  exactResultCache.clear();
+exactResultCache.clear();
+clearPlacementsCache();
 
-  rareCount = n;
-  updateTopInfoVisibility();
+rareCount = n;
+updateTopInfoVisibility();
 
 forcedStartMode = getDefaultModeForRareCount(n);
 
