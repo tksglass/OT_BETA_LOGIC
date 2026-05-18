@@ -5369,7 +5369,7 @@ function getTargetRareShipMove(allBoards, probs) {
 }
 
 function handleKnownBoardInfo(messages) {
-  const forcedTiles = computeStaticModeForcedTiles() || appState.forcedTiles;
+  const forcedTiles = appState.forcedTiles;
   if (!forcedTiles) return false;
 
   const forcedEntries = Object.entries(forcedTiles)
@@ -6212,7 +6212,7 @@ appendSafeModeProgressCard(messages);
 appendNormalClarityMoveCard(messages);
 
 if (appState.probs) {
-  if (handleEndgameInfo(messages, box)) return;
+  if (handleEndgameInfo(messages, box, context)) return;
 }
 
 if (appState.probs && appState.topMoves?.length) {
@@ -6748,13 +6748,13 @@ function handleGuaranteedInfo(messages) {
   return true;
 }
 
-function handleEndgameInfo(messages, box) {
+function handleEndgameInfo(messages, box, context) {
   if (!appState.isTrueEndgame) return false;
 
   const forcedHits = getAutoFillForcedHits();
 
   if (
-    forcedHits.length > 0 ||
+    (forcedHits.length > 0 && context?.missEndsGame) ||
     hasGuaranteedUnknownHits()
   ) {
     return false;
@@ -7844,6 +7844,16 @@ function highlightRecommendations(probs) {
 
   const play = DOM.playBoard;
   clearRecommendations();
+  
+  if (
+  appState.forcedTiles &&
+  grid.every((cell, i) => cell !== null || appState.forcedTiles[i])
+) {
+  appState.probs = probs;
+  appState.topMoves = null;
+  appState.isGuaranteed = false;
+  return;
+}
 
   const context = getRecommendationContext();
 let candidates = buildCandidates(probs);
