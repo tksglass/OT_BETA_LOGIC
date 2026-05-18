@@ -7850,18 +7850,20 @@ let candidates = buildCandidates(probs);
 
 const guaranteed = findGuaranteedMove(candidates, context.huntMode);
 
-if (!guaranteed) {
-  candidates = candidates.filter(c =>
-    context.huntMode
-      ? c.p < 1
-      : c.p > 0
-  );
+if (guaranteed) {
+  applyGuaranteedMove(guaranteed, probs, play);
+  return;
 }
 
-  if (guaranteed) {
-    applyGuaranteedMove(guaranteed, probs, play);
-    return;
-  }
+candidates = candidates.filter(c =>
+  !appState.forcedTiles?.[c.i]
+);
+
+candidates = candidates.filter(c =>
+  context.huntMode
+    ? c.p < 1
+    : c.p > 0
+);
 
   rankCandidates(candidates, context.huntMode);
 
