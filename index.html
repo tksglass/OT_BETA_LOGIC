@@ -6225,22 +6225,26 @@ if (appState.probs) {
 
 if (
   appState.probs &&
-  appState.topMoves?.length &&
-  !blockDecisionsForForcedHits
+  appState.topMoves?.length
 ) {
-  if (handleNoEquivalencePlanInfo(messages)) {
-    renderInfoMessages(messages);
-    return;
-  }
+if (
+  !blockDecisionsForForcedHits &&
+  handleNoEquivalencePlanInfo(messages)
+) {
+  renderInfoMessages(messages);
+  return;
+}
 
-  if (handleGuaranteedInfo(messages)) {
-    appendUncertaintyMoveCard(messages, context);
-    renderInfoMessages(messages);
-    appendRainbowCandidateCard(messages, context);
-    return;
-  }
+if (handleGuaranteedInfo(messages)) {
+  appendUncertaintyMoveCard(messages, context);
+  renderInfoMessages(messages);
+  appendRainbowCandidateCard(messages, context);
+  return;
+}
 
+if (!blockDecisionsForForcedHits) {
   appendStrategyMessages(messages, context);
+}
 }
 
 appendRainbowCandidateCard(messages, context);
