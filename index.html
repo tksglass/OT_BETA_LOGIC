@@ -6208,25 +6208,37 @@ if (handleKnownBoardInfo(messages)) {
 appendSetupMessages(messages, context);
 appendOpeningHint(messages, context);
 appendPreGameMessages(messages, context);
-appendSafeModeProgressCard(messages);
-appendNormalClarityMoveCard(messages);
+const forcedHits = getAutoFillForcedHits();
+
+const blockDecisionsForForcedHits =
+  context.missEndsGame &&
+  forcedHits.length > 0;
+
+if (!blockDecisionsForForcedHits) {
+  appendSafeModeProgressCard(messages);
+  appendNormalClarityMoveCard(messages);
+}
 
 if (appState.probs) {
   if (handleEndgameInfo(messages, box, context)) return;
 }
 
-if (appState.probs && appState.topMoves?.length) {
-if (handleNoEquivalencePlanInfo(messages)) {
-  renderInfoMessages(messages);
-  return;
-}
+if (
+  appState.probs &&
+  appState.topMoves?.length &&
+  !blockDecisionsForForcedHits
+) {
+  if (handleNoEquivalencePlanInfo(messages)) {
+    renderInfoMessages(messages);
+    return;
+  }
 
-if (handleGuaranteedInfo(messages)) {
-  appendUncertaintyMoveCard(messages, context);
-  renderInfoMessages(messages);
-  appendRainbowCandidateCard(messages, context);
-  return;
-}
+  if (handleGuaranteedInfo(messages)) {
+    appendUncertaintyMoveCard(messages, context);
+    renderInfoMessages(messages);
+    appendRainbowCandidateCard(messages, context);
+    return;
+  }
 
   appendStrategyMessages(messages, context);
 }
