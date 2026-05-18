@@ -5700,7 +5700,7 @@ function getSafestMove(candidates) {
 
   const minRisk = Math.min(...candidates.map(c => c.p));
 
-  const RISK_BAND = 0.01;
+  const RISK_BAND = 0.015;
 
   const safePool = candidates.filter(c =>
     c.p <= minRisk + RISK_BAND
