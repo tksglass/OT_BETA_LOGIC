@@ -5706,18 +5706,48 @@ function getSafestMove(candidates) {
     c.p <= minRisk + RISK_BAND
   );
 
-  safePool.sort((a, b) => {
-    const reductionDiff =
-      getCandidateReduction(b) - getCandidateReduction(a);
+  function beatsCurrentBest(candidate, currentBest) {
+    const candidateReduction =
+      getCandidateReduction(candidate);
 
-    if (Math.abs(reductionDiff) > 0.000001) {
-      return reductionDiff;
+    const bestReduction =
+      getCandidateReduction(currentBest);
+
+    if (
+      candidateReduction <= bestReduction + 0.000001
+    ) {
+      return false;
     }
 
-    return a.p - b.p;
-  });
+    const extraRisk =
+      candidate.p - currentBest.p;
 
-  return safePool[0];
+    if (extraRisk <= 0.005) {
+      return true;
+    }
+
+    if (extraRisk <= 0.01) {
+      return (
+        candidateReduction >=
+        bestReduction * 1.025
+      );
+    }
+
+    return (
+      candidateReduction >=
+      bestReduction * 1.05
+    );
+  }
+
+  let best = safePool[0];
+
+  for (const candidate of safePool.slice(1)) {
+    if (beatsCurrentBest(candidate, best)) {
+      best = candidate;
+    }
+  }
+
+  return best;
 }
 
 function scoreStrategicCandidate(c, huntMode) {
