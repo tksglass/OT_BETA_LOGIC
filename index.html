@@ -5657,11 +5657,10 @@ function buildCandidates(probs) {
 
       return candidate;
     })
-    .filter(c =>
-      !grid[c.i] &&
-      !appState.forcedTiles?.[c.i] &&
-      !(shouldForceHeuristics() && c.p >= 0.999)
-    );
+.filter(c =>
+  !grid[c.i] &&
+  !(shouldForceHeuristics() && c.p >= 0.999)
+);
 }
 
 function findGuaranteedMove(candidates, huntMode) {
@@ -6752,18 +6751,11 @@ function handleGuaranteedInfo(messages) {
 function handleEndgameInfo(messages, box) {
   if (!appState.isTrueEndgame) return false;
 
-  const isTwoBoardFinal =
-    appState.allBoards &&
-    appState.allBoards.length === 2;
-
   const forcedHits = getAutoFillForcedHits();
 
   if (
-    !isTwoBoardFinal &&
-    (
-      forcedHits.length > 0 ||
-      hasGuaranteedUnknownHits()
-    )
+    forcedHits.length > 0 ||
+    hasGuaranteedUnknownHits()
   ) {
     return false;
   }
