@@ -5368,6 +5368,66 @@ function getTargetRareShipMove(allBoards, probs) {
   );
 }
 
+function handleKnownBoardInfo(messages) {
+  const forcedTiles = computeStaticModeForcedTiles() || appState.forcedTiles;
+  if (!forcedTiles) return false;
+
+  const forcedEntries = Object.entries(forcedTiles)
+    .map(([index, color]) => ({
+      index: Number(index),
+      color
+    }))
+    .filter(({ index, color }) =>
+      grid[index] === null &&
+      color &&
+      !isAnonymousRareShip(color)
+    );
+
+  if (forcedEntries.length === 0) return false;
+
+  const unresolvedTiles = grid
+    .map((cell, index) => ({ cell, index }))
+    .filter(({ cell }) => cell === null);
+
+  const allUnresolvedKnown = unresolvedTiles.every(({ index }) =>
+    forcedTiles[index]
+  );
+
+  if (!allUnresolvedKnown) return false;
+
+  const forcedHits = forcedEntries.filter(({ color }) => color !== "miss");
+  const forcedMisses = forcedEntries.filter(({ color }) => color === "miss");
+
+  const title =
+    forcedMisses.length === 0
+      ? "All Remaining Tiles Known"
+      : "Known Tiles Remain";
+
+  const body = `
+    There are no decisions left to make.<br><br>
+    ${
+      forcedHits.length
+        ? `<b>${forcedHits.length}</b> guaranteed hit${forcedHits.length === 1 ? "" : "s"} can be filled now.`
+        : ""
+    }
+    ${
+      forcedMisses.length
+        ? `<br><b>${forcedMisses.length}</b> guaranteed blue tile${forcedMisses.length === 1 ? "" : "s"} should be avoided.`
+        : ""
+    }
+  `;
+
+  messages.push(
+    makeCard(
+      title,
+      body,
+      "info-green"
+    )
+  );
+
+  return true;
+}
+
 function getSafeModeProgressMove(allBoards, probs, options = {}) {
   const {
     requireGuaranteedBlue = true,
@@ -5598,9 +5658,10 @@ function buildCandidates(probs) {
       return candidate;
     })
     .filter(c =>
-  !grid[c.i] &&
-  !(shouldForceHeuristics() && c.p >= 0.999)
-);
+      !grid[c.i] &&
+      !appState.forcedTiles?.[c.i] &&
+      !(shouldForceHeuristics() && c.p >= 0.999)
+    );
 }
 
 function findGuaranteedMove(candidates, huntMode) {
@@ -6140,6 +6201,11 @@ if (appState.specialGroup) {
 
   if (handleStaticModes(box)) return;
 
+if (handleKnownBoardInfo(messages)) {
+  renderInfoMessages(messages);
+  return;
+}
+
 appendSetupMessages(messages, context);
 appendOpeningHint(messages, context);
 appendPreGameMessages(messages, context);
@@ -6223,29 +6289,30 @@ function handleNoEquivalencePlanInfo(messages) {
 function getMatchingRecommendationForUncertaintyMove(move) {
   if (!move || move.i === undefined) return null;
 
-  const topMoves = appState.topMoves || [];
+  const {
+    safest,
+    best,
+    alternative,
+    alternativeType
+  } = getDisplayedRecommendations();
 
-  const safeMove = topMoves.find(m => m.type === "safe");
-  if (safeMove?.i === move.i) {
+  if (safest?.i === move.i) {
     return "Play the Best Safe Move.";
   }
 
-  const bestMove = topMoves.find(m => m.type !== "safe");
-  if (bestMove?.i === move.i) {
+  if (best?.i === move.i) {
     return "Play the Best Strategic Move.";
   }
 
-  if (appState.collapseMove?.i === move.i) {
-    return appState.collapseMove.isFutureCollapse
-      ? "Play the Future Collapse move."
-      : "Play the 2-Step Collapse move.";
-  }
+  if (alternative?.i === move.i) {
+    if (alternativeType === "futureCollapse") {
+      return "Play the Future Collapse move.";
+    }
 
-  const alternativeMove = topMoves
-    .filter(m => m.type !== "safe")
-    .find(m => m.i !== bestMove?.i);
+    if (alternativeType === "collapse") {
+      return "Play the 2-Step Collapse move.";
+    }
 
-  if (alternativeMove?.i === move.i) {
     return "Play the Alternative Strategic Move.";
   }
 
@@ -6684,12 +6751,19 @@ function handleGuaranteedInfo(messages) {
 
 function handleEndgameInfo(messages, box) {
   if (!appState.isTrueEndgame) return false;
-  
+
+  const isTwoBoardFinal =
+    appState.allBoards &&
+    appState.allBoards.length === 2;
+
   const forcedHits = getAutoFillForcedHits();
 
   if (
-    forcedHits.length > 0 ||
-    hasGuaranteedUnknownHits()
+    !isTwoBoardFinal &&
+    (
+      forcedHits.length > 0 ||
+      hasGuaranteedUnknownHits()
+    )
   ) {
     return false;
   }
@@ -6798,10 +6872,14 @@ const { hits, misses, huntMode } = getGameContext();
 <br>${hitLabel}: ${(hitChance*100).toFixed(1)}%`;
   };
   
-const safest = topMoves.find(m => m.type === 'safe');
-const best = topMoves.find(m => m.type !== 'safe');
+const {
+  safest,
+  best,
+  alternative,
+  alternativeType
+} = getDisplayedRecommendations();
 
-if (safest && (!best || safest.i !== best.i)) {
+if (safest) {
   messages.push(
     makeCard(
       "Best Safe Move",
@@ -6811,37 +6889,34 @@ if (safest && (!best || safest.i !== best.i)) {
   );
 }
 
-  if (best) {
-    messages.push(
-      makeCard(
-        "Best Strategic Move",
-        describeMove(best, "#a855f7"),
-        "info-purple"
-      )
-    );
-  }
-
-const collapseMove = appState.collapseMove;
-const second = collapseMove || topMoves[1];
-
-if (
-  second &&
-  (!best || second.i !== best.i) &&
-  (!safest || second.i !== safest.i)
-) {
-const title = collapseMove
-  ? (
-      collapseMove.isFutureCollapse
-        ? "Future Collapse"
-        : "2-Step Collapse"
+if (best) {
+  messages.push(
+    makeCard(
+      "Best Strategic Move",
+      describeMove(best, "#a855f7"),
+      "info-purple"
     )
-  : "Alternative Strategic Move";
+  );
+}
 
-const body = collapseMove
-  ? `${describeMove(second, "#b45309").replace(/<br>Info gain: .*?(\n|<br>)/, "")}
+if (alternative) {
+  const isCollapseMove =
+    alternativeType === "collapse" ||
+    alternativeType === "futureCollapse";
+
+  const title = isCollapseMove
+    ? (
+        alternative.isFutureCollapse
+          ? "Future Collapse"
+          : "2-Step Collapse"
+      )
+    : "Alternative Strategic Move";
+
+  const body = isCollapseMove
+    ? `${describeMove(alternative, "#b45309").replace(/<br>Info gain: .*?(\n|<br>)/, "")}
   <br>
-  <span style="color:#b45309">Expected boards after 2 clicks:</span> ${collapseMove.expectedRemaining.toFixed(1)}`
-  : describeMove(second, "#b45309");
+  <span style="color:#b45309">Expected boards after 2 clicks:</span> ${alternative.expectedRemaining.toFixed(1)}`
+    : describeMove(alternative, "#b45309");
 
   messages.push(
     makeCard(
@@ -7825,20 +7900,80 @@ function applyGuaranteedMove(move, probs, play) {
   appState.isGuaranteed = true;
 }
 
+function isSameMove(a, b) {
+  return !!a && !!b && a.i === b.i;
+}
+
+function getDisplayedRecommendations(
+  topMovesArg = appState.topMoves || [],
+  safestArg = undefined
+) {
+  const topMoves = topMovesArg || [];
+
+  const safest =
+    safestArg !== undefined
+      ? safestArg
+      : topMoves.find(m => m.type === "safe") || null;
+
+  const strategicMoves = topMoves.filter(m => m.type !== "safe");
+
+  const best =
+    strategicMoves.find(m => !isSameMove(m, safest)) || null;
+
+  const isDisplayableAlternative = move =>
+    move &&
+    !isSameMove(move, best) &&
+    !isSameMove(move, safest);
+
+  const collapseAlternative =
+    isDisplayableAlternative(appState.collapseMove)
+      ? appState.collapseMove
+      : null;
+
+  const rankedAlternative =
+    strategicMoves.find(m => isDisplayableAlternative(m)) || null;
+
+  const alternative = collapseAlternative || rankedAlternative;
+
+  const alternativeType = collapseAlternative
+    ? (
+        collapseAlternative.isFutureCollapse
+          ? "futureCollapse"
+          : "collapse"
+      )
+    : (
+        rankedAlternative
+          ? "ranked"
+          : null
+      );
+
+  return {
+    safest,
+    best,
+    alternative,
+    alternativeType,
+    collapseAlternative,
+    rankedAlternative
+  };
+}
+
 function applyHighlights(play, topMoves, safest) {
-  const best = topMoves[0];
-  const alternative = appState.collapseMove || topMoves[1];
+  const {
+    best,
+    alternative,
+    safest: displayedSafest
+  } = getDisplayedRecommendations(topMoves, safest);
 
   if (best) {
     play[best.i].classList.add('recommended-best');
   }
 
-  if (alternative && (!best || alternative.i !== best.i)) {
+  if (alternative) {
     play[alternative.i].classList.add('recommended-second');
   }
 
-  if (safest) {
-    play[safest.i].classList.add('recommended-safe');
+  if (displayedSafest) {
+    play[displayedSafest.i].classList.add('recommended-safe');
   }
 }
 
