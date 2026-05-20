@@ -1532,15 +1532,16 @@ redoStack = [];
     isLoadingHash = false;
   }
 
-  clearPlacementsCache();
-  render();
+clearPlacementsCache();
+render();
 
-  appState = createEmptyAppState();
+currentMode = MODE.NORMAL;
+appState = createEmptyAppState();
 
-  runSimulation();
-  updateColorAvailability();
-  renderUI();
-  updateBoardLock();
+runSimulation();
+updateColorAvailability();
+renderUI();
+updateBoardLock();
 };
 
 window.undoMove = function(){
@@ -3189,21 +3190,26 @@ appState.forcedTiles = computeForcedTiles(allBoards);
 
 const solvedCounts = getSolvedOutcomeCounts(probs);
 
-if (solvedCounts.unresolved === 0 && (solvedCounts.hits > 0 || solvedCounts.blues > 0)) {
-  const { huntMode } = getGameContext();
-
-  if (huntMode) {
-    currentMode = MODE.ALL_HITS;
-  } else {
-    currentMode = solvedCounts.blues > 0
-      ? MODE.ALL_MISSES
-      : MODE.ALL_HITS;
-  }
+if (
+  solvedCounts.unresolved === 0 &&
+  (solvedCounts.hits > 0 || solvedCounts.blues > 0)
+) {
+  currentMode = solvedCounts.hits > 0
+    ? MODE.ALL_HITS
+    : MODE.ALL_MISSES;
 }
 
 ensureExactCaches();
 
 renderSelectedHeatmap();
+
+if (
+  currentMode === MODE.ALL_HITS ||
+  currentMode === MODE.ALL_MISSES
+) {
+  updateExactSolverUI(valid);
+  return;
+}
 
 if (handleTwoBoardEndgame(valid, probs, allBoards)) {
   updateExactSolverUI(valid);
@@ -6070,7 +6076,10 @@ if (
 
   for (let i = 0; i < 25; i++) {
     if (grid[i] !== null) continue;
-    if (appState.forcedTiles?.[i] !== 'miss') continue;
+    if (
+  appState.forcedTiles?.[i] !== 'miss' &&
+  appState.probs?.[i] !== 0
+) continue;
 
     DOM.playBoard[i].classList.add('stripe-overlay');
     DOM.playBoard[i].style.setProperty('--stripe-color', getStripeColor('miss'));
