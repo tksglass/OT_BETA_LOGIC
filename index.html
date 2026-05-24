@@ -159,6 +159,19 @@ button {
   justify-content: space-between;
 }
 
+.heatmap-mode-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.heatmap-mode-buttons button.active-btn {
+  background: #4CAF50;
+  color: white;
+}
+
 .heatmap-toggle {
   font-size: 12px;
   padding: 5px 10px;
@@ -1103,14 +1116,54 @@ button {
   <div class="board-container">
 <div class="heatmap-header">
   <h3 id="heatmapTitle">Probability Heatmap</h3>
-  <button id="heatmapToggleBtn" class="heatmap-toggle disabled" onclick="toggleHeatmapMode()">
+</div>
+
+<div id="heatmapSubtitle" class="heatmap-subtitle"></div>
+
+<div id="heatmap" class="board"></div>
+
+<div id="confidence" class="confidence"></div>
+
+<div id="modeLabel" class="confidence"></div>
+
+<div id="heatmapModeButtons" class="heatmap-mode-buttons">
+
+  <button
+    id="heatmapBtnProbability"
+    data-heatmap-mode="probability"
+    onclick="setHeatmapMode('probability')">
+    Probability
+  </button>
+
+  <button
+    id="heatmapBtnEV"
+    data-heatmap-mode="ev"
+    onclick="setHeatmapMode('ev')">
     EV
   </button>
+
+  <button
+    id="heatmapBtnRare"
+    data-heatmap-mode="rare"
+    onclick="setHeatmapMode('rare')">
+    Unfound Rare
+  </button>
+
+  <button
+    id="heatmapBtnSize"
+    data-heatmap-mode="size"
+    onclick="setHeatmapMode('size')">
+    Ship Size
+  </button>
+  
+  <button
+  id="heatmapBtnUncertainty"
+  data-heatmap-mode="uncertainty"
+  onclick="setHeatmapMode('uncertainty')">
+  Uncertainty
+</button>
+
 </div>
-<div id="heatmapSubtitle" class="heatmap-subtitle"></div>
-<div id="heatmap" class="board"></div>
-<div id="confidence" class="confidence"></div>
-<div id="modeLabel" class="confidence"></div>
   </div>
   
     </div>
@@ -1198,6 +1251,7 @@ const DOM = {
   heatmapTitle: null,
   heatmapSubtitle: null,
   heatmapToggleBtn: null,
+heatmapModeButtons: null,
   rareTargetToggleBtn: null,
   infoBox: null,
   topInfoBox: null,
@@ -7454,7 +7508,9 @@ const titlePrefix =
       ? "Rare Ship Heatmap"
       : heatmapMode === "size"
         ? "Ship Size Heatmap"
-        : "Probability Heatmap";
+        : heatmapMode === "uncertainty"
+          ? "Uncertainty Heatmap"
+          : "Probability Heatmap";
 
   setTextIfChanged(
     DOM.heatmapTitle,
@@ -7489,6 +7545,8 @@ if (heatmapMode === "ev") {
   renderPreviewRareShipHeatmap(scenarioBoards);
 } else if (heatmapMode === "size") {
   renderPreviewShipSizeHeatmap(scenarioBoards);
+} else if (heatmapMode === "uncertainty") {
+  renderPreviewUncertaintyHeatmap(scenarioBoards);
 } else {
   renderHeatmapWithContext(
     preview.probs,
@@ -7678,36 +7736,30 @@ const canToggle =
 }
 
 function updateHeatmapToggle() {
-  const btn = DOM.heatmapToggleBtn;
+  updateHeatmapModeButtons();
+}
 
-  if (!btn) return;
+function updateHeatmapModeButtons() {
+  const buttons = document.querySelectorAll('[data-heatmap-mode]');
 
-  const canToggle =
+  const canUseAdvancedModes =
     !!appState.allBoards &&
     !!tileEVStatsCache &&
     !heatmapPreviewActive;
 
-  btn.classList.remove('active-btn', 'disabled');
+  buttons.forEach(btn => {
+    const mode = btn.dataset.heatmapMode;
 
-  if (!canToggle) {
-    btn.classList.add('disabled');
-    btn.textContent = "EV";
-    return;
-  }
+    btn.classList.remove('active-btn', 'disabled');
 
-  if (heatmapMode !== "probability") {
-    btn.classList.add('active-btn');
-  }
+    if (mode === heatmapMode) {
+      btn.classList.add('active-btn');
+    }
 
-  if (heatmapMode === "probability") {
-    btn.textContent = "EV";
-  } else if (heatmapMode === "ev") {
-    btn.textContent = "Rare";
-  } else if (heatmapMode === "rare") {
-    btn.textContent = "Size";
-  } else {
-    btn.textContent = "Prob";
-  }
+    if (mode !== 'probability' && !canUseAdvancedModes) {
+      btn.classList.add('disabled');
+    }
+  });
 }
 
 function renderSelectedHeatmap() {
@@ -7730,19 +7782,27 @@ function renderSelectedHeatmap() {
     return;
   }
 
-  if (
-    heatmapMode === "size" &&
-    appState.allBoards
-  ) {
-    renderShipSizeHeatmap();
-    return;
-  }
+if (
+  heatmapMode === "size" &&
+  appState.allBoards
+) {
+  renderShipSizeHeatmap();
+  return;
+}
 
-  if (appState.probs) {
-    renderHeatmap(appState.probs);
-    setTextIfChanged(DOM.heatmapTitle, "Probability Heatmap");
-    return;
-  }
+if (
+  heatmapMode === "uncertainty" &&
+  appState.allBoards
+) {
+  renderUncertaintyHeatmap();
+  return;
+}
+
+if (appState.probs) {
+  renderHeatmap(appState.probs);
+  setTextIfChanged(DOM.heatmapTitle, "Probability Heatmap");
+  return;
+}
 
   resetHeatmapUI();
   setTextIfChanged(DOM.heatmapTitle, "Heatmap");
@@ -7803,15 +7863,22 @@ function renderShipSizeHeatmap() {
   renderShipSizeHeatmapForBoards(appState.allBoards);
 }
 
-function renderShipSizeHeatmapForBoards(allBoards) {
+function renderShipSizeHeatmap() {
+  renderShipSizeHeatmapForBoards(appState.allBoards, false);
+}
+
+function renderShipSizeHeatmapForBoards(allBoards, preview = false) {
   const heat = DOM.heatmap;
   const shipMap = buildTileShipSizes(allBoards);
 
   setTextIfChanged(DOM.heatmapTitle, "Ship Size Heatmap");
-  setTextIfChanged(
-    DOM.heatmapSubtitle,
-    "Shows ship size likelihood per tile"
-  );
+
+  if (!preview) {
+    setTextIfChanged(
+      DOM.heatmapSubtitle,
+      "Shows ship size likelihood per tile"
+    );
+  }
 
   let maxScore = 0;
   const scores = Array(25).fill(0);
@@ -8001,7 +8068,104 @@ function renderPreviewRareShipHeatmap(scenarioBoards) {
 }
 
 function renderPreviewShipSizeHeatmap(scenarioBoards) {
-  renderShipSizeHeatmapForBoards(scenarioBoards);
+  renderShipSizeHeatmapForBoards(scenarioBoards, true);
+}
+
+function renderUncertaintyHeatmap() {
+  renderUncertaintyHeatmapForBoards(appState.allBoards, false);
+}
+
+function renderPreviewUncertaintyHeatmap(scenarioBoards) {
+  renderUncertaintyHeatmapForBoards(scenarioBoards, true);
+}
+
+function renderUncertaintyHeatmapForBoards(allBoards, preview = false) {
+  const heat = DOM.heatmap;
+
+  setTextIfChanged(DOM.heatmapTitle, "Uncertainty Heatmap");
+
+  if (!preview) {
+    setTextIfChanged(
+      DOM.heatmapSubtitle,
+      "Expected reduction in possible boards after clicking each tile"
+    );
+  }
+
+  const values = buildUncertaintyScores(allBoards);
+  const maxValue = Math.max(...values);
+
+  for (let i = 0; i < 25; i++) {
+    const cell = heat[i];
+
+    if (grid[i] !== null) {
+      setBackgroundIfChanged(cell, '');
+      setTextIfChanged(cell, '');
+      continue;
+    }
+
+    const value = values[i];
+    const intensity = maxValue ? value / maxValue : 0;
+
+    const red = Math.round(180 + 75 * intensity);
+    const green = Math.round(245 - 140 * intensity);
+    const blue = Math.round(255 - 190 * intensity);
+
+    setBackgroundIfChanged(
+      cell,
+      `rgb(${red}, ${green}, ${blue})`
+    );
+
+    setTextIfChanged(
+      cell,
+      value > 0 ? `${Math.round(value)}%` : ''
+    );
+  }
+}
+
+function buildUncertaintyScores(allBoards) {
+  const scores = Array(25).fill(0);
+  const total = allBoards?.length || 0;
+
+  if (!total) return scores;
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) continue;
+
+    const bit = 1 << i;
+    const buckets = {};
+
+    for (const board of allBoards) {
+      let key = 'miss';
+
+      if (isMaskBoard(board)) {
+        if ((board.hitMask & bit) !== 0) {
+          for (const color in board.colorMasks) {
+            if ((board.colorMasks[color] & bit) !== 0) {
+              key = color;
+              break;
+            }
+          }
+        }
+      } else {
+        key = board[i] || 'miss';
+      }
+
+      buckets[key] = (buckets[key] || 0) + 1;
+    }
+
+    let expectedRemaining = 0;
+
+    for (const key in buckets) {
+      const count = buckets[key];
+      expectedRemaining += (count * count) / total;
+    }
+
+    const reduction = 1 - (expectedRemaining / total);
+
+    scores[i] = reduction * 100;
+  }
+
+  return scores;
 }
 
 function renderPreviewEVHeatmap(scenarioBoards) {
@@ -9513,20 +9677,19 @@ if(!hasStarted){
 
 }
 
-window.toggleHeatmapMode = function() {
-  if (!appState.allBoards || !tileEVStatsCache) return;
+window.setHeatmapMode = function(mode) {
   if (heatmapPreviewActive) return;
 
-  if (heatmapMode === "probability") {
-    heatmapMode = "ev";
-  } else if (heatmapMode === "ev") {
-    heatmapMode = "rare";
-  } else if (heatmapMode === "rare") {
-    heatmapMode = "size";
-  } else {
-    heatmapMode = "probability";
+  const advancedMode = mode !== "probability";
+
+  if (
+    advancedMode &&
+    (!appState.allBoards || !tileEVStatsCache)
+  ) {
+    return;
   }
 
+  heatmapMode = mode;
   renderSelectedHeatmap();
 };
 
@@ -9659,7 +9822,8 @@ DOM.playBoard = document.getElementById('playBoard').children;
 DOM.heatmap = document.getElementById('heatmap').children;
 DOM.heatmapTitle = document.getElementById('heatmapTitle');
 DOM.heatmapSubtitle = document.getElementById('heatmapSubtitle');
-DOM.heatmapToggleBtn = document.getElementById('heatmapToggleBtn');
+DOM.heatmapToggleBtn = null;
+DOM.heatmapModeButtons = document.getElementById('heatmapModeButtons');
 DOM.infoBox = document.getElementById('infoBox');
 DOM.topInfoBox = document.getElementById('topInfoBox');
 DOM.confidence = document.getElementById('confidence');
