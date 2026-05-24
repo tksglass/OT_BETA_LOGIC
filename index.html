@@ -4546,22 +4546,16 @@ function buildTileShipSizes(allBoards) {
   for (let i = 0; i < 25; i++) {
     if (grid[i]) continue;
 
-    const sizeShipSets = {};
+    const sizes = [];
 
     for (const board of allBoards) {
       const color = getBoardColorAt(board, i);
       if (!color) continue;
 
-      const size = getShipSize(color);
-
-      if (!sizeShipSets[size]) {
-        sizeShipSets[size] = new Set();
-      }
-
-      sizeShipSets[size].add(color);
+      sizes.push(getShipSize(color));
     }
 
-    tileMap[i] = expandTileSizeShipSets(sizeShipSets);
+    tileMap[i] = sizes;
   }
 
   return tileMap;
@@ -7458,7 +7452,9 @@ const titlePrefix =
     ? "EV Heatmap"
     : heatmapMode === "rare"
       ? "Rare Ship Heatmap"
-      : "Probability Heatmap";
+      : heatmapMode === "size"
+        ? "Ship Size Heatmap"
+        : "Probability Heatmap";
 
   setTextIfChanged(
     DOM.heatmapTitle,
@@ -7491,6 +7487,8 @@ if (heatmapMode === "ev") {
   renderPreviewEVHeatmap(scenarioBoards);
 } else if (heatmapMode === "rare") {
   renderPreviewRareShipHeatmap(scenarioBoards);
+} else if (heatmapMode === "size") {
+  renderPreviewShipSizeHeatmap(scenarioBoards);
 } else {
   renderHeatmapWithContext(
     preview.probs,
@@ -7705,6 +7703,8 @@ function updateHeatmapToggle() {
     btn.textContent = "EV";
   } else if (heatmapMode === "ev") {
     btn.textContent = "Rare";
+  } else if (heatmapMode === "rare") {
+    btn.textContent = "Size";
   } else {
     btn.textContent = "Prob";
   }
@@ -7727,6 +7727,14 @@ function renderSelectedHeatmap() {
     appState.allBoards
   ) {
     renderRareShipHeatmap();
+    return;
+  }
+
+  if (
+    heatmapMode === "size" &&
+    appState.allBoards
+  ) {
+    renderShipSizeHeatmap();
     return;
   }
 
@@ -7789,6 +7797,93 @@ function renderEVHeatmap() {
     DOM.heatmapSubtitle,
     "Expected tile value, including blue as EV 10."
   );
+}
+
+function renderShipSizeHeatmap() {
+  renderShipSizeHeatmapForBoards(appState.allBoards);
+}
+
+function renderShipSizeHeatmapForBoards(allBoards) {
+  const heat = DOM.heatmap;
+  const shipMap = buildTileShipSizes(allBoards);
+
+  setTextIfChanged(DOM.heatmapTitle, "Ship Size Heatmap");
+  setTextIfChanged(
+    DOM.heatmapSubtitle,
+    "Shows ship size likelihood per tile"
+  );
+
+  let maxScore = 0;
+  const scores = Array(25).fill(0);
+  const labels = Array(25).fill("");
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) continue;
+
+    const sizes = shipMap[i] || [];
+    if (!sizes.length) continue;
+
+let size2 = 0;
+let size3 = 0;
+let size4 = 0;
+
+for (const size of sizes) {
+  if (size === 2) size2++;
+  else if (size === 3) size3++;
+  else if (size === 4) size4++;
+}
+
+const total = allBoards.length;
+
+const pct2 = total ? (size2 / total) * 100 : 0;
+const pct3 = total ? (size3 / total) * 100 : 0;
+const pct4 = total ? (size4 / total) * 100 : 0;
+
+function formatPct(pct) {
+  if (pct > 0 && pct < 1) return "<1%";
+  return `${Math.round(pct)}%`;
+}
+
+const labelParts = [];
+
+if (pct4 > 0) labelParts.push(`4:${formatPct(pct4)}`);
+if (pct3 > 0) labelParts.push(`3:${formatPct(pct3)}`);
+if (pct2 > 0) labelParts.push(`2:${formatPct(pct2)}`);
+
+labels[i] = labelParts.join("\n");
+
+const score =
+  pct2 * 4 +
+  pct3 * 3 +
+  pct4 * 2;
+
+scores[i] = score;
+
+    if (score > maxScore) {
+      maxScore = score;
+    }
+  }
+
+  for (let i = 0; i < 25; i++) {
+    const cell = heat[i];
+
+    if (grid[i] !== null) {
+      setBackgroundIfChanged(cell, "#d1d5db");
+      setTextIfChanged(cell, "");
+      continue;
+    }
+
+    const intensity = maxScore
+      ? scores[i] / maxScore
+      : 0;
+
+    setBackgroundIfChanged(
+      cell,
+      `rgba(168, 85, 247, ${0.15 + intensity * 0.75})`
+    );
+
+    setTextIfChanged(cell, labels[i]);
+  }
 }
 
 function renderRareShipHeatmap() {
@@ -7903,6 +7998,10 @@ function renderPreviewRareShipHeatmap(scenarioBoards) {
         : "Rare\n0%"
     );
   }
+}
+
+function renderPreviewShipSizeHeatmap(scenarioBoards) {
+  renderShipSizeHeatmapForBoards(scenarioBoards);
 }
 
 function renderPreviewEVHeatmap(scenarioBoards) {
@@ -9422,6 +9521,8 @@ window.toggleHeatmapMode = function() {
     heatmapMode = "ev";
   } else if (heatmapMode === "ev") {
     heatmapMode = "rare";
+  } else if (heatmapMode === "rare") {
+    heatmapMode = "size";
   } else {
     heatmapMode = "probability";
   }
