@@ -6205,14 +6205,55 @@ best = withTiebreaker(
 );
 
 for (const candidate of tiedBest) {
-  if (candidate.i !== best.i && entropyBeats(candidate.i, best.i)) {
-const meta = getEntropyTiebreakerMeta(candidate.i, best.i, appState.allBoards, 1);
+  if (candidate.i === best.i) continue;
 
-best = withTiebreaker(
-  candidate,
-  meta.reason,
-  meta.passed
-);
+  const candidateEntropy = getMoveOutcomeEntropy(
+    candidate.i,
+    appState.allBoards
+  );
+
+  const bestEntropy = getMoveOutcomeEntropy(
+    best.i,
+    appState.allBoards
+  );
+
+  if (candidateEntropy > bestEntropy + 0.000001) {
+    best = withTiebreaker(
+      candidate,
+      "Higher outcome entropy among candidates",
+      1
+    );
+
+    continue;
+  }
+
+  if (candidateEntropy < bestEntropy - 0.000001) {
+    continue;
+  }
+
+  const candidateMissChance = 1 - candidate.p;
+  const bestMissChance = 1 - best.p;
+
+  if (candidateMissChance > bestMissChance + 0.000001) {
+    best = withTiebreaker(
+      candidate,
+      "Higher miss chance after equal reduction and entropy",
+      2
+    );
+
+    continue;
+  }
+
+  if (candidateMissChance < bestMissChance - 0.000001) {
+    continue;
+  }
+
+  if (candidate.i < best.i) {
+    best = withTiebreaker(
+      candidate,
+      "Lowest tile index (could not break tie)",
+      3
+    );
   }
 }
 
