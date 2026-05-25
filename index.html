@@ -4797,13 +4797,13 @@ function getEntropyTiebreakerMeta(
 
   if (Math.abs(entropyA - entropyB) > 0.000001) {
     return {
-      reason: "Higher outcome entropy",
+      reason: "Higher outcome entropy among candidates",
       passed: passedBeforeEntropy
     };
   }
 
   return {
-    reason: "Lowest tile index",
+    reason: "Lowest tile index (could not break tie)",
     passed: passedBeforeEntropy + 1
   };
 }
@@ -6319,7 +6319,7 @@ current.tiebreakerPassed = 1;
     }
 
     if (Math.abs(current.p - next.p) > 0.000001) {
-      current.tiebreaker = "Higher heatmap probability after equal strategic score and reduction";
+      current.tiebreaker = "Higher hit chance  among candidates";
 current.tiebreakerPassed = 2;
       continue;
     }
