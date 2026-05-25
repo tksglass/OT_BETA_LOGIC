@@ -4568,20 +4568,41 @@ function getBestUncertaintyRemovalMove(allBoards, probs) {
       knownMask
     );
 
+    let tiebreaker = null;
+let tiebreakerPassed = null;
+
+    if (best) {
+      if (
+        score.equivalencePressure === best.equivalencePressure &&
+        score.expectedRemaining < best.expectedRemaining
+      ) {
+        tiebreaker = "Lower expected remaining boards after equal equivalence pressure";
+tiebreakerPassed = 1;
+      } else if (
+        score.equivalencePressure === best.equivalencePressure &&
+        score.expectedRemaining === best.expectedRemaining &&
+        entropyBeats(score.i, best.i, allBoards)
+      ) {
+        const meta = getEntropyTiebreakerMeta(score.i, best.i, allBoards, 2);
+tiebreaker = meta.reason;
+tiebreakerPassed = meta.passed;
+      }
+    }
+
     if (
       !best ||
       score.equivalencePressure < best.equivalencePressure ||
-(
-  score.equivalencePressure === best.equivalencePressure &&
-  score.expectedRemaining < best.expectedRemaining
-) ||
-(
-  score.equivalencePressure === best.equivalencePressure &&
-  score.expectedRemaining === best.expectedRemaining &&
-  entropyBeats(score.i, best.i, allBoards)
-)
+      (
+        score.equivalencePressure === best.equivalencePressure &&
+        score.expectedRemaining < best.expectedRemaining
+      ) ||
+      (
+        score.equivalencePressure === best.equivalencePressure &&
+        score.expectedRemaining === best.expectedRemaining &&
+        entropyBeats(score.i, best.i, allBoards)
+      )
     ) {
-      best = score;
+      best = withTiebreaker(score, tiebreaker, tiebreakerPassed);
     }
   }
 
@@ -4765,6 +4786,53 @@ function entropyBeats(candidateTile, bestTile, allBoards = appState.allBoards) {
   return entropyTieBreak(candidateTile, bestTile, allBoards) < 0;
 }
 
+function getEntropyTiebreakerMeta(
+  aTile,
+  bTile,
+  allBoards = appState.allBoards,
+  passedBeforeEntropy = 0
+) {
+  const entropyA = getMoveOutcomeEntropy(aTile, allBoards);
+  const entropyB = getMoveOutcomeEntropy(bTile, allBoards);
+
+  if (Math.abs(entropyA - entropyB) > 0.000001) {
+    return {
+      reason: "Higher outcome entropy",
+      passed: passedBeforeEntropy
+    };
+  }
+
+  return {
+    reason: "Lowest tile index",
+    passed: passedBeforeEntropy + 1
+  };
+}
+
+function getEntropyTiebreakerReason(aTile, bTile, allBoards = appState.allBoards) {
+  return getEntropyTiebreakerMeta(aTile, bTile, allBoards).reason;
+}
+
+function withTiebreaker(move, reason, passed = null) {
+  if (!move || !reason) return move;
+
+  return {
+    ...move,
+    tiebreaker: reason,
+    tiebreakerPassed: passed
+  };
+}
+
+function getTiebreakerText(move) {
+  if (!move?.tiebreaker) return "";
+
+  const passedText =
+    Number.isFinite(move.tiebreakerPassed)
+      ? `<br><span style="opacity:0.75">Prior tied layers: ${move.tiebreakerPassed}</span>`
+      : "";
+
+  return `<br><br><b>Tiebreaker Used:</b> ${move.tiebreaker}${passedText}`;
+}
+
 function getBestCollapseMove(
   allBoards,
   probs,
@@ -4778,16 +4846,26 @@ function getBestCollapseMove(
 
     const score = scoreCollapseForTile(allBoards, i, probs);
 
-if (
-  !best ||
-  score.expectedRemaining < best.expectedRemaining ||
-  (
-    score.expectedRemaining === best.expectedRemaining &&
-    entropyBeats(score.i, best.i, allBoards)
-  )
-) {
-  best = score;
-}
+    let tiebreaker = null;
+
+    if (
+      best &&
+      score.expectedRemaining === best.expectedRemaining &&
+      entropyBeats(score.i, best.i, allBoards)
+    ) {
+      tiebreaker = getEntropyTiebreakerReason(score.i, best.i, allBoards);
+    }
+
+    if (
+      !best ||
+      score.expectedRemaining < best.expectedRemaining ||
+      (
+        score.expectedRemaining === best.expectedRemaining &&
+        entropyBeats(score.i, best.i, allBoards)
+      )
+    ) {
+      best = withTiebreaker(score, tiebreaker);
+    }
   }
 
   return best;
@@ -5002,6 +5080,19 @@ const knownMask =
 
     score.p = probs[tile];
 
+let tiebreaker = null;
+let tiebreakerPassed = null;
+
+if (
+  best &&
+  score.riskAdjustedRemaining === best.riskAdjustedRemaining &&
+  entropyBeats(score.i, best.i, allBoards)
+) {
+  const meta = getEntropyTiebreakerMeta(score.i, best.i, allBoards, 1);
+  tiebreaker = meta.reason;
+  tiebreakerPassed = meta.passed;
+}
+
 if (
   !best ||
   score.riskAdjustedRemaining < best.riskAdjustedRemaining ||
@@ -5010,7 +5101,7 @@ if (
     entropyBeats(score.i, best.i, allBoards)
   )
 ) {
-  best = score;
+  best = withTiebreaker(score, tiebreaker, tiebreakerPassed);
 }
   }
   if (!best) return null;
@@ -5148,37 +5239,62 @@ function getBestTwoStepCollapseMove(allBoards, probs) {
   }
 
   candidates.sort((a, b) => {
-  const diff = a.expectedRemaining - b.expectedRemaining;
-  if (Math.abs(diff) > 0.000001) return diff;
+    const diff = a.expectedRemaining - b.expectedRemaining;
+    if (Math.abs(diff) > 0.000001) return diff;
 
-  return entropyTieBreak(a.i, b.i, allBoards);
-});
+    return entropyTieBreak(a.i, b.i, allBoards);
+  });
 
-  const shortlist = candidates.slice(0, 6);
+  for (let i = 0; i < candidates.length - 1; i++) {
+    const current = candidates[i];
+    const next = candidates[i + 1];
 
-  let best = null;
-
-  for (const candidate of shortlist) {
-    const score = scoreTwoStepCollapse(
-      allBoards,
-      candidate.i,
-      probs,
-      unknownTiles
-    );
-
-if (
-  !best ||
-  score.riskAdjustedRemaining < best.riskAdjustedRemaining ||
-  (
-    score.riskAdjustedRemaining === best.riskAdjustedRemaining &&
-    entropyBeats(score.i, best.i, allBoards)
-  )
-) {
-  best = score;
+if (Math.abs(current.expectedRemaining - next.expectedRemaining) <= 0.000001) {
+  const meta = getEntropyTiebreakerMeta(current.i, next.i, allBoards, 1);
+  current.tiebreaker = meta.reason;
+  current.tiebreakerPassed = meta.passed;
 }
   }
 
-  return best;
+  const shortlist = candidates.slice(0, 6);
+
+let best = null;
+
+for (const candidate of shortlist) {
+  const score = scoreTwoStepCollapse(
+    allBoards,
+    candidate.i,
+    probs,
+    unknownTiles
+  );
+
+  let tiebreaker = candidate.tiebreaker || null;
+  let tiebreakerPassed = candidate.tiebreakerPassed ?? null;
+
+  if (
+    best &&
+    score.riskAdjustedRemaining === best.riskAdjustedRemaining &&
+    entropyBeats(score.i, best.i, allBoards)
+  ) {
+    const meta = getEntropyTiebreakerMeta(score.i, best.i, allBoards, 1);
+
+    tiebreaker = meta.reason;
+    tiebreakerPassed = meta.passed;
+  }
+
+  if (
+    !best ||
+    score.riskAdjustedRemaining < best.riskAdjustedRemaining ||
+    (
+      score.riskAdjustedRemaining === best.riskAdjustedRemaining &&
+      entropyBeats(score.i, best.i, allBoards)
+    )
+  ) {
+    best = withTiebreaker(score, tiebreaker, tiebreakerPassed);
+  }
+}
+
+return best;
 }
 
 function handleTwoBoardEndgame(valid, probs, allBoards) {
@@ -5565,11 +5681,31 @@ function getTargetRareShipMove(allBoards, probs) {
   });
 
   const best = nearBestRare[0];
+  const second = nearBestRare[1];
 
-  return withSafeMoveReason(
-    makeMoveObject(best.i),
-    `This tile is tied or nearly tied for rare ship chance (${(best.rareP * 100).toFixed(1)}%) and gives the best board collapse among those rare-targeting options.`
-  );
+let tiebreaker = null;
+let tiebreakerPassed = null;
+
+if (second) {
+  if (best.expectedRemaining !== second.expectedRemaining) {
+    tiebreaker = "Lower expected remaining boards among near-tied rare-targeting moves";
+    tiebreakerPassed = 1;
+  } else if (best.p !== second.p) {
+    tiebreaker = "Higher non-blue chance after equal board collapse";
+    tiebreakerPassed = 2;
+  } else {
+    const meta = getEntropyTiebreakerMeta(best.i, second.i, allBoards, 2);
+    tiebreaker = meta.reason;
+    tiebreakerPassed = meta.passed;
+  }
+}
+
+return withSafeMoveReason(
+  makeMoveObject(best.i),
+  `This tile is tied or nearly tied for rare ship chance (${(best.rareP * 100).toFixed(1)}%) and gives the best board collapse among those rare-targeting options.`,
+  tiebreaker,
+  tiebreakerPassed
+);
 }
 
 function handleKnownBoardInfo(messages) {
@@ -5677,12 +5813,14 @@ function getSafeModeProgressMove(allBoards, probs, options = {}) {
     .filter(i => partialTiles.has(i));
 
 if (partialCandidates.length) {
-  const tile = chooseBestProgressCandidate(partialCandidates, allBoards, probs);
+  const selected = chooseBestProgressCandidate(partialCandidates, allBoards, probs);
 
-  return withSafeMoveReason(
-    makeMoveObject(tile),
-    "This tile helps narrow the possible position of an incomplete rare ship."
-  );
+return withSafeMoveReason(
+  makeMoveObject(selected.i),
+  "This tile helps narrow the possible position of an incomplete rare ship.",
+  selected.tiebreaker,
+  selected.tiebreakerPassed
+);
 }
 
   const rareCandidates = progressTiles
@@ -5698,6 +5836,8 @@ if (rareCandidates.length) {
   let bestRare = null;
   let bestRareP = -Infinity;
   let bestExpectedRemaining = Infinity;
+  let bestRareTiebreaker = null;
+let bestRareTiebreakerPassed = null;
 
   let baselineExpected = Infinity;
 
@@ -5708,6 +5848,27 @@ if (rareCandidates.length) {
     if (candidate.rareP >= 0.2 && expectedRemaining < baselineExpected) {
       baselineExpected = expectedRemaining;
     }
+
+let tiebreaker = null;
+
+let tiebreakerPassed = null;
+
+if (
+  expectedRemaining === bestExpectedRemaining &&
+  candidate.rareP > bestRareP
+) {
+  tiebreaker = "Higher unfound rare chance after equal board reduction";
+  tiebreakerPassed = 1;
+} else if (
+  expectedRemaining === bestExpectedRemaining &&
+  candidate.rareP === bestRareP &&
+  bestRare &&
+  entropyBeats(candidate.i, bestRare.i, allBoards)
+) {
+  const meta = getEntropyTiebreakerMeta(candidate.i, bestRare.i, allBoards, 2);
+  tiebreaker = meta.reason;
+  tiebreakerPassed = meta.passed;
+}
 
 if (
   expectedRemaining < bestExpectedRemaining ||
@@ -5725,6 +5886,8 @@ if (
       bestRare = candidate;
       bestRareP = candidate.rareP;
       bestExpectedRemaining = expectedRemaining;
+      bestRareTiebreaker = tiebreaker;
+bestRareTiebreakerPassed = tiebreakerPassed;
     }
   }
   
@@ -5734,7 +5897,7 @@ if (
       : 1;
 
   if (improvement < 1.6) {
-bestRare = rareCandidates
+const sortedRareCandidates = rareCandidates
   .map(c => ({
     ...c,
     expectedRemaining: getScore(c.i).expectedRemaining
@@ -5745,31 +5908,60 @@ bestRare = rareCandidates
       return a.expectedRemaining - b.expectedRemaining;
     }
     return entropyTieBreak(a.i, b.i, allBoards);
-  })[0];
+  });
+
+bestRare = sortedRareCandidates[0];
+
+const secondRare = sortedRareCandidates[1];
+
+if (secondRare) {
+  if (bestRare.rareP !== secondRare.rareP) {
+    bestRareTiebreaker = "Higher unfound rare chance";
+    bestRareTiebreakerPassed = 0;
+  } else if (bestRare.expectedRemaining !== secondRare.expectedRemaining) {
+    bestRareTiebreaker = "Lower expected remaining boards after equal rare chance";
+    bestRareTiebreakerPassed = 1;
+  } else {
+    const meta = getEntropyTiebreakerMeta(bestRare.i, secondRare.i, allBoards, 2);
+    bestRareTiebreaker = meta.reason;
+    bestRareTiebreakerPassed = meta.passed;
+  }
+}
   }
 
-  return withSafeMoveReason(
-    makeMoveObject(bestRare.i),
-    improvement >= 1.4
-      ? `This tile significantly reduces board uncertainty while still offering a ${(bestRare.rareP * 100).toFixed(1)}% rare chance.`
-      : `This tile has the best chance to reveal an unfound rare ship (${(bestRare.rareP * 100).toFixed(1)}%).`
-  );
-}
-
-const tile = chooseBestProgressCandidate(progressTiles, allBoards, probs);
-const getScore = makeCollapseScoreGetter(allBoards, probs);
-const score = getScore(tile);
-
 return withSafeMoveReason(
-  makeMoveObject(tile),
-  `This tile reduces board uncertainty the most, from ${allBoards.length} possible boards to about ${score.expectedRemaining.toFixed(1)} expected boards.`
+  makeMoveObject(bestRare.i),
+  improvement >= 1.4
+    ? `This tile significantly reduces board uncertainty while still offering a ${(bestRare.rareP * 100).toFixed(1)}% rare chance.`
+    : `This tile has the best chance to reveal an unfound rare ship (${(bestRare.rareP * 100).toFixed(1)}%).`,
+  bestRareTiebreaker,
+  bestRareTiebreakerPassed
 );
 }
 
-function withSafeMoveReason(move, reason) {
+const selected = chooseBestProgressCandidate(progressTiles, allBoards, probs);
+const getScore = makeCollapseScoreGetter(allBoards, probs);
+const score = getScore(selected.i);
+
+return withSafeMoveReason(
+  makeMoveObject(selected.i),
+  `This tile reduces board uncertainty the most, from ${allBoards.length} possible boards to about ${score.expectedRemaining.toFixed(1)} expected boards.`,
+  selected.tiebreaker,
+  selected.tiebreakerPassed
+);
+}
+
+function withSafeMoveReason(
+  move,
+  reason,
+  tiebreaker = null,
+  tiebreakerPassed = null
+) {
   return {
     ...move,
-    reason
+    reason,
+    tiebreaker: tiebreaker || move?.tiebreaker || null,
+    tiebreakerPassed: tiebreakerPassed ?? move?.tiebreakerPassed ?? null
   };
 }
 
@@ -5777,10 +5969,29 @@ function chooseBestProgressCandidate(tiles, allBoards, probs) {
   let bestTile = null;
   let bestScore = Infinity;
   let bestProb = Infinity;
+  let bestTiebreaker = null;
+let bestTiebreakerPassed = null;
 
   for (const tile of tiles) {
     const score = scoreCollapseForTile(allBoards, tile, probs).expectedRemaining;
     const p = probs[tile];
+
+    let tiebreaker = null;
+let tiebreakerPassed = null;
+
+if (score === bestScore && p < bestProb) {
+  tiebreaker = "Lower hit risk after equal board reduction";
+  tiebreakerPassed = 1;
+} else if (
+  score === bestScore &&
+  p === bestProb &&
+  bestTile !== null &&
+  entropyBeats(tile, bestTile, allBoards)
+) {
+  const meta = getEntropyTiebreakerMeta(tile, bestTile, allBoards, 2);
+  tiebreaker = meta.reason;
+  tiebreakerPassed = meta.passed;
+}
 
     if (
       score < bestScore ||
@@ -5795,10 +6006,16 @@ function chooseBestProgressCandidate(tiles, allBoards, probs) {
       bestTile = tile;
       bestScore = score;
       bestProb = p;
+      bestTiebreaker = tiebreaker;
+bestTiebreakerPassed = tiebreakerPassed;
     }
   }
 
-  return bestTile;
+return {
+  i: bestTile,
+  tiebreaker: bestTiebreaker,
+  tiebreakerPassed: bestTiebreakerPassed
+};
 }
 
 function chooseBestSafeCandidate(tiles, allBoards, probs) {
@@ -5971,7 +6188,11 @@ function getSafestMove(candidates) {
 
   for (const candidate of safePool.slice(1)) {
     if (beatsCurrentBest(candidate, best)) {
-      best = candidate;
+best = withTiebreaker(
+  candidate,
+  "Higher board reduction within safe risk band",
+  1
+);
     }
   }
   
@@ -5985,7 +6206,13 @@ function getSafestMove(candidates) {
 
 for (const candidate of tiedBest) {
   if (candidate.i !== best.i && entropyBeats(candidate.i, best.i)) {
-    best = candidate;
+const meta = getEntropyTiebreakerMeta(candidate.i, best.i, appState.allBoards, 1);
+
+best = withTiebreaker(
+  candidate,
+  meta.reason,
+  meta.passed
+);
   }
 }
 
@@ -6062,6 +6289,8 @@ function rankCandidates(candidates, huntMode) {
   candidates.forEach(c => {
     c.reduction = getCandidateReduction(c);
     c.score = scoreStrategicCandidate(c, huntMode);
+    c.tiebreaker = null;
+	c.tiebreakerPassed = null;
   });
 
   candidates.sort((a, b) => {
@@ -6072,10 +6301,33 @@ function rankCandidates(candidates, huntMode) {
     if (Math.abs(reductionDiff) > 0.000001) return reductionDiff;
 
     const pDiff = b.p - a.p;
-if (Math.abs(pDiff) > 0.000001) return pDiff;
+    if (Math.abs(pDiff) > 0.000001) return pDiff;
 
-return entropyTieBreak(a.i, b.i);
+    return entropyTieBreak(a.i, b.i);
   });
+
+  for (let i = 0; i < candidates.length - 1; i++) {
+    const current = candidates[i];
+    const next = candidates[i + 1];
+
+    if (Math.abs(current.score - next.score) > 0.000001) continue;
+
+    if (Math.abs(current.reduction - next.reduction) > 0.000001) {
+      current.tiebreaker = "Higher board reduction after equal strategic score";
+current.tiebreakerPassed = 1;
+      continue;
+    }
+
+    if (Math.abs(current.p - next.p) > 0.000001) {
+      current.tiebreaker = "Higher heatmap probability after equal strategic score and reduction";
+current.tiebreakerPassed = 2;
+      continue;
+    }
+
+    const meta = getEntropyTiebreakerMeta(current.i, next.i, appState.allBoards, 3);
+current.tiebreaker = meta.reason;
+current.tiebreakerPassed = meta.passed;
+  }
 }
 
 function selectTopMoves(candidates, huntMode) {
@@ -6568,6 +6820,7 @@ function handleNoEquivalencePlanInfo(messages) {
         Start with:
         <br>
         <b>Row ${r + 1}, Col ${c + 1}</b>
+        ${getTiebreakerText(appState.topMoves?.[0])}
       `,
       "info-red"
     )
@@ -6664,6 +6917,7 @@ if (!isRareClarifyingTile(move.i)) return;
         }
         <br><br>
         Expected boards: <b>${move.expectedRemaining.toFixed(1)}</b>
+        ${getTiebreakerText(move)}
       `,
       "info-red"
     )
@@ -6874,6 +7128,7 @@ function appendNormalClarityMoveCard(messages) {
         <br><br>
         <b>Why this tile?</b><br>
         ${reason}
+        ${getTiebreakerText(move)}
       `,
       "info-progress"
     )
@@ -6931,18 +7186,20 @@ makeCard(
     : "Safe Mode Clarity Move",
     `
 ${
-  isRareTarget
-    ? `
-      ${introText}
-      ${coordText}
-      ${rareTargetExtraText}
-    `
+isRareTarget
+  ? `
+    ${introText}
+    ${coordText}
+    ${rareTargetExtraText}
+    ${getTiebreakerText(move)}
+  `
     : `
       ${introText}
       ${coordText}
       <br><br>
-      <b>Why this tile?</b><br>
-      ${reason}
+        <b>Why this tile?</b><br>
+        ${reason}
+        ${getTiebreakerText(move)}
     `
 }
     `,
@@ -7003,11 +7260,11 @@ function appendPreGameMessages(messages, ctx) {
         "Tips",
         `
         • 8 and 9 colors default to aggressive mode (finding non-blues.)<br><br>
+		• On 7 colors, consider manually changing to Aggressive mode if your first 3-4 moves are all hits.<br><br>
         • Unclicked guaranteed tiles get stripes in their color. Clicking them before the solver tells you to could lead to worse outcomes. (incl. fill hit button)<br><br>
         • "Alternative" recommendations are the 2nd best move. These change to 2-Step Collapse and later Future Collapse moves, which search the move tree for board count reduction. <br><br>
         • EV is shown when probabilities are tied. You can use it to decide tie breakers.<br><br>
 		BELOW IS EXACT SOLVING MODE ONLY<br><br>
-		• You can cycle the heatmap from probability -> EV -> unfound rare ships. <br><br>
 	    • You can hover over a tile to get calculations of future probabilities / EV / rare ship chance based on the current selected color.<br><br>
 		• Toggling rare ship targeting only works for the current move. This prevents accidentally forgetting to turn it off.
 		`,
@@ -7164,21 +7421,21 @@ const {
 
 if (safest) {
   messages.push(
-    makeCard(
-      "Best Safe Move",
-      describeMove(safest, "#22c55e"),
-      "info-green"
-    )
+makeCard(
+  "Best Safe Move",
+  describeMove(safest, "#22c55e") + getTiebreakerText(safest),
+  "info-green"
+)
   );
 }
 
 if (best) {
   messages.push(
-    makeCard(
-      "Best Strategic Move",
-      describeMove(best, "#a855f7"),
-      "info-purple"
-    )
+makeCard(
+  "Best Strategic Move",
+  describeMove(best, "#a855f7") + getTiebreakerText(best),
+  "info-purple"
+)
   );
 }
 
@@ -7195,11 +7452,13 @@ if (alternative) {
       )
     : "Alternative Strategic Move";
 
-  const body = isCollapseMove
-    ? `${describeMove(alternative, "#b45309").replace(/<br>Info gain: .*?(\n|<br>)/, "")}
+  const body = (
+    isCollapseMove
+      ? `${describeMove(alternative, "#b45309").replace(/<br>Info gain: .*?(\n|<br>)/, "")}
   <br>
   <span style="color:#b45309">Expected boards after 2 clicks:</span> ${alternative.expectedRemaining.toFixed(1)}`
-    : describeMove(alternative, "#b45309");
+      : describeMove(alternative, "#b45309")
+  ) + getTiebreakerText(alternative);
 
   messages.push(
     makeCard(
