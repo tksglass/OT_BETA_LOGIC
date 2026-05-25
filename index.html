@@ -791,8 +791,11 @@ button {
   font-weight: bold;
   color: #111827;
 
-  background: rgba(168,85,247,0.18);
   border-radius: 6px;
+}
+
+.recommended-best.guaranteed-unknown::after {
+  background: rgba(168,85,247,0.18);
 }
 
 .recommended-best {
@@ -6670,7 +6673,27 @@ if (
   DOM.playBoard[move.i].classList.add("recommended-danger");
 }
 
+function renderGuaranteedUnknownHits() {
+  if (!appState.probs) return;
+
+  const play = DOM.playBoard;
+
+  for (let i = 0; i < 25; i++) {
+    if (grid[i] !== null) continue;
+
+    const forcedColor = appState.forcedTiles?.[i];
+
+    if (forcedColor) continue;
+
+    if (appState.probs[i] === 1) {
+      play[i].classList.add("guaranteed-unknown");
+    }
+  }
+}
+
 function renderForcedTilesIfPresent() {
+  renderGuaranteedUnknownHits();
+
   if (appState.forcedTiles) {
     renderForcedOverlays();
   }
@@ -8251,9 +8274,9 @@ function formatPct(pct) {
 
 const labelParts = [];
 
-if (pct4 > 0) labelParts.push(`4:${formatPct(pct4)}`);
-if (pct3 > 0) labelParts.push(`3:${formatPct(pct3)}`);
-if (pct2 > 0) labelParts.push(`2:${formatPct(pct2)}`);
+if (pct4 > 0) labelParts.push(`4: ${formatPct(pct4)}`);
+if (pct3 > 0) labelParts.push(`3: ${formatPct(pct3)}`);
+if (pct2 > 0) labelParts.push(`2: ${formatPct(pct2)}`);
 
 labels[i] = labelParts.join("\n");
 
@@ -8694,12 +8717,6 @@ function applyGuaranteedMove(move, probs, play) {
   const cell = play[move.i];
 
   cell.classList.add('recommended-best');
-
-  const forcedColor = appState.forcedTiles?.[move.i];
-
-  if(move.p === 1 && !forcedColor){
-    cell.classList.add('guaranteed-unknown');
-  }
 
   lastProbs = probs;
   lastTopMoves = [move];
