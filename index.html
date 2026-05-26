@@ -1789,6 +1789,7 @@ function resetModeAndCache() {
 appState.noEquivalencePlan = null;
 appState.uncertaintyMove = null;
 appState.clarityMove = null;
+appState.forcedResolutionMove = null;
 }
 
 function ensureConfigLocked() {
@@ -1950,7 +1951,11 @@ clarityMove: obj.clarityMove
 
 uncertaintyMove: obj.uncertaintyMove
   ? { ...obj.uncertaintyMove }
-  : obj.uncertaintyMove
+  : obj.uncertaintyMove,
+
+forcedResolutionMove: obj.forcedResolutionMove
+  ? { ...obj.forcedResolutionMove }
+  : obj.forcedResolutionMove
 	  
 	  
   };
@@ -1967,9 +1972,10 @@ function createEmptyAppState(){
     collapseMove: null,
     noEquivalencePlan: null,
 	safeOverrideSource: null,
-    clarityMove: null,
-    uncertaintyMove: null,
-	solverInfo: null
+clarityMove: null,
+uncertaintyMove: null,
+forcedResolutionMove: null,
+solverInfo: null
   };
 }
 
@@ -3314,7 +3320,17 @@ if (handleGuaranteedMove(probs, allBoards)) {
   return;
 }
 
+const forcedResolutionMove = getForcedResolutionMove(allBoards, probs);
+
+if (forcedResolutionMove) {
+  applyForcedResolutionMove(forcedResolutionMove, probs);
+  updateExactSolverUI(valid);
+  return;
+}
+
 const effectiveUnknownTiles = getEffectiveUnknownTilesForPrecalc();
+
+
 
 /* ======== DISABLE NO EQUIVALENCE MOVE ===========
 if (
@@ -5571,6 +5587,111 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // T.11 MOVE STRATEGY
 // ===============================
 
+function getForcedResolutionMove(allBoards, probs) {
+  const { huntMode } = getGameContext();
+
+  if (huntMode) return null;
+  if (!allBoards || allBoards.length <= 1) return null;
+
+  const ctx = getPrecalcContext(allBoards);
+  const knownMask = getCurrentKnownMask();
+  const boardSet = ctx.allBoardSet;
+  const boardCount = getBoardSetCount(boardSet, ctx);
+
+  let best = null;
+
+  const candidateMask = FULL_BOARD_MASK & ~knownMask;
+
+  for (let mask = candidateMask; mask; mask &= mask - 1) {
+    const bit = mask & -mask;
+    const tile = BIT_INDEX[bit];
+
+    if (probs[tile] >= 1) continue;
+
+    if (!doesTileForceSolvedState(tile, boardSet, knownMask, ctx)) {
+      continue;
+    }
+
+    const expectedRemaining =
+      getExpectedBoardsAfterTile(tile, boardSet, ctx, boardCount);
+
+    const move = {
+      i: tile,
+      p: probs[tile],
+      type: "forcedResolution",
+      expectedRemaining
+    };
+
+    if (
+      !best ||
+      move.p < best.p ||
+      (
+        move.p === best.p &&
+        move.expectedRemaining < best.expectedRemaining
+      )
+    ) {
+      best = move;
+    }
+  }
+
+  return best;
+}
+
+function doesTileForceSolvedState(tile, boardSet, knownMask, ctx) {
+  const outcomeSets = ctx.outcomeBoardSetsByTile[tile];
+  const nextKnownMask = knownMask | CELL_MASKS[tile];
+
+  for (const outcome in outcomeSets) {
+    const outcomeBoardSet = boardSet & outcomeSets[outcome];
+
+    if (outcomeBoardSet === 0n) continue;
+
+    if (!isSolvedBoardSet(outcomeBoardSet, nextKnownMask, ctx)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isSolvedBoardSet(boardSet, knownMask, ctx) {
+  const total = getBoardSetCount(boardSet, ctx);
+  if (total <= 1) return true;
+
+  const unknownMask = FULL_BOARD_MASK & ~knownMask;
+
+  for (let mask = unknownMask; mask; mask &= mask - 1) {
+    const bit = mask & -mask;
+    const tile = BIT_INDEX[bit];
+
+    const hitCount = getBoardSetCount(
+      boardSet & ctx.tileHitBoardSets[tile],
+      ctx
+    );
+
+    if (hitCount !== 0 && hitCount !== total) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function getExpectedBoardsAfterTile(tile, boardSet, ctx, boardCount) {
+  const outcomeSets = ctx.outcomeBoardSetsByTile[tile];
+  let expected = 0;
+
+  for (const outcome in outcomeSets) {
+    const outcomeBoardSet = boardSet & outcomeSets[outcome];
+    if (outcomeBoardSet === 0n) continue;
+
+    const count = getBoardSetCount(outcomeBoardSet, ctx);
+    expected += (count / boardCount) * count;
+  }
+
+  return expected;
+}
+
 function getPartialShipTiles(){
   let partialTiles = new Set();
   const { occupiedMask, missMask } = getGridStats();
@@ -6581,7 +6702,22 @@ function renderHeatmapIfAvailable() {
 function renderRecommendationsIfNeeded(hasStarted) {
   if (!hasStarted) return;
 
-  if (appState.safeOverride && appState.topMoves?.length) {
+  if (
+  appState.forcedResolutionMove &&
+  appState.forcedResolutionMove.i !== undefined
+) {
+  clearRecommendations();
+
+  const move = appState.forcedResolutionMove;
+
+  if (grid[move.i] === null) {
+    DOM.playBoard[move.i].classList.add("recommended-safe");
+  }
+
+  return;
+}
+
+if (appState.safeOverride && appState.topMoves?.length) {
     clearRecommendations();
 
     const move = appState.topMoves[0];
@@ -6834,6 +6970,11 @@ if (handleGuaranteedInfo(messages)) {
 }
 
 if (!blockDecisionsForForcedHits) {
+  if (appendForcedResolutionCard(messages)) {
+    renderInfoMessages(messages);
+    return;
+  }
+
   appendStrategyMessages(messages, context);
 }
 }
@@ -6936,6 +7077,32 @@ function isRareClarifyingTile(tile) {
   }
 
   return getUnfoundRareProbability(tile, appState.allBoards || []) > 0;
+}
+
+function appendForcedResolutionCard(messages) {
+  const move = appState.forcedResolutionMove;
+  if (!move || move.i === undefined) return false;
+
+  const [r, c] = indexToCoord(move.i);
+
+  messages.push(
+    makeCard(
+      "Forced Resolution",
+      `
+        This move solves the board no matter the outcome.
+        <br><br>
+        <b>Row ${r + 1}, Col ${c + 1}</b>
+        <br>
+        Blue chance: <b>${((1 - move.p) * 100).toFixed(1)}%</b>
+        <br>
+        Expected boards after reveal: <b>${move.expectedRemaining.toFixed(1)}</b>
+        ${getTiebreakerText(move)}
+      `,
+      "info-green"
+    )
+  );
+
+  return true;
 }
 
 function appendUncertaintyMoveCard(messages, context) {
@@ -7201,6 +7368,7 @@ function appendNormalClarityMoveCard(messages) {
 
 function appendSafeModeProgressCard(messages) {
   if (!appState.safeOverride) return;
+  if (appState.safeOverrideSource === "forcedResolution") return;
 
   const move = appState.topMoves?.[0];
   const reason =
@@ -7693,9 +7861,16 @@ if (cell.classList.contains('recommended-second')) {
   return 'Alternative Strategic Move';
 }
 
-  if (cell.classList.contains('recommended-safe')) {
-    return 'Best Safe Move';
+if (cell.classList.contains('recommended-safe')) {
+  if (
+    appState.forcedResolutionMove &&
+    appState.forcedResolutionMove.i === i
+  ) {
+    return 'Forced Resolution';
   }
+
+  return 'Best Safe Move';
+}
 
 if (cell.classList.contains('recommended-progress')) {
   if (
@@ -7803,6 +7978,26 @@ function renderEVBadge(cell, evStats = null) {
 
   const ev = evStats?.weightedEV || 0;
   container.innerHTML = `<div class="size-badge ev-badge">EV ${ev.toFixed(0)}</div>`;
+}
+
+function applyForcedResolutionMove(move, probs) {
+  appState.probs = probs;
+  appState.topMoves = [move];
+  appState.isGuaranteed = false;
+  appState.isTrueEndgame = false;
+  appState.specialGroup = null;
+  appState.safeOverride = true;
+  appState.safeOverrideSource = "forcedResolution";
+  appState.forcedResolutionMove = move;
+
+  lastProbs = probs;
+  lastTopMoves = [move];
+
+  clearRecommendations();
+
+  if (grid[move.i] === null) {
+    DOM.playBoard[move.i].classList.add("recommended-safe");
+  }
 }
 
 function applyRainbowHighlights(probs){
