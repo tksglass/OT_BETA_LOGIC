@@ -6269,105 +6269,120 @@ function getSafestMove(candidates) {
   if (!candidates.length) return null;
 
   const minRisk = Math.min(...candidates.map(c => c.p));
-  const RISK_BAND = 0.015;
-  const EPSILON = 0.000001;
 
-  let pool = candidates.filter(c =>
+  const RISK_BAND = 0.015;
+
+  const safePool = candidates.filter(c =>
     c.p <= minRisk + RISK_BAND
   );
 
-  if (pool.length === 1) return pool[0];
+  function beatsCurrentBest(candidate, currentBest) {
+    const candidateReduction =
+      getCandidateReduction(candidate);
 
-  function keepBestLayer(pool, getValue, higherIsBetter) {
-    let bestValue = null;
-    let nextPool = [];
+    const bestReduction =
+      getCandidateReduction(currentBest);
 
-    for (const candidate of pool) {
-      const value = getValue(candidate);
-
-      const isBetter =
-        bestValue === null ||
-        (
-          higherIsBetter
-            ? value > bestValue + EPSILON
-            : value < bestValue - EPSILON
-        );
-
-      const isTied =
-        bestValue !== null &&
-        Math.abs(value - bestValue) <= EPSILON;
-
-      if (isBetter) {
-        bestValue = value;
-        nextPool = [candidate];
-      } else if (isTied) {
-        nextPool.push(candidate);
-      }
+    if (
+      candidateReduction <= bestReduction + 0.000001
+    ) {
+      return false;
     }
 
-    return nextPool;
-  }
+    const extraRisk =
+      candidate.p - currentBest.p;
 
-  const originalPoolLength = pool.length;
+    if (extraRisk <= 0.005) {
+      return true;
+    }
 
-  pool = keepBestLayer(
-    pool,
-    getCandidateReduction,
-    true
-  );
+    if (extraRisk <= 0.01) {
+      return (
+        candidateReduction >=
+        bestReduction * 1.015
+      );
+    }
 
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
-      "Higher board reduction within safe risk band",
-      0
+    return (
+      candidateReduction >=
+      bestReduction * 1.03
     );
   }
 
-  pool = keepBestLayer(
-    pool,
-    candidate => getMoveOutcomeEntropy(
-      candidate.i,
-      appState.allBoards
-    ),
-    true
+  let best = safePool[0];
+
+  for (const candidate of safePool.slice(1)) {
+    if (beatsCurrentBest(candidate, best)) {
+best = withTiebreaker(
+  candidate,
+  "Higher board reduction within safe risk band",
+  1
+);
+    }
+  }
+  
+  const tiedBest = safePool.filter(candidate =>
+  candidate.i === best.i ||
+  (
+    !beatsCurrentBest(candidate, best) &&
+    !beatsCurrentBest(best, candidate)
+  )
+);
+
+for (const candidate of tiedBest) {
+  if (candidate.i === best.i) continue;
+
+  const candidateEntropy = getMoveOutcomeEntropy(
+    candidate.i,
+    appState.allBoards
   );
 
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
-      "Higher outcome entropy among equal-reduction candidates",
+  const bestEntropy = getMoveOutcomeEntropy(
+    best.i,
+    appState.allBoards
+  );
+
+  if (candidateEntropy > bestEntropy + 0.000001) {
+    best = withTiebreaker(
+      candidate,
+      "Higher outcome entropy among candidates",
       1
     );
+
+    continue;
   }
 
-  pool = keepBestLayer(
-    pool,
-    candidate => 1 - candidate.p,
-    true
-  );
+  if (candidateEntropy < bestEntropy - 0.000001) {
+    continue;
+  }
 
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
+  const candidateMissChance = 1 - candidate.p;
+  const bestMissChance = 1 - best.p;
+
+  if (candidateMissChance > bestMissChance + 0.000001) {
+    best = withTiebreaker(
+      candidate,
       "Higher miss chance after equal reduction and entropy",
       2
     );
+
+    continue;
   }
 
-  let best = pool[0];
-
-  for (const candidate of pool.slice(1)) {
-    if (candidate.i < best.i) {
-      best = candidate;
-    }
+  if (candidateMissChance < bestMissChance - 0.000001) {
+    continue;
   }
 
-  return withTiebreaker(
-    best,
-    "Lowest tile index (could not break tie)",
-    3
-  );
+  if (candidate.i < best.i) {
+    best = withTiebreaker(
+      candidate,
+      "Lowest tile index (could not break tie)",
+      3
+    );
+  }
+}
+
+  return best;
 }
 
 function scoreStrategicCandidate(c, huntMode) {
