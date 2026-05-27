@@ -4858,6 +4858,67 @@ function getEntropyTiebreakerReason(aTile, bTile, allBoards = appState.allBoards
   return getEntropyTiebreakerMeta(aTile, bTile, allBoards).reason;
 }
 
+function keepBestCandidates(pool, getValue, higherIsBetter) {
+  const EPSILON = 0.000001;
+
+  let bestValue = higherIsBetter ? -Infinity : Infinity;
+  let tied = [];
+
+  for (const candidate of pool) {
+    const value = getValue(candidate);
+
+    const isBetter = higherIsBetter
+      ? value > bestValue + EPSILON
+      : value < bestValue - EPSILON;
+
+    if (isBetter) {
+      bestValue = value;
+      tied = [candidate];
+    } else if (Math.abs(value - bestValue) <= EPSILON) {
+      tied.push(candidate);
+    }
+  }
+
+  return tied;
+}
+
+function getCandidateIndex(candidate) {
+  return typeof candidate === "number"
+    ? candidate
+    : candidate.i;
+}
+
+function chooseLowestIndexCandidate(pool) {
+  let best = pool[0];
+
+  for (const candidate of pool.slice(1)) {
+    if (getCandidateIndex(candidate) < getCandidateIndex(best)) {
+      best = candidate;
+    }
+  }
+
+  return best;
+}
+
+function applyTiebreakLayer(pool, getValue, higherIsBetter, reason, passed) {
+  const nextPool = keepBestCandidates(pool, getValue, higherIsBetter);
+
+  return {
+    pool: nextPool,
+    winner: nextPool.length === 1
+      ? withTiebreaker(nextPool[0], reason, passed)
+      : null
+  };
+}
+
+function finishWithLowestIndex(pool, passed) {
+  return withTiebreaker(
+    chooseLowestIndexCandidate(pool),
+    "Lowest tile index (could not break tie)",
+    passed
+  );
+}
+
 function withTiebreaker(move, reason, passed = null) {
   if (!move || !reason) return move;
 
@@ -4874,8 +4935,6 @@ function getBestCollapseMove(
   excludedTile = null,
   unknownTiles = getUnknownTiles()
 ) {
-  const EPSILON = 0.000001;
-
   let pool = [];
 
   for (const i of unknownTiles) {
@@ -4885,50 +4944,31 @@ function getBestCollapseMove(
 
   if (!pool.length) return null;
 
-  let bestExpected = Infinity;
-  let tied = [];
-
-  for (const candidate of pool) {
-    if (candidate.expectedRemaining < bestExpected - EPSILON) {
-      bestExpected = candidate.expectedRemaining;
-      tied = [candidate];
-    } else if (Math.abs(candidate.expectedRemaining - bestExpected) <= EPSILON) {
-      tied.push(candidate);
-    }
-  }
-
-  pool = tied;
+  pool = keepBestCandidates(
+    pool,
+    candidate => candidate.expectedRemaining,
+    false
+  );
 
   if (pool.length === 1) {
     return withTiebreaker(pool[0], "Lower expected remaining boards", 0);
   }
 
-  let bestEV = -Infinity;
-tied = [];
+  pool = keepBestCandidates(
+    pool,
+    candidate => getCandidateWeightedEV(candidate.i),
+    true
+  );
 
-for (const candidate of pool) {
-  const ev = getCandidateWeightedEV(candidate.i);
-
-  if (ev > bestEV + EPSILON) {
-    bestEV = ev;
-    tied = [candidate];
-  } else if (Math.abs(ev - bestEV) <= EPSILON) {
-    tied.push(candidate);
-  }
-}
-
-pool = tied;
-
-if (pool.length === 1) {
-  return withTiebreaker(pool[0], "Higher expected value among candidates", 1);
-}
-  let best = pool[0];
-
-  for (const candidate of pool.slice(1)) {
-    if (candidate.i < best.i) best = candidate;
+  if (pool.length === 1) {
+    return withTiebreaker(pool[0], "Higher expected value among candidates", 1);
   }
 
-  return withTiebreaker(best, "Lowest tile index (could not break tie)", 2);
+  return withTiebreaker(
+    chooseLowestIndexCandidate(pool),
+    "Lowest tile index (could not break tie)",
+    2
+  );
 }
 
 function getFutureCollapseDepth(boardCount) {
@@ -5110,7 +5150,6 @@ function evaluateFutureCollapseMove(
 }
 
 function getBestFutureCollapseMove(allBoards, probs, depth) {
-  const EPSILON = 0.000001;
   const ctx = getPrecalcContext(allBoards);
   const stats = getGridStats();
 
@@ -5144,61 +5183,35 @@ function getBestFutureCollapseMove(allBoards, probs, depth) {
 
   if (!pool.length) return null;
 
-  let bestRemaining = Infinity;
-  let tied = [];
+  let result = applyTiebreakLayer(
+    pool,
+    candidate => candidate.riskAdjustedRemaining,
+    false,
+    "Lower future risk-adjusted remaining boards",
+    0
+  );
 
-  for (const candidate of pool) {
-    if (candidate.riskAdjustedRemaining < bestRemaining - EPSILON) {
-      bestRemaining = candidate.riskAdjustedRemaining;
-      tied = [candidate];
-    } else if (Math.abs(candidate.riskAdjustedRemaining - bestRemaining) <= EPSILON) {
-      tied.push(candidate);
-    }
+  if (result.winner) {
+    result.winner.isFutureCollapse = true;
+    return result.winner;
   }
 
-  pool = tied;
+  pool = result.pool;
 
-  if (pool.length === 1) {
-    const best = withTiebreaker(
-      pool[0],
-      "Lower future risk-adjusted remaining boards",
-      0
-    );
+  result = applyTiebreakLayer(
+    pool,
+    candidate => getCandidateWeightedEV(candidate.i),
+    true,
+    "Higher expected value among candidates",
+    1
+  );
 
-    best.isFutureCollapse = true;
-    return best;
+  if (result.winner) {
+    result.winner.isFutureCollapse = true;
+    return result.winner;
   }
 
-let bestEV = -Infinity;
-tied = [];
-
-for (const candidate of pool) {
-  const ev = getCandidateWeightedEV(candidate.i);
-
-  if (ev > bestEV + EPSILON) {
-    bestEV = ev;
-    tied = [candidate];
-  } else if (Math.abs(ev - bestEV) <= EPSILON) {
-    tied.push(candidate);
-  }
-}
-
-pool = tied;
-
-let best = pool[0];
-
-for (const candidate of pool.slice(1)) {
-  if (candidate.i < best.i) best = candidate;
-}
-
-best = withTiebreaker(
-  best,
-  pool.length === 1
-    ? "Higher expected value among candidates"
-    : "Lowest tile index (could not break tie)",
-  pool.length === 1 ? 1 : 2
-);
-
+  const best = finishWithLowestIndex(pool, 2);
   best.isFutureCollapse = true;
   return best;
 }
@@ -5343,91 +5356,55 @@ function getBestTwoStepCollapseMove(allBoards, probs) {
     const current = candidates[i];
     const next = candidates[i + 1];
 
-if (Math.abs(current.expectedRemaining - next.expectedRemaining) <= 0.000001) {
-  const meta = getEntropyTiebreakerMeta(current.i, next.i, allBoards, 1);
-  current.tiebreaker = meta.reason;
-  current.tiebreakerPassed = meta.passed;
-}
+    if (Math.abs(current.expectedRemaining - next.expectedRemaining) <= 0.000001) {
+      const meta = getEntropyTiebreakerMeta(current.i, next.i, allBoards, 1);
+      current.tiebreaker = meta.reason;
+      current.tiebreakerPassed = meta.passed;
+    }
   }
 
   const shortlist = candidates.slice(0, 6);
 
-const EPSILON = 0.000001;
+  let pool = [];
 
-let pool = [];
-
-for (const candidate of shortlist) {
-  pool.push(
-    scoreTwoStepCollapse(
-      allBoards,
-      candidate.i,
-      probs,
-      unknownTiles
-    )
-  );
-}
-
-if (!pool.length) return null;
-
-let bestRemaining = Infinity;
-let tied = [];
-
-for (const candidate of pool) {
-  if (candidate.riskAdjustedRemaining < bestRemaining - EPSILON) {
-    bestRemaining = candidate.riskAdjustedRemaining;
-    tied = [candidate];
-  } else if (Math.abs(candidate.riskAdjustedRemaining - bestRemaining) <= EPSILON) {
-    tied.push(candidate);
+  for (const candidate of shortlist) {
+    pool.push(
+      scoreTwoStepCollapse(
+        allBoards,
+        candidate.i,
+        probs,
+        unknownTiles
+      )
+    );
   }
-}
 
-pool = tied;
+  if (!pool.length) return null;
 
-if (pool.length === 1) {
-  return withTiebreaker(
-    pool[0],
+  let result = applyTiebreakLayer(
+    pool,
+    candidate => candidate.riskAdjustedRemaining,
+    false,
     "Lower two-step risk-adjusted remaining boards",
     0
   );
-}
 
-const evStats = getTileEVStats(allBoards);
+  if (result.winner) return result.winner;
+  pool = result.pool;
 
-let bestEV = -Infinity;
-tied = [];
+  const evStats = getTileEVStats(allBoards);
 
-for (const candidate of pool) {
-  const ev = evStats[candidate.i]?.weightedEV || 0;
-
-  if (ev > bestEV + EPSILON) {
-    bestEV = ev;
-    tied = [candidate];
-  } else if (Math.abs(ev - bestEV) <= EPSILON) {
-    tied.push(candidate);
-  }
-}
-
-pool = tied;
-
-if (pool.length === 1) {
-  return withTiebreaker(
-    pool[0],
+  result = applyTiebreakLayer(
+    pool,
+    candidate => evStats[candidate.i]?.weightedEV || 0,
+    true,
     "Higher expected value among candidates",
     1
   );
-}
 
-let best = pool[0];
+  if (result.winner) return result.winner;
+  pool = result.pool;
 
-for (const candidate of pool.slice(1)) {
-  if (candidate.i < best.i) best = candidate;
-}
-
-return withTiebreaker(
-  best,
-  "Lowest tile index (could not break tie)",
-  2
-);
+  return finishWithLowestIndex(pool, 2);
 }
 
 function handleTwoBoardEndgame(valid, probs, allBoards) {
@@ -6392,7 +6369,6 @@ function withSafeMoveReason(
 }
 
 function chooseBestProgressCandidate(tiles, allBoards, probs) {
-  const EPSILON = 0.000001;
   const getScore = makeCollapseScoreGetter(allBoards, probs);
 
   let pool = tiles.map(tile => ({
@@ -6404,21 +6380,11 @@ function chooseBestProgressCandidate(tiles, allBoards, probs) {
     return pool[0] || null;
   }
 
-  let bestScore = Infinity;
-  let tied = [];
-
-  for (const candidate of pool) {
-    const score = getScore(candidate.i).expectedRemaining;
-
-    if (score < bestScore - EPSILON) {
-      bestScore = score;
-      tied = [candidate];
-    } else if (Math.abs(score - bestScore) <= EPSILON) {
-      tied.push(candidate);
-    }
-  }
-
-  pool = tied;
+  pool = keepBestCandidates(
+    pool,
+    candidate => getScore(candidate.i).expectedRemaining,
+    false
+  );
 
   if (pool.length === 1) {
     return withTiebreaker(
@@ -6428,19 +6394,11 @@ function chooseBestProgressCandidate(tiles, allBoards, probs) {
     );
   }
 
-  let bestProb = Infinity;
-  tied = [];
-
-  for (const candidate of pool) {
-    if (candidate.p < bestProb - EPSILON) {
-      bestProb = candidate.p;
-      tied = [candidate];
-    } else if (Math.abs(candidate.p - bestProb) <= EPSILON) {
-      tied.push(candidate);
-    }
-  }
-
-  pool = tied;
+  pool = keepBestCandidates(
+    pool,
+    candidate => candidate.p,
+    false
+  );
 
   if (pool.length === 1) {
     return withTiebreaker(
@@ -6450,110 +6408,57 @@ function chooseBestProgressCandidate(tiles, allBoards, probs) {
     );
   }
 
-let bestEV = -Infinity;
-tied = [];
-
-for (const candidate of pool) {
-  const ev = getCandidateWeightedEV(candidate.i);
-
-  if (ev > bestEV + EPSILON) {
-    bestEV = ev;
-    tied = [candidate];
-  } else if (Math.abs(ev - bestEV) <= EPSILON) {
-    tied.push(candidate);
-  }
-}
-
-pool = tied;
-
-if (pool.length === 1) {
-  return withTiebreaker(
-    pool[0],
-    "Higher expected value among candidates",
-    2
+  pool = keepBestCandidates(
+    pool,
+    candidate => getCandidateWeightedEV(candidate.i),
+    true
   );
-}
 
-  let best = pool[0];
-
-  for (const candidate of pool.slice(1)) {
-    if (candidate.i < best.i) {
-      best = candidate;
-    }
+  if (pool.length === 1) {
+    return withTiebreaker(
+      pool[0],
+      "Higher expected value among candidates",
+      2
+    );
   }
 
   return withTiebreaker(
-    best,
+    chooseLowestIndexCandidate(pool),
     "Lowest tile index (could not break tie)",
     3
   );
 }
 
 function chooseBestSafeCandidate(tiles, allBoards, probs) {
-  const EPSILON = 0.000001;
   const getScore = makeCollapseScoreGetter(allBoards, probs);
 
   let pool = [...tiles];
 
-  let bestProb = Infinity;
-  let tied = [];
-
-  for (const tile of pool) {
-    const p = probs[tile];
-
-    if (p < bestProb - EPSILON) {
-      bestProb = p;
-      tied = [tile];
-    } else if (Math.abs(p - bestProb) <= EPSILON) {
-      tied.push(tile);
-    }
-  }
-
-  pool = tied;
+  pool = keepBestCandidates(
+    pool,
+    tile => probs[tile],
+    false
+  );
 
   if (pool.length === 1) return pool[0];
 
-  let bestExpected = Infinity;
-  tied = [];
-
-  for (const tile of pool) {
-    const expected = getScore(tile).expectedRemaining;
-
-    if (expected < bestExpected - EPSILON) {
-      bestExpected = expected;
-      tied = [tile];
-    } else if (Math.abs(expected - bestExpected) <= EPSILON) {
-      tied.push(tile);
-    }
-  }
-
-  pool = tied;
+  pool = keepBestCandidates(
+    pool,
+    tile => getScore(tile).expectedRemaining,
+    false
+  );
 
   if (pool.length === 1) return pool[0];
 
-  let bestEntropy = -Infinity;
-  tied = [];
+  pool = keepBestCandidates(
+    pool,
+    tile => getMoveOutcomeEntropy(tile, allBoards),
+    true
+  );
 
-  for (const tile of pool) {
-    const entropy = getMoveOutcomeEntropy(tile, allBoards);
+  if (pool.length === 1) return pool[0];
 
-    if (entropy > bestEntropy + EPSILON) {
-      bestEntropy = entropy;
-      tied = [tile];
-    } else if (Math.abs(entropy - bestEntropy) <= EPSILON) {
-      tied.push(tile);
-    }
-  }
-
-  pool = tied;
-
-  let best = pool[0];
-
-  for (const tile of pool.slice(1)) {
-    if (tile < best) best = tile;
-  }
-
-  return best;
+  return chooseLowestIndexCandidate(pool);
 }
 
 function getUnfoundRareProbability(tile, allBoards) {
@@ -6673,106 +6578,65 @@ function getCandidateReduction(c) {
   return 2 * c.p * (1 - c.p);
 }
 
-function getSafestMove(candidates) {
+function getSafestMove(candidates, huntMode = false) {
   if (!candidates.length) return null;
 
-  const minRisk = Math.min(...candidates.map(c => c.p));
   const RISK_BAND = 0.015;
-  const EPSILON = 0.000001;
 
-  let pool = candidates.filter(c =>
-    c.p <= minRisk + RISK_BAND
+  const getPrimaryChance = huntMode
+    ? candidate => candidate.p
+    : candidate => 1 - candidate.p;
+
+  const bestPrimaryChance = Math.max(
+    ...candidates.map(getPrimaryChance)
+  );
+
+  let pool = candidates.filter(candidate =>
+    getPrimaryChance(candidate) >= bestPrimaryChance - RISK_BAND
   );
 
   if (pool.length === 1) return pool[0];
 
-  function keepBestLayer(pool, getValue, higherIsBetter) {
-    let bestValue = null;
-    let nextPool = [];
-
-    for (const candidate of pool) {
-      const value = getValue(candidate);
-
-      const isBetter =
-        bestValue === null ||
-        (
-          higherIsBetter
-            ? value > bestValue + EPSILON
-            : value < bestValue - EPSILON
-        );
-
-      const isTied =
-        bestValue !== null &&
-        Math.abs(value - bestValue) <= EPSILON;
-
-      if (isBetter) {
-        bestValue = value;
-        nextPool = [candidate];
-      } else if (isTied) {
-        nextPool.push(candidate);
-      }
-    }
-
-    return nextPool;
-  }
-
-  const originalPoolLength = pool.length;
-
-  pool = keepBestLayer(
+  let result = applyTiebreakLayer(
     pool,
     getCandidateReduction,
-    true
+    true,
+    huntMode
+      ? "Higher board reduction within aggressive hit band"
+      : "Higher board reduction within safe risk band",
+    0
   );
 
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
-      "Higher board reduction within safe risk band",
-      0
-    );
-  }
+  if (result.winner) return result.winner;
+  pool = result.pool;
 
-pool = keepBestLayer(
-  pool,
-  candidate => 1 - candidate.p,
-  true
-);
-
-if (pool.length === 1) {
-  return withTiebreaker(
-    pool[0],
-    "Higher miss chance after equal reduction",
+  result = applyTiebreakLayer(
+    pool,
+    getPrimaryChance,
+    true,
+    huntMode
+      ? "Higher hit chance after equal reduction"
+      : "Higher miss chance after equal reduction",
     1
   );
-}
 
-pool = keepBestLayer(
-  pool,
-  candidate => getCandidateWeightedEV(candidate.i),
-  true
-);
+  if (result.winner) return result.winner;
+  pool = result.pool;
 
-if (pool.length === 1) {
-  return withTiebreaker(
-    pool[0],
-    "Higher expected value among equal-reduction and miss-chance candidates",
+  result = applyTiebreakLayer(
+    pool,
+    candidate => getCandidateWeightedEV(candidate.i),
+    true,
+    huntMode
+      ? "Higher expected value among equal-reduction and hit-chance candidates"
+      : "Higher expected value among equal-reduction and miss-chance candidates",
     2
   );
-}
 
-  let best = pool[0];
+  if (result.winner) return result.winner;
+  pool = result.pool;
 
-  for (const candidate of pool.slice(1)) {
-    if (candidate.i < best.i) {
-      best = candidate;
-    }
-  }
-
-  return withTiebreaker(
-    best,
-    "Lowest tile index (could not break tie)",
-    3
-  );
+  return finishWithLowestIndex(pool, 3);
 }
 
 function scoreStrategicCandidate(c, huntMode) {
@@ -6895,9 +6759,7 @@ function rankCandidates(candidates, huntMode) {
 }
 
 function selectTopMoves(candidates, huntMode) {
-  let safest = !huntMode
-    ? getSafestMove(candidates)
-    : null;
+  let safest = getSafestMove(candidates, huntMode);
 
   let strategicPool = [...candidates];
 
