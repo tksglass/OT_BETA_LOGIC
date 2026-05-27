@@ -1581,22 +1581,12 @@ window.autoPlaceGuaranteedHits = function(){
   if (rareCount === null) return;
   if (!appState.forcedTiles) return;
   
-  const btn = document.getElementById('autoHitsBtn');
+const btn = document.getElementById('autoHitsBtn');
 btn?.classList.remove('pulse');
 
-  const forcedHits = Object.entries(appState.forcedTiles)
-    .map(([index, color]) => ({
-      index: Number(index),
-      color
-    }))
-    .filter(({ index, color }) =>
-      grid[index] === null &&
-      color &&
-      color !== 'miss' &&
-      !isAnonymousRareShip(color)
-    );
+const forcedHits = getAutoFillForcedHits();
 
-  if (forcedHits.length === 0) return;
+if (forcedHits.length === 0) return;
 
   isLoadingHash = true;
 
@@ -4571,61 +4561,98 @@ function applyNoEquivalencePlan(plan, probs, allBoards) {
 }
 
 function getBestUncertaintyRemovalMove(allBoards, probs) {
+  const EPSILON = 0.000001;
   const knownMask = getCurrentKnownMask();
-  let best = null;
+
+  let pool = [];
 
   for (const tile of getUnknownTilesFromKnownMask(knownMask)) {
     const p = probs[tile];
 
-    if (p <= 0 || p >= 1) {
-      continue;
-    }
+    if (p <= 0 || p >= 1) continue;
 
-    const score = scoreEquivalenceReductionMove(
-      allBoards,
-      tile,
-      knownMask
-    );
-
-    let tiebreaker = null;
-let tiebreakerPassed = null;
-
-    if (best) {
-      if (
-        score.equivalencePressure === best.equivalencePressure &&
-        score.expectedRemaining < best.expectedRemaining
-      ) {
-        tiebreaker = "Lower expected remaining boards after equal equivalence pressure";
-tiebreakerPassed = 1;
-      } else if (
-        score.equivalencePressure === best.equivalencePressure &&
-        score.expectedRemaining === best.expectedRemaining &&
-        entropyBeats(score.i, best.i, allBoards)
-      ) {
-        const meta = getEntropyTiebreakerMeta(score.i, best.i, allBoards, 2);
-tiebreaker = meta.reason;
-tiebreakerPassed = meta.passed;
-      }
-    }
-
-    if (
-      !best ||
-      score.equivalencePressure < best.equivalencePressure ||
-      (
-        score.equivalencePressure === best.equivalencePressure &&
-        score.expectedRemaining < best.expectedRemaining
-      ) ||
-      (
-        score.equivalencePressure === best.equivalencePressure &&
-        score.expectedRemaining === best.expectedRemaining &&
-        entropyBeats(score.i, best.i, allBoards)
+    pool.push(
+      scoreEquivalenceReductionMove(
+        allBoards,
+        tile,
+        knownMask
       )
-    ) {
-      best = withTiebreaker(score, tiebreaker, tiebreakerPassed);
+    );
+  }
+
+  if (!pool.length) return null;
+
+  let bestPressure = Infinity;
+  let tied = [];
+
+  for (const candidate of pool) {
+    if (candidate.equivalencePressure < bestPressure - EPSILON) {
+      bestPressure = candidate.equivalencePressure;
+      tied = [candidate];
+    } else if (Math.abs(candidate.equivalencePressure - bestPressure) <= EPSILON) {
+      tied.push(candidate);
     }
   }
 
-  return best;
+  pool = tied;
+
+  if (pool.length === 1) {
+    return withTiebreaker(pool[0], "Lower equivalence pressure", 0);
+  }
+
+  let bestExpected = Infinity;
+  tied = [];
+
+  for (const candidate of pool) {
+    if (candidate.expectedRemaining < bestExpected - EPSILON) {
+      bestExpected = candidate.expectedRemaining;
+      tied = [candidate];
+    } else if (Math.abs(candidate.expectedRemaining - bestExpected) <= EPSILON) {
+      tied.push(candidate);
+    }
+  }
+
+  pool = tied;
+
+  if (pool.length === 1) {
+    return withTiebreaker(
+      pool[0],
+      "Lower expected remaining boards after equal equivalence pressure",
+      1
+    );
+  }
+
+let bestEV = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  const ev = getCandidateWeightedEV(candidate.i);
+
+  if (ev > bestEV + EPSILON) {
+    bestEV = ev;
+    tied = [candidate];
+  } else if (Math.abs(ev - bestEV) <= EPSILON) {
+    tied.push(candidate);
+  }
+}
+
+pool = tied;
+
+if (pool.length === 1) {
+  return withTiebreaker(
+    pool[0],
+    "Higher expected value among candidates",
+    2
+  );
+}
+
+  let best = pool[0];
+
+  for (const candidate of pool.slice(1)) {
+    if (candidate.i < best.i) best = candidate;
+  }
+
+  return withTiebreaker(best, "Lowest tile index (could not break tie)", 3);
 }
 
 function scoreEquivalenceReductionMove(boards, tile, knownMask) {
@@ -4841,53 +4868,67 @@ function withTiebreaker(move, reason, passed = null) {
   };
 }
 
-function getTiebreakerText(move) {
-  if (!move?.tiebreaker) return "";
-
-  const passedText =
-    Number.isFinite(move.tiebreakerPassed)
-      ? `<br><span style="opacity:0.75">Prior tied layers: ${move.tiebreakerPassed}</span>`
-      : "";
-
-  return `<br><br><b>Tiebreaker Used:</b> ${move.tiebreaker}${passedText}`;
-}
-
 function getBestCollapseMove(
   allBoards,
   probs,
   excludedTile = null,
   unknownTiles = getUnknownTiles()
 ) {
-  let best = null;
+  const EPSILON = 0.000001;
+
+  let pool = [];
 
   for (const i of unknownTiles) {
     if (i === excludedTile) continue;
+    pool.push(scoreCollapseForTile(allBoards, i, probs));
+  }
 
-    const score = scoreCollapseForTile(allBoards, i, probs);
+  if (!pool.length) return null;
 
-    let tiebreaker = null;
+  let bestExpected = Infinity;
+  let tied = [];
 
-    if (
-      best &&
-      score.expectedRemaining === best.expectedRemaining &&
-      entropyBeats(score.i, best.i, allBoards)
-    ) {
-      tiebreaker = getEntropyTiebreakerReason(score.i, best.i, allBoards);
-    }
-
-    if (
-      !best ||
-      score.expectedRemaining < best.expectedRemaining ||
-      (
-        score.expectedRemaining === best.expectedRemaining &&
-        entropyBeats(score.i, best.i, allBoards)
-      )
-    ) {
-      best = withTiebreaker(score, tiebreaker);
+  for (const candidate of pool) {
+    if (candidate.expectedRemaining < bestExpected - EPSILON) {
+      bestExpected = candidate.expectedRemaining;
+      tied = [candidate];
+    } else if (Math.abs(candidate.expectedRemaining - bestExpected) <= EPSILON) {
+      tied.push(candidate);
     }
   }
 
-  return best;
+  pool = tied;
+
+  if (pool.length === 1) {
+    return withTiebreaker(pool[0], "Lower expected remaining boards", 0);
+  }
+
+  let bestEV = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  const ev = getCandidateWeightedEV(candidate.i);
+
+  if (ev > bestEV + EPSILON) {
+    bestEV = ev;
+    tied = [candidate];
+  } else if (Math.abs(ev - bestEV) <= EPSILON) {
+    tied.push(candidate);
+  }
+}
+
+pool = tied;
+
+if (pool.length === 1) {
+  return withTiebreaker(pool[0], "Higher expected value among candidates", 1);
+}
+  let best = pool[0];
+
+  for (const candidate of pool.slice(1)) {
+    if (candidate.i < best.i) best = candidate;
+  }
+
+  return withTiebreaker(best, "Lowest tile index (could not break tie)", 2);
 }
 
 function getFutureCollapseDepth(boardCount) {
@@ -5069,23 +5110,23 @@ function evaluateFutureCollapseMove(
 }
 
 function getBestFutureCollapseMove(allBoards, probs, depth) {
+  const EPSILON = 0.000001;
   const ctx = getPrecalcContext(allBoards);
-  
-const stats = getGridStats();
+  const stats = getGridStats();
 
-const knownMask =
-  stats.occupiedMask |
-  stats.missMask;
+  const knownMask =
+    stats.occupiedMask |
+    stats.missMask;
 
   const memo = new Map();
+
+  let pool = [];
 
   const candidates = getFutureCollapseCandidates(
     ctx.allBoardSet,
     knownMask,
     ctx
   );
-
-  let best = null;
 
   for (const tile of candidates) {
     const score = evaluateFutureCollapseMove(
@@ -5098,32 +5139,66 @@ const knownMask =
     );
 
     score.p = probs[tile];
-
-let tiebreaker = null;
-let tiebreakerPassed = null;
-
-if (
-  best &&
-  score.riskAdjustedRemaining === best.riskAdjustedRemaining &&
-  entropyBeats(score.i, best.i, allBoards)
-) {
-  const meta = getEntropyTiebreakerMeta(score.i, best.i, allBoards, 1);
-  tiebreaker = meta.reason;
-  tiebreakerPassed = meta.passed;
-}
-
-if (
-  !best ||
-  score.riskAdjustedRemaining < best.riskAdjustedRemaining ||
-  (
-    score.riskAdjustedRemaining === best.riskAdjustedRemaining &&
-    entropyBeats(score.i, best.i, allBoards)
-  )
-) {
-  best = withTiebreaker(score, tiebreaker, tiebreakerPassed);
-}
+    pool.push(score);
   }
-  if (!best) return null;
+
+  if (!pool.length) return null;
+
+  let bestRemaining = Infinity;
+  let tied = [];
+
+  for (const candidate of pool) {
+    if (candidate.riskAdjustedRemaining < bestRemaining - EPSILON) {
+      bestRemaining = candidate.riskAdjustedRemaining;
+      tied = [candidate];
+    } else if (Math.abs(candidate.riskAdjustedRemaining - bestRemaining) <= EPSILON) {
+      tied.push(candidate);
+    }
+  }
+
+  pool = tied;
+
+  if (pool.length === 1) {
+    const best = withTiebreaker(
+      pool[0],
+      "Lower future risk-adjusted remaining boards",
+      0
+    );
+
+    best.isFutureCollapse = true;
+    return best;
+  }
+
+let bestEV = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  const ev = getCandidateWeightedEV(candidate.i);
+
+  if (ev > bestEV + EPSILON) {
+    bestEV = ev;
+    tied = [candidate];
+  } else if (Math.abs(ev - bestEV) <= EPSILON) {
+    tied.push(candidate);
+  }
+}
+
+pool = tied;
+
+let best = pool[0];
+
+for (const candidate of pool.slice(1)) {
+  if (candidate.i < best.i) best = candidate;
+}
+
+best = withTiebreaker(
+  best,
+  pool.length === 1
+    ? "Higher expected value among candidates"
+    : "Lowest tile index (could not break tie)",
+  pool.length === 1 ? 1 : 2
+);
+
   best.isFutureCollapse = true;
   return best;
 }
@@ -5277,43 +5352,82 @@ if (Math.abs(current.expectedRemaining - next.expectedRemaining) <= 0.000001) {
 
   const shortlist = candidates.slice(0, 6);
 
-let best = null;
+const EPSILON = 0.000001;
+
+let pool = [];
 
 for (const candidate of shortlist) {
-  const score = scoreTwoStepCollapse(
-    allBoards,
-    candidate.i,
-    probs,
-    unknownTiles
-  );
-
-  let tiebreaker = candidate.tiebreaker || null;
-  let tiebreakerPassed = candidate.tiebreakerPassed ?? null;
-
-  if (
-    best &&
-    score.riskAdjustedRemaining === best.riskAdjustedRemaining &&
-    entropyBeats(score.i, best.i, allBoards)
-  ) {
-    const meta = getEntropyTiebreakerMeta(score.i, best.i, allBoards, 1);
-
-    tiebreaker = meta.reason;
-    tiebreakerPassed = meta.passed;
-  }
-
-  if (
-    !best ||
-    score.riskAdjustedRemaining < best.riskAdjustedRemaining ||
-    (
-      score.riskAdjustedRemaining === best.riskAdjustedRemaining &&
-      entropyBeats(score.i, best.i, allBoards)
+  pool.push(
+    scoreTwoStepCollapse(
+      allBoards,
+      candidate.i,
+      probs,
+      unknownTiles
     )
-  ) {
-    best = withTiebreaker(score, tiebreaker, tiebreakerPassed);
+  );
+}
+
+if (!pool.length) return null;
+
+let bestRemaining = Infinity;
+let tied = [];
+
+for (const candidate of pool) {
+  if (candidate.riskAdjustedRemaining < bestRemaining - EPSILON) {
+    bestRemaining = candidate.riskAdjustedRemaining;
+    tied = [candidate];
+  } else if (Math.abs(candidate.riskAdjustedRemaining - bestRemaining) <= EPSILON) {
+    tied.push(candidate);
   }
 }
 
-return best;
+pool = tied;
+
+if (pool.length === 1) {
+  return withTiebreaker(
+    pool[0],
+    "Lower two-step risk-adjusted remaining boards",
+    0
+  );
+}
+
+const evStats = getTileEVStats(allBoards);
+
+let bestEV = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  const ev = evStats[candidate.i]?.weightedEV || 0;
+
+  if (ev > bestEV + EPSILON) {
+    bestEV = ev;
+    tied = [candidate];
+  } else if (Math.abs(ev - bestEV) <= EPSILON) {
+    tied.push(candidate);
+  }
+}
+
+pool = tied;
+
+if (pool.length === 1) {
+  return withTiebreaker(
+    pool[0],
+    "Higher expected value among candidates",
+    1
+  );
+}
+
+let best = pool[0];
+
+for (const candidate of pool.slice(1)) {
+  if (candidate.i < best.i) best = candidate;
+}
+
+return withTiebreaker(
+  best,
+  "Lowest tile index (could not break tie)",
+  2
+);
 }
 
 function handleTwoBoardEndgame(valid, probs, allBoards) {
@@ -5365,6 +5479,14 @@ function handleTargetRareShipMove(probs, allBoards) {
   return true;
 }
 
+function shouldPreferClarityOverGuaranteedBlue() {
+  const { misses } = getHitMissCounts();
+
+  if (misses < 3) return true;
+
+  return false;
+}
+
 function handleGuaranteedMove(probs, allBoards) {
   const { huntMode } = getGameContext();
   
@@ -5384,7 +5506,11 @@ function handleGuaranteedMove(probs, allBoards) {
     return false;
   }
   
-  if (!huntMode && guaranteed.p === 0) {
+if (
+  !huntMode &&
+  guaranteed.p === 0 &&
+  shouldPreferClarityOverGuaranteedBlue()
+) {
 const safeMove = getSafeModeProgressMove(allBoards, probs, {
   requireGuaranteedBlue: false,
   minBlueChance: 0,
@@ -5567,11 +5693,6 @@ appState.specialGroup = {
   }
 }
 
-function updateExactSolverUI(valid, preview = false) {
-  DOM.confidence.textContent =
-    `Exact boards: ${valid}${preview ? " (preview)" : ""}`;
-}
-
 function makeCollapseScoreGetter(allBoards, probs) {
   const cache = new Map();
 
@@ -5588,11 +5709,12 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // ===============================
 
 function getForcedResolutionMove(allBoards, probs) {
+  const EPSILON = 0.000001;
   const { huntMode } = getGameContext();
 
   if (huntMode) return null;
   if (!allBoards || allBoards.length <= 1) return null;
-  if (!allBoards || allBoards.length > 100) return null;
+  if (allBoards.length > 100) return null;
 
   const ctx = getPrecalcContext(allBoards);
   const knownMask = getCurrentKnownMask();
@@ -5607,7 +5729,7 @@ function getForcedResolutionMove(allBoards, probs) {
     const bit = mask & -mask;
     const tile = BIT_INDEX[bit];
 
-    if (probs[tile] >= 1) continue;
+    if (probs[tile] >= 1 - EPSILON) continue;
 
     if (!doesTileForceSolvedState(tile, boardSet, knownMask, ctx)) {
       continue;
@@ -5625,10 +5747,15 @@ function getForcedResolutionMove(allBoards, probs) {
 
     if (
       !best ||
-      move.p < best.p ||
+      move.p < best.p - EPSILON ||
       (
-        move.p === best.p &&
-        move.expectedRemaining < best.expectedRemaining
+        Math.abs(move.p - best.p) <= EPSILON &&
+        move.expectedRemaining < best.expectedRemaining - EPSILON
+      ) ||
+      (
+        Math.abs(move.p - best.p) <= EPSILON &&
+        Math.abs(move.expectedRemaining - best.expectedRemaining) <= EPSILON &&
+        move.i < best.i
       )
     ) {
       best = move;
@@ -5636,6 +5763,26 @@ function getForcedResolutionMove(allBoards, probs) {
   }
 
   return best;
+}
+
+function applyForcedResolutionMove(move, probs) {
+  appState.probs = probs;
+  appState.topMoves = [move];
+  appState.isGuaranteed = false;
+  appState.isTrueEndgame = false;
+  appState.specialGroup = null;
+  appState.safeOverride = true;
+  appState.safeOverrideSource = "forcedResolution";
+  appState.forcedResolutionMove = move;
+
+  lastProbs = probs;
+  lastTopMoves = [move];
+
+  clearRecommendations();
+
+  if (grid[move.i] === null) {
+    DOM.playBoard[move.i].classList.add("recommended-safe");
+  }
 }
 
 function doesTileForceSolvedState(tile, boardSet, knownMask, ctx) {
@@ -5793,43 +5940,102 @@ function getTargetRareShipMove(allBoards, probs) {
     c.rareP >= maxRareP - rareNearTieWindow
   );
 
-  nearBestRare.sort((a, b) => {
-    if (a.expectedRemaining !== b.expectedRemaining) {
-      return a.expectedRemaining - b.expectedRemaining;
-    }
+  let pool = nearBestRare;
+const EPSILON = 0.000001;
 
-    if (b.p !== a.p) {
-      return b.p - a.p;
-    }
+let bestExpected = Infinity;
+let tied = [];
 
-    return entropyTieBreak(a.i, b.i, allBoards);
-  });
-
-  const best = nearBestRare[0];
-  const second = nearBestRare[1];
-
-let tiebreaker = null;
-let tiebreakerPassed = null;
-
-if (second) {
-  if (best.expectedRemaining !== second.expectedRemaining) {
-    tiebreaker = "Lower expected remaining boards among near-tied rare-targeting moves";
-    tiebreakerPassed = 1;
-  } else if (best.p !== second.p) {
-    tiebreaker = "Higher non-blue chance after equal board collapse";
-    tiebreakerPassed = 2;
-  } else {
-    const meta = getEntropyTiebreakerMeta(best.i, second.i, allBoards, 2);
-    tiebreaker = meta.reason;
-    tiebreakerPassed = meta.passed;
+for (const candidate of pool) {
+  if (candidate.expectedRemaining < bestExpected - EPSILON) {
+    bestExpected = candidate.expectedRemaining;
+    tied = [candidate];
+  } else if (Math.abs(candidate.expectedRemaining - bestExpected) <= EPSILON) {
+    tied.push(candidate);
   }
 }
+
+pool = tied;
+
+if (pool.length === 1) {
+  const best = withTiebreaker(
+    pool[0],
+    "Lower expected remaining boards among near-tied rare-targeting moves",
+    0
+  );
+
+  return withSafeMoveReason(
+    makeMoveObject(best.i),
+    `This tile is tied or nearly tied for rare ship chance (${(best.rareP * 100).toFixed(1)}%) and gives the best board collapse among those rare-targeting options.`,
+    best.tiebreaker,
+    best.tiebreakerPassed
+  );
+}
+
+let bestP = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  if (candidate.p > bestP + EPSILON) {
+    bestP = candidate.p;
+    tied = [candidate];
+  } else if (Math.abs(candidate.p - bestP) <= EPSILON) {
+    tied.push(candidate);
+  }
+}
+
+pool = tied;
+
+if (pool.length === 1) {
+  const best = withTiebreaker(
+    pool[0],
+    "Higher non-blue chance after equal board collapse",
+    1
+  );
+
+  return withSafeMoveReason(
+    makeMoveObject(best.i),
+    `This tile is tied or nearly tied for rare ship chance (${(best.rareP * 100).toFixed(1)}%) and gives the best board collapse among those rare-targeting options.`,
+    best.tiebreaker,
+    best.tiebreakerPassed
+  );
+}
+
+let bestEV = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  const ev = getCandidateWeightedEV(candidate.i);
+
+  if (ev > bestEV + EPSILON) {
+    bestEV = ev;
+    tied = [candidate];
+  } else if (Math.abs(ev - bestEV) <= EPSILON) {
+    tied.push(candidate);
+  }
+}
+
+pool = tied;
+
+let best = pool[0];
+
+for (const candidate of pool.slice(1)) {
+  if (candidate.i < best.i) best = candidate;
+}
+
+best = withTiebreaker(
+  best,
+  pool.length === 1
+    ? "Higher expected value among candidates"
+    : "Lowest tile index (could not break tie)",
+  pool.length === 1 ? 2 : 3
+);
 
 return withSafeMoveReason(
   makeMoveObject(best.i),
   `This tile is tied or nearly tied for rare ship chance (${(best.rareP * 100).toFixed(1)}%) and gives the best board collapse among those rare-targeting options.`,
-  tiebreaker,
-  tiebreakerPassed
+  best.tiebreaker,
+  best.tiebreakerPassed
 );
 }
 
@@ -5956,112 +6162,207 @@ return withSafeMoveReason(
     .filter(x => x.rareP > 0);
 
 if (rareCandidates.length) {
+  const EPSILON = 0.000001;
   const getScore = makeCollapseScoreGetter(allBoards, probs);
 
-  let bestRare = null;
-  let bestRareP = -Infinity;
-  let bestExpectedRemaining = Infinity;
-  let bestRareTiebreaker = null;
-let bestRareTiebreakerPassed = null;
+  for (const candidate of rareCandidates) {
+    candidate.expectedRemaining =
+      getScore(candidate.i).expectedRemaining;
+  }
 
   let baselineExpected = Infinity;
 
   for (const candidate of rareCandidates) {
-    const expectedRemaining =
-      getScore(candidate.i).expectedRemaining;
-
-    if (candidate.rareP >= 0.2 && expectedRemaining < baselineExpected) {
-      baselineExpected = expectedRemaining;
-    }
-
-let tiebreaker = null;
-
-let tiebreakerPassed = null;
-
-if (
-  expectedRemaining === bestExpectedRemaining &&
-  candidate.rareP > bestRareP
-) {
-  tiebreaker = "Higher unfound rare chance after equal board reduction";
-  tiebreakerPassed = 1;
-} else if (
-  expectedRemaining === bestExpectedRemaining &&
-  candidate.rareP === bestRareP &&
-  bestRare &&
-  entropyBeats(candidate.i, bestRare.i, allBoards)
-) {
-  const meta = getEntropyTiebreakerMeta(candidate.i, bestRare.i, allBoards, 2);
-  tiebreaker = meta.reason;
-  tiebreakerPassed = meta.passed;
-}
-
-if (
-  expectedRemaining < bestExpectedRemaining ||
-  (
-    expectedRemaining === bestExpectedRemaining &&
-    candidate.rareP > bestRareP
-  ) ||
-  (
-    expectedRemaining === bestExpectedRemaining &&
-    candidate.rareP === bestRareP &&
-    bestRare &&
-    entropyBeats(candidate.i, bestRare.i, allBoards)
-  )
-) {
-      bestRare = candidate;
-      bestRareP = candidate.rareP;
-      bestExpectedRemaining = expectedRemaining;
-      bestRareTiebreaker = tiebreaker;
-bestRareTiebreakerPassed = tiebreakerPassed;
+    if (
+      candidate.rareP >= 0.2 &&
+      candidate.expectedRemaining < baselineExpected
+    ) {
+      baselineExpected = candidate.expectedRemaining;
     }
   }
-  
-  const improvement =
+
+  let pool = [...rareCandidates];
+  let tied = [];
+
+  let bestExpectedRemaining = Infinity;
+
+  for (const candidate of pool) {
+    if (candidate.expectedRemaining < bestExpectedRemaining - EPSILON) {
+      bestExpectedRemaining = candidate.expectedRemaining;
+      tied = [candidate];
+    } else if (
+      Math.abs(candidate.expectedRemaining - bestExpectedRemaining) <= EPSILON
+    ) {
+      tied.push(candidate);
+    }
+  }
+
+  pool = tied;
+
+  let bestRare = null;
+
+  if (pool.length === 1) {
+    bestRare = withTiebreaker(
+      pool[0],
+      "Lower expected remaining boards",
+      0
+    );
+  } else {
+    let bestRareP = -Infinity;
+    tied = [];
+
+    for (const candidate of pool) {
+      if (candidate.rareP > bestRareP + EPSILON) {
+        bestRareP = candidate.rareP;
+        tied = [candidate];
+      } else if (Math.abs(candidate.rareP - bestRareP) <= EPSILON) {
+        tied.push(candidate);
+      }
+    }
+
+    pool = tied;
+
+    if (pool.length === 1) {
+      bestRare = withTiebreaker(
+        pool[0],
+        "Higher unfound rare chance after equal board reduction",
+        1
+      );
+    } else {
+      let bestEV = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  const ev = getCandidateWeightedEV(candidate.i);
+
+  if (ev > bestEV + EPSILON) {
+    bestEV = ev;
+    tied = [candidate];
+  } else if (Math.abs(ev - bestEV) <= EPSILON) {
+    tied.push(candidate);
+  }
+}
+
+pool = tied;
+
+bestRare = pool[0];
+
+for (const candidate of pool.slice(1)) {
+  if (candidate.i < bestRare.i) {
+    bestRare = candidate;
+  }
+}
+
+bestRare = withTiebreaker(
+  bestRare,
+  pool.length === 1
+    ? "Higher expected value among candidates"
+    : "Lowest tile index (could not break tie)",
+  pool.length === 1 ? 2 : 3
+);
+    }
+  }
+
+  let improvement =
     baselineExpected < Infinity
-      ? baselineExpected / bestExpectedRemaining
+      ? baselineExpected / bestRare.expectedRemaining
       : 1;
 
   if (improvement < 1.6) {
-const sortedRareCandidates = rareCandidates
-  .map(c => ({
-    ...c,
-    expectedRemaining: getScore(c.i).expectedRemaining
-  }))
-  .sort((a, b) => {
-    if (b.rareP !== a.rareP) return b.rareP - a.rareP;
-    if (a.expectedRemaining !== b.expectedRemaining) {
-      return a.expectedRemaining - b.expectedRemaining;
+    pool = [...rareCandidates];
+    tied = [];
+
+    let bestRareP = -Infinity;
+
+    for (const candidate of pool) {
+      if (candidate.rareP > bestRareP + EPSILON) {
+        bestRareP = candidate.rareP;
+        tied = [candidate];
+      } else if (Math.abs(candidate.rareP - bestRareP) <= EPSILON) {
+        tied.push(candidate);
+      }
     }
-    return entropyTieBreak(a.i, b.i, allBoards);
-  });
 
-bestRare = sortedRareCandidates[0];
+    pool = tied;
 
-const secondRare = sortedRareCandidates[1];
+    if (pool.length === 1) {
+      bestRare = withTiebreaker(
+        pool[0],
+        "Higher unfound rare chance",
+        0
+      );
+    } else {
+      bestExpectedRemaining = Infinity;
+      tied = [];
 
-if (secondRare) {
-  if (bestRare.rareP !== secondRare.rareP) {
-    bestRareTiebreaker = "Higher unfound rare chance";
-    bestRareTiebreakerPassed = 0;
-  } else if (bestRare.expectedRemaining !== secondRare.expectedRemaining) {
-    bestRareTiebreaker = "Lower expected remaining boards after equal rare chance";
-    bestRareTiebreakerPassed = 1;
-  } else {
-    const meta = getEntropyTiebreakerMeta(bestRare.i, secondRare.i, allBoards, 2);
-    bestRareTiebreaker = meta.reason;
-    bestRareTiebreakerPassed = meta.passed;
+      for (const candidate of pool) {
+        if (candidate.expectedRemaining < bestExpectedRemaining - EPSILON) {
+          bestExpectedRemaining = candidate.expectedRemaining;
+          tied = [candidate];
+        } else if (
+          Math.abs(candidate.expectedRemaining - bestExpectedRemaining) <= EPSILON
+        ) {
+          tied.push(candidate);
+        }
+      }
+
+      pool = tied;
+
+      if (pool.length === 1) {
+        bestRare = withTiebreaker(
+          pool[0],
+          "Lower expected remaining boards after equal rare chance",
+          1
+        );
+      } else {
+        let bestEV = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  const ev = getCandidateWeightedEV(candidate.i);
+
+  if (ev > bestEV + EPSILON) {
+    bestEV = ev;
+    tied = [candidate];
+  } else if (Math.abs(ev - bestEV) <= EPSILON) {
+    tied.push(candidate);
   }
 }
+
+pool = tied;
+
+bestRare = pool[0];
+
+for (const candidate of pool.slice(1)) {
+  if (candidate.i < bestRare.i) {
+    bestRare = candidate;
+  }
+}
+
+bestRare = withTiebreaker(
+  bestRare,
+  pool.length === 1
+    ? "Higher expected value among candidates"
+    : "Lowest tile index (could not break tie)",
+  pool.length === 1 ? 2 : 3
+);
+      }
+    }
+
+    improvement =
+      baselineExpected < Infinity
+        ? baselineExpected / bestRare.expectedRemaining
+        : 1;
   }
 
-return withSafeMoveReason(
-  makeMoveObject(bestRare.i),
-  improvement >= 1.4
-    ? `This tile significantly reduces board uncertainty while still offering a ${(bestRare.rareP * 100).toFixed(1)}% rare chance.`
-    : `This tile has the best chance to reveal an unfound rare ship (${(bestRare.rareP * 100).toFixed(1)}%).`,
-  bestRareTiebreaker,
-  bestRareTiebreakerPassed
-);
+  return withSafeMoveReason(
+    makeMoveObject(bestRare.i),
+    improvement >= 1.4
+      ? `This tile significantly reduces board uncertainty while still offering a ${(bestRare.rareP * 100).toFixed(1)}% rare chance.`
+      : `This tile has the best chance to reveal an unfound rare ship (${(bestRare.rareP * 100).toFixed(1)}%).`,
+    bestRare.tiebreaker,
+    bestRare.tiebreakerPassed
+  );
 }
 
 const selected = chooseBestProgressCandidate(progressTiles, allBoards, probs);
@@ -6091,70 +6392,168 @@ function withSafeMoveReason(
 }
 
 function chooseBestProgressCandidate(tiles, allBoards, probs) {
-  let bestTile = null;
+  const EPSILON = 0.000001;
+  const getScore = makeCollapseScoreGetter(allBoards, probs);
+
+  let pool = tiles.map(tile => ({
+    i: tile,
+    p: probs[tile]
+  }));
+
+  if (pool.length <= 1) {
+    return pool[0] || null;
+  }
+
   let bestScore = Infinity;
-  let bestProb = Infinity;
-  let bestTiebreaker = null;
-let bestTiebreakerPassed = null;
+  let tied = [];
 
-  for (const tile of tiles) {
-    const score = scoreCollapseForTile(allBoards, tile, probs).expectedRemaining;
-    const p = probs[tile];
+  for (const candidate of pool) {
+    const score = getScore(candidate.i).expectedRemaining;
 
-    let tiebreaker = null;
-let tiebreakerPassed = null;
-
-if (score === bestScore && p < bestProb) {
-  tiebreaker = "Lower hit risk after equal board reduction";
-  tiebreakerPassed = 1;
-} else if (
-  score === bestScore &&
-  p === bestProb &&
-  bestTile !== null &&
-  entropyBeats(tile, bestTile, allBoards)
-) {
-  const meta = getEntropyTiebreakerMeta(tile, bestTile, allBoards, 2);
-  tiebreaker = meta.reason;
-  tiebreakerPassed = meta.passed;
-}
-
-    if (
-      score < bestScore ||
-      (score === bestScore && p < bestProb) ||
-      (
-        score === bestScore &&
-        p === bestProb &&
-        bestTile !== null &&
-        entropyBeats(tile, bestTile, allBoards)
-      )
-    ) {
-      bestTile = tile;
+    if (score < bestScore - EPSILON) {
       bestScore = score;
-      bestProb = p;
-      bestTiebreaker = tiebreaker;
-bestTiebreakerPassed = tiebreakerPassed;
+      tied = [candidate];
+    } else if (Math.abs(score - bestScore) <= EPSILON) {
+      tied.push(candidate);
     }
   }
 
-return {
-  i: bestTile,
-  tiebreaker: bestTiebreaker,
-  tiebreakerPassed: bestTiebreakerPassed
-};
+  pool = tied;
+
+  if (pool.length === 1) {
+    return withTiebreaker(
+      pool[0],
+      "Lower expected remaining boards",
+      0
+    );
+  }
+
+  let bestProb = Infinity;
+  tied = [];
+
+  for (const candidate of pool) {
+    if (candidate.p < bestProb - EPSILON) {
+      bestProb = candidate.p;
+      tied = [candidate];
+    } else if (Math.abs(candidate.p - bestProb) <= EPSILON) {
+      tied.push(candidate);
+    }
+  }
+
+  pool = tied;
+
+  if (pool.length === 1) {
+    return withTiebreaker(
+      pool[0],
+      "Lower hit risk after equal board reduction",
+      1
+    );
+  }
+
+let bestEV = -Infinity;
+tied = [];
+
+for (const candidate of pool) {
+  const ev = getCandidateWeightedEV(candidate.i);
+
+  if (ev > bestEV + EPSILON) {
+    bestEV = ev;
+    tied = [candidate];
+  } else if (Math.abs(ev - bestEV) <= EPSILON) {
+    tied.push(candidate);
+  }
+}
+
+pool = tied;
+
+if (pool.length === 1) {
+  return withTiebreaker(
+    pool[0],
+    "Higher expected value among candidates",
+    2
+  );
+}
+
+  let best = pool[0];
+
+  for (const candidate of pool.slice(1)) {
+    if (candidate.i < best.i) {
+      best = candidate;
+    }
+  }
+
+  return withTiebreaker(
+    best,
+    "Lowest tile index (could not break tie)",
+    3
+  );
 }
 
 function chooseBestSafeCandidate(tiles, allBoards, probs) {
-  return [...tiles].sort((a, b) => {
-    if (probs[a] !== probs[b]) return probs[a] - probs[b];
+  const EPSILON = 0.000001;
+  const getScore = makeCollapseScoreGetter(allBoards, probs);
 
-    const collapseDiff =
-      scoreCollapseForTile(allBoards, a, probs).expectedRemaining -
-      scoreCollapseForTile(allBoards, b, probs).expectedRemaining;
+  let pool = [...tiles];
 
-    if (Math.abs(collapseDiff) > 0.000001) return collapseDiff;
+  let bestProb = Infinity;
+  let tied = [];
 
-    return entropyTieBreak(a, b, allBoards);
-  })[0];
+  for (const tile of pool) {
+    const p = probs[tile];
+
+    if (p < bestProb - EPSILON) {
+      bestProb = p;
+      tied = [tile];
+    } else if (Math.abs(p - bestProb) <= EPSILON) {
+      tied.push(tile);
+    }
+  }
+
+  pool = tied;
+
+  if (pool.length === 1) return pool[0];
+
+  let bestExpected = Infinity;
+  tied = [];
+
+  for (const tile of pool) {
+    const expected = getScore(tile).expectedRemaining;
+
+    if (expected < bestExpected - EPSILON) {
+      bestExpected = expected;
+      tied = [tile];
+    } else if (Math.abs(expected - bestExpected) <= EPSILON) {
+      tied.push(tile);
+    }
+  }
+
+  pool = tied;
+
+  if (pool.length === 1) return pool[0];
+
+  let bestEntropy = -Infinity;
+  tied = [];
+
+  for (const tile of pool) {
+    const entropy = getMoveOutcomeEntropy(tile, allBoards);
+
+    if (entropy > bestEntropy + EPSILON) {
+      bestEntropy = entropy;
+      tied = [tile];
+    } else if (Math.abs(entropy - bestEntropy) <= EPSILON) {
+      tied.push(tile);
+    }
+  }
+
+  pool = tied;
+
+  let best = pool[0];
+
+  for (const tile of pool.slice(1)) {
+    if (tile < best) best = tile;
+  }
+
+  return best;
 }
 
 function getUnfoundRareProbability(tile, allBoards) {
@@ -6252,6 +6651,15 @@ function findGuaranteedMove(candidates, huntMode) {
   return guaranteedHit;
 }
 
+function getCandidateWeightedEV(tile) {
+  if (!appState.allBoards || !appState.allBoards.length) {
+    return 0;
+  }
+
+  const evStats = getTileEVStats(appState.allBoards);
+  return evStats[tile]?.weightedEV || 0;
+}
+
 function getCandidateReduction(c) {
   const totalBoards = appState.allBoards?.length || 0;
 
@@ -6324,36 +6732,33 @@ function getSafestMove(candidates) {
     );
   }
 
-  pool = keepBestLayer(
-    pool,
-    candidate => getMoveOutcomeEntropy(
-      candidate.i,
-      appState.allBoards
-    ),
-    true
+pool = keepBestLayer(
+  pool,
+  candidate => 1 - candidate.p,
+  true
+);
+
+if (pool.length === 1) {
+  return withTiebreaker(
+    pool[0],
+    "Higher miss chance after equal reduction",
+    1
   );
+}
 
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
-      "Higher outcome entropy among equal-reduction candidates",
-      1
-    );
-  }
+pool = keepBestLayer(
+  pool,
+  candidate => getCandidateWeightedEV(candidate.i),
+  true
+);
 
-  pool = keepBestLayer(
-    pool,
-    candidate => 1 - candidate.p,
-    true
+if (pool.length === 1) {
+  return withTiebreaker(
+    pool[0],
+    "Higher expected value among equal-reduction and miss-chance candidates",
+    2
   );
-
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
-      "Higher miss chance after equal reduction and entropy",
-      2
-    );
-  }
+}
 
   let best = pool[0];
 
@@ -6440,8 +6845,9 @@ function rankCandidates(candidates, huntMode) {
   candidates.forEach(c => {
     c.reduction = getCandidateReduction(c);
     c.score = scoreStrategicCandidate(c, huntMode);
+    c.ev = getCandidateWeightedEV(c.i);
     c.tiebreaker = null;
-	c.tiebreakerPassed = null;
+    c.tiebreakerPassed = null;
   });
 
   candidates.sort((a, b) => {
@@ -6454,7 +6860,10 @@ function rankCandidates(candidates, huntMode) {
     const pDiff = b.p - a.p;
     if (Math.abs(pDiff) > 0.000001) return pDiff;
 
-    return entropyTieBreak(a.i, b.i);
+    const evDiff = b.ev - a.ev;
+    if (Math.abs(evDiff) > 0.000001) return evDiff;
+
+    return a.i - b.i;
   });
 
   for (let i = 0; i < candidates.length - 1; i++) {
@@ -6465,19 +6874,23 @@ function rankCandidates(candidates, huntMode) {
 
     if (Math.abs(current.reduction - next.reduction) > 0.000001) {
       current.tiebreaker = "Higher board reduction after equal strategic score";
-current.tiebreakerPassed = 1;
+      current.tiebreakerPassed = 1;
       continue;
     }
 
     if (Math.abs(current.p - next.p) > 0.000001) {
-      current.tiebreaker = "Higher hit chance  among candidates";
-current.tiebreakerPassed = 2;
+      current.tiebreaker = "Higher hit chance among candidates";
+      current.tiebreakerPassed = 2;
       continue;
     }
 
-    const meta = getEntropyTiebreakerMeta(current.i, next.i, appState.allBoards, 3);
-current.tiebreaker = meta.reason;
-current.tiebreakerPassed = meta.passed;
+    if (Math.abs(current.ev - next.ev) > 0.000001) {
+      current.tiebreaker = "Higher expected value among candidates";
+      current.tiebreakerPassed = 3;
+    } else {
+      current.tiebreaker = "Lowest tile index (could not break tie)";
+      current.tiebreakerPassed = 4;
+    }
   }
 }
 
@@ -6522,6 +6935,103 @@ function getRecommendationContext() {
 // ===============================
 // T.12 UI
 // ===============================
+
+function updateExactSolverUI(valid, preview = false) {
+  DOM.confidence.textContent =
+    `Exact boards: ${valid}${preview ? " (preview)" : ""}`;
+}
+
+function getDisplayedRecommendations(
+  topMovesArg = appState.topMoves || [],
+  safestArg = undefined
+) {
+  const topMoves = topMovesArg || [];
+
+  const safest =
+    safestArg !== undefined
+      ? safestArg
+      : topMoves.find(m => m.type === "safe") || null;
+
+  const strategicMoves = topMoves.filter(m => {
+  if (m.type === "safe") {
+    return false;
+  }
+
+  if (
+    forcedStartMode === "safe" &&
+    appState.probs &&
+    appState.probs[m.i] >= 1
+  ) {
+    return false;
+  }
+
+  return true;
+});
+
+  const best =
+    strategicMoves.find(m => !isSameMove(m, safest)) || null;
+
+  const isDisplayableAlternative = move =>
+    move &&
+    !isSameMove(move, best) &&
+    !isSameMove(move, safest);
+
+  const collapseAlternative =
+    isDisplayableAlternative(appState.collapseMove)
+      ? appState.collapseMove
+      : null;
+
+  const rankedAlternative =
+    strategicMoves.find(m => isDisplayableAlternative(m)) || null;
+
+  const alternative = collapseAlternative || rankedAlternative;
+
+  const alternativeType = collapseAlternative
+    ? (
+        collapseAlternative.isFutureCollapse
+          ? "futureCollapse"
+          : "collapse"
+      )
+    : (
+        rankedAlternative
+          ? "ranked"
+          : null
+      );
+
+  return {
+    safest,
+    best,
+    alternative,
+    alternativeType,
+    collapseAlternative,
+    rankedAlternative
+  };
+}
+
+function renderInfoMessages(messages) {
+  const solverBadge = buildSolverBadge();
+  const parts = [];
+
+  if (solverBadge) {
+    parts.push(solverBadge);
+  }
+
+  parts.push(...messages);
+
+  DOM.infoBox.innerHTML = parts.join("<br>");
+}
+
+
+function getTiebreakerText(move) {
+  if (!move?.tiebreaker) return "";
+
+  const passedText =
+    Number.isFinite(move.tiebreakerPassed)
+      ? `<br><span style="opacity:0.75">Prior tied layers: ${move.tiebreakerPassed}</span>`
+      : "";
+
+  return `<br><br><b>Tiebreaker Used:</b> ${move.tiebreaker}${passedText}`;
+}
 
 function getAutoFillForcedHits() {
   if (!appState.forcedTiles) return [];
@@ -7378,9 +7888,9 @@ const introText = isRareTarget
       move.reason ||
       "Rare ship toggle is prioritizing the tile most likely to reveal an unfound rare ship."
     )
-  : hasGuaranteedBlue
-    ? "Guaranteed blue moves are available, but Safe Mode is prioritizing board clarity instead."
-    : "Normal recommendations overridden to gain board clarity.";
+: hasGuaranteedBlue
+  ? "Guaranteed blue moves are available, but Safe Mode is preserving them until blue clicks become free."
+  : "Normal recommendations overridden to gain board clarity.";
 	
 const rareChance =
   isRareTarget && move
@@ -7966,26 +8476,6 @@ function renderEVBadge(cell, evStats = null) {
   container.innerHTML = `<div class="size-badge ev-badge">EV ${ev.toFixed(0)}</div>`;
 }
 
-function applyForcedResolutionMove(move, probs) {
-  appState.probs = probs;
-  appState.topMoves = [move];
-  appState.isGuaranteed = false;
-  appState.isTrueEndgame = false;
-  appState.specialGroup = null;
-  appState.safeOverride = true;
-  appState.safeOverrideSource = "forcedResolution";
-  appState.forcedResolutionMove = move;
-
-  lastProbs = probs;
-  lastTopMoves = [move];
-
-  clearRecommendations();
-
-  if (grid[move.i] === null) {
-    DOM.playBoard[move.i].classList.add("recommended-safe");
-  }
-}
-
 function applyRainbowHighlights(probs){
   if(!probs) return;
 
@@ -8399,10 +8889,6 @@ function renderEVHeatmap() {
     DOM.heatmapSubtitle,
     "Expected tile value, including blue as EV 10."
   );
-}
-
-function renderShipSizeHeatmap() {
-  renderShipSizeHeatmapForBoards(appState.allBoards);
 }
 
 function renderShipSizeHeatmap() {
@@ -8912,73 +9398,6 @@ function isSameMove(a, b) {
   return !!a && !!b && a.i === b.i;
 }
 
-function getDisplayedRecommendations(
-  topMovesArg = appState.topMoves || [],
-  safestArg = undefined
-) {
-  const topMoves = topMovesArg || [];
-
-  const safest =
-    safestArg !== undefined
-      ? safestArg
-      : topMoves.find(m => m.type === "safe") || null;
-
-  const strategicMoves = topMoves.filter(m => {
-  if (m.type === "safe") {
-    return false;
-  }
-
-  if (
-    forcedStartMode === "safe" &&
-    appState.probs &&
-    appState.probs[m.i] >= 1
-  ) {
-    return false;
-  }
-
-  return true;
-});
-
-  const best =
-    strategicMoves.find(m => !isSameMove(m, safest)) || null;
-
-  const isDisplayableAlternative = move =>
-    move &&
-    !isSameMove(move, best) &&
-    !isSameMove(move, safest);
-
-  const collapseAlternative =
-    isDisplayableAlternative(appState.collapseMove)
-      ? appState.collapseMove
-      : null;
-
-  const rankedAlternative =
-    strategicMoves.find(m => isDisplayableAlternative(m)) || null;
-
-  const alternative = collapseAlternative || rankedAlternative;
-
-  const alternativeType = collapseAlternative
-    ? (
-        collapseAlternative.isFutureCollapse
-          ? "futureCollapse"
-          : "collapse"
-      )
-    : (
-        rankedAlternative
-          ? "ranked"
-          : null
-      );
-
-  return {
-    safest,
-    best,
-    alternative,
-    alternativeType,
-    collapseAlternative,
-    rankedAlternative
-  };
-}
-
 function applyHighlights(play, topMoves, safest) {
   const {
     best,
@@ -9484,19 +9903,6 @@ function getMCMCConfidence(valid, attempts) {
   return "Low";
 }
 
-function renderInfoMessages(messages) {
-  const solverBadge = buildSolverBadge();
-  const parts = [];
-
-  if (solverBadge) {
-    parts.push(solverBadge);
-  }
-
-  parts.push(...messages);
-
-  DOM.infoBox.innerHTML = parts.join("<br>");
-}
-
 function buildSolverBadge() {
   const info = appState.solverInfo;
   if (!info) return "";
@@ -9562,14 +9968,21 @@ function getTooltipColorForPlayTile(i) {
     return grid[i];
   }
 
+  if (
+    appState.forcedResolutionMove &&
+    appState.forcedResolutionMove.i === i
+  ) {
+    return "Forced Resolution";
+  }
+
   const forced = appState.forcedTiles?.[i];
 
-if (
-  forced &&
-  !isAnonymousRareShip(forced)
-) {
-  return forced;
-}
+  if (
+    forced &&
+    !isAnonymousRareShip(forced)
+  ) {
+    return forced;
+  }
 
   return null;
 }
@@ -9945,9 +10358,17 @@ function getColorMaskCached(color){
 function prepareSortedShips() {
   const ships = getShipList();
 
-  ships.sort((a, b) => {
-    const scoreA = getPlacementsCached(a).length - getKnownCellsCached(a).length * 5;
-    const scoreB = getPlacementsCached(b).length - getKnownCellsCached(b).length * 5;
+ const scores = {};
+
+for (const ship of ships) {
+  scores[ship] =
+    getPlacementsCached(ship).length -
+    getKnownCellsCached(ship).length * 5;
+}
+
+ships.sort((a, b) => {
+  const scoreA = scores[a];
+  const scoreB = scores[b];
 
     if(scoreA !== scoreB) return scoreA - scoreB;
 
