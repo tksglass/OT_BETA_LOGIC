@@ -1622,6 +1622,8 @@ function handleCellClick(i){
   if(currentMode === MODE.GAME_OVER) return;
   if(rareCount === null) return;
 
+  clearSelectedColor();
+
   const forced = appState.forcedTiles?.[i];
 
   const canAutoPlaceForced =
@@ -5133,7 +5135,7 @@ function applyTiebreakLayer(pool, getValue, higherIsBetter, reason, passed) {
 function finishWithLowestIndex(pool, passed) {
   return withTiebreaker(
     chooseLowestIndexCandidate(pool),
-    "Lowest tile index (could not break tie)",
+    `Lowest tile index (could not break tie, ${pool.length} candidates)`,
     passed
   );
 }
