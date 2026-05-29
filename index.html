@@ -117,13 +117,9 @@
 }
 
 .cell.picker-open {
-  transform: scale(2.25);
   z-index: 100;
   overflow: visible;
-
-  box-shadow:
-    0 0 0 2px rgba(255,255,255,0.75),
-    0 4px 12px rgba(0,0,0,0.30);
+  border-radius: 50%;
 }
 
 .cell.picker-open[style*="--picker-outline-color"] {
@@ -133,55 +129,52 @@
 
 .tile-color-picker {
   position: absolute;
-  inset: 2px;
+  left: 50%;
+  top: 50%;
+  width: 92px;
+  height: 92px;
   z-index: 200;
 
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(3, 1fr);
+  transform: translate(-50%, -50%);
 
-  gap: 0;
-  padding: 2px;
+  overflow: visible;
+  pointer-events: none;
 
-  border-radius: 4px;
-
-  background: #d1d5db;
-
-  box-shadow:
-    0 3px 10px rgba(0,0,0,0.25);
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.30));
 }
 
-.tile-color-option {
-  border-radius: 0;
+.tile-color-ring {
+  width: 92px;
+  height: 92px;
+  overflow: visible;
+}
 
-  border: 1px solid rgba(0,0,0,0.15);
-
+.tile-color-sector {
   cursor: pointer;
+  pointer-events: auto;
 
-  box-sizing: border-box;
+  stroke: rgba(17,24,39,0.65);
+  stroke-width: 0.9;
+
+  transition:
+    opacity 0.08s ease,
+    filter 0.08s ease;
 }
 
-.tile-color-option:hover {
-  filter: brightness(1.12);
+.tile-color-sector:hover {
+  filter: brightness(1.13);
 }
 
-.tile-color-option.disabled {
+.tile-color-sector.disabled {
   opacity: 0.18;
   cursor: default;
   pointer-events: none;
   filter: grayscale(1);
 }
 
-.tile-color-option[data-color="rainbow"] {
-  background:
-    linear-gradient(
-      135deg,
-      rgb(239,68,68),
-      rgb(251,191,36),
-      rgb(34,197,94),
-      rgb(59,130,246),
-      rgb(168,85,247)
-    );
+.tile-color-ring-hole {
+  fill: transparent;
+  pointer-events: none;
 }
 
 .color-btn[data-color="rainbow"] {
@@ -1227,26 +1220,7 @@ button {
 
 <div id="heatmapSubtitle" class="heatmap-subtitle"></div>
 
-<div class="heatmap-board-wrapper">
-  <div class="board-row">
-    <div id="heatmap" class="board"></div>
-
-    <div class="side-palette">
-      <span class="color-btn" data-color="orange" style="background:orange" onclick="selectColor('orange',event)"></span>
-      <span class="color-btn" data-color="red" style="background:red" onclick="selectColor('red',event)"></span>
-      <span class="color-btn" data-color="black" style="background:black" onclick="selectColor('black',event)"></span>
-      <span class="color-btn" data-color="white" style="background:white" onclick="selectColor('white',event)"></span>
-      <span class="color-btn" data-color="rainbow" onclick="selectColor('rainbow',event)"></span>
-    </div>
-  </div>
-  
-  <div class="bottom-palette">
-    <span class="color-btn" data-color="teal" style="background:#4fd1c5" onclick="selectColor('teal',event)"></span>
-    <span class="color-btn" data-color="green" style="background:green" onclick="selectColor('green',event)"></span>
-    <span class="color-btn" data-color="yellow" style="background:yellow" onclick="selectColor('yellow',event)"></span>
-    <span class="color-btn" data-color="miss" style="background:#3b82f6" onclick="selectColor('miss',event)"></span>
-  </div>
-</div>
+<div id="heatmap" class="board"></div>
 
 <div id="confidence" class="confidence"></div>
 
@@ -1323,9 +1297,9 @@ const SHIPS={
 const RARE_COLORS=['orange','red','black','white','rainbow'];
 
 const TILE_PICKER_COLORS = [
-  'miss', 'teal', 'yellow',
-  'green', 'orange', 'red',
-  'black', 'white', 'rainbow'
+  'green', 'yellow', 'orange',
+  'red', 'rainbow', 'white',
+  'black', 'miss', 'teal'
 ];
 
 const TILE_EV = {
@@ -1639,6 +1613,20 @@ function handleCellClick(i){
   openTileColorPicker(i);
 }
 
+function previewTilePickerColor(tileIndex, color) {
+  if (!isExactSolverActive()) return;
+
+  const previousSelectedColor = selectedColor;
+
+  selectedColor = color;
+  showHeatmapPreview(tileIndex);
+  selectedColor = previousSelectedColor;
+}
+
+function clearTilePickerPreview() {
+  clearHeatmapPreview();
+}
+
 function openTileColorPicker(i) {
   closeTileColorPicker();
 
@@ -1647,56 +1635,171 @@ function openTileColorPicker(i) {
 
   activeColorPickerTile = i;
   cell.classList.add('picker-open');
-  
-if (grid[i] !== null) {
-  cell.style.setProperty(
-    '--picker-outline-color',
-    getPickerOutlineColor(grid[i])
-  );
-} else {
-  cell.style.removeProperty('--picker-outline-color');
-}
+
+  if (grid[i] !== null) {
+    cell.style.setProperty(
+      '--picker-outline-color',
+      getPickerOutlineColor(grid[i])
+    );
+  } else {
+    cell.style.removeProperty('--picker-outline-color');
+  }
 
   const picker = document.createElement('div');
   picker.className = 'tile-color-picker';
 
-  const counts = getColorCountsForTileEdit(i);
+  const svg = createTileColorRing(i);
+  picker.appendChild(svg);
+
+  cell.appendChild(picker);
+}
+
+function createTileColorRing(tileIndex) {
+  const svgNS = 'http://www.w3.org/2000/svg';
+
+const svg = document.createElementNS(svgNS, 'svg');
+svg.classList.add('tile-color-ring');
+svg.setAttribute('viewBox', '0 0 92 92');
+
+  const defs = document.createElementNS(svgNS, 'defs');
+
+  const rainbowGradient = document.createElementNS(svgNS, 'linearGradient');
+  rainbowGradient.setAttribute('id', 'tilePickerRainbowGradient');
+  rainbowGradient.setAttribute('x1', '0%');
+  rainbowGradient.setAttribute('y1', '0%');
+  rainbowGradient.setAttribute('x2', '100%');
+  rainbowGradient.setAttribute('y2', '100%');
+
+  [
+    ['0%', 'rgb(239,68,68)'],
+    ['25%', 'rgb(251,191,36)'],
+    ['50%', 'rgb(34,197,94)'],
+    ['75%', 'rgb(59,130,246)'],
+    ['100%', 'rgb(168,85,247)']
+  ].forEach(([offset, color]) => {
+    const stop = document.createElementNS(svgNS, 'stop');
+    stop.setAttribute('offset', offset);
+    stop.setAttribute('stop-color', color);
+    rainbowGradient.appendChild(stop);
+  });
+
+  defs.appendChild(rainbowGradient);
+  svg.appendChild(defs);
+
+  const counts = getColorCountsForTileEdit(tileIndex);
   const usedRare = getUsedRareFromCounts(counts);
 
-  for (const color of TILE_PICKER_COLORS) {
-    const option = document.createElement('div');
-    option.className = 'tile-color-option';
-    option.dataset.color = color;
-    option.style.background = getPickerColorBackground(color);
+const centerX = 46;
+const centerY = 46;
+const outerRadius = 55;
+const innerRadius = 30;
+  const sliceAngle = 360 / TILE_PICKER_COLORS.length;
+  const startOffset = -90 - (sliceAngle / 2);
+
+  TILE_PICKER_COLORS.forEach((color, index) => {
+    const startAngle = startOffset + index * sliceAngle;
+    const endAngle = startAngle + sliceAngle;
+
+    const sector = document.createElementNS(svgNS, 'path');
+
+    sector.classList.add('tile-color-sector');
+    sector.dataset.color = color;
+
+    sector.setAttribute(
+      'd',
+      getDonutSectorPath(
+        centerX,
+        centerY,
+        innerRadius,
+        outerRadius,
+        startAngle,
+        endAngle
+      )
+    );
+
+    sector.setAttribute(
+      'fill',
+      getRingSectorFill(color)
+    );
 
     const disabled = isTilePickerColorDisabled(
       color,
-      i,
+      tileIndex,
       counts,
       usedRare
     );
 
-    option.classList.toggle('disabled', disabled);
+    sector.classList.toggle('disabled', disabled);
 
-    option.addEventListener('click', event => {
+    sector.addEventListener('click', event => {
       event.stopPropagation();
       if (disabled) return;
 
-      placeColorAs(i, color);
+      placeColorAs(tileIndex, color);
       closeTileColorPicker();
     });
 
-    option.addEventListener('mouseenter', event => {
-      showColorTooltip(getColorTooltipLabel(color), event);
-    });
+sector.addEventListener('mouseenter', event => {
+  showColorTooltip(getColorTooltipLabel(color), event);
 
-    option.addEventListener('mousemove', moveColorTooltip);
-    option.addEventListener('mouseleave', hideColorTooltip);
+  if (!disabled) {
+    previewTilePickerColor(tileIndex, color);
+  }
+});
 
-    picker.appendChild(option);
+sector.addEventListener('mousemove', moveColorTooltip);
+
+sector.addEventListener('mouseleave', () => {
+  hideColorTooltip();
+  clearTilePickerPreview();
+});
+
+    svg.appendChild(sector);
+  });
+
+  const hole = document.createElementNS(svgNS, 'circle');
+  hole.classList.add('tile-color-ring-hole');
+  hole.setAttribute('cx', centerX);
+  hole.setAttribute('cy', centerY);
+  hole.setAttribute('r', innerRadius - 1);
+
+  svg.appendChild(hole);
+
+  return svg;
+}
+
+function getDonutSectorPath(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const outerStart = polarToCartesian(cx, cy, outerR, startAngle);
+  const outerEnd = polarToCartesian(cx, cy, outerR, endAngle);
+  const innerEnd = polarToCartesian(cx, cy, innerR, endAngle);
+  const innerStart = polarToCartesian(cx, cy, innerR, startAngle);
+
+  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
+
+  return [
+    `M ${outerStart.x} ${outerStart.y}`,
+    `A ${outerR} ${outerR} 0 ${largeArcFlag} 1 ${outerEnd.x} ${outerEnd.y}`,
+    `L ${innerEnd.x} ${innerEnd.y}`,
+    `A ${innerR} ${innerR} 0 ${largeArcFlag} 0 ${innerStart.x} ${innerStart.y}`,
+    'Z'
+  ].join(' ');
+}
+
+function polarToCartesian(cx, cy, radius, angleInDegrees) {
+  const angleInRadians = angleInDegrees * Math.PI / 180;
+
+  return {
+    x: cx + radius * Math.cos(angleInRadians),
+    y: cy + radius * Math.sin(angleInRadians)
+  };
+}
+
+function getRingSectorFill(color) {
+  if (color === 'rainbow') {
+    return 'url(#tilePickerRainbowGradient)';
   }
 
-  cell.appendChild(picker);
+  return getPickerColorBackground(color);
 }
 
 function closeTileColorPicker() {
@@ -5220,6 +5323,15 @@ function getFutureCollapseCandidates(boardSet, knownMask, ctx) {
   for (let mask = unknownMask; mask; mask &= mask - 1) {
     const bit = mask & -mask;
     const i = BIT_INDEX[bit];
+
+    const hitCount = getBoardSetCount(
+      boardSet & ctx.tileHitBoardSets[i],
+      ctx
+    );
+
+    if (hitCount === 0 || hitCount === boardCount) {
+      continue;
+    }
 
     const splitScore = getTileSplitScoreForBoardSet(
       i,
