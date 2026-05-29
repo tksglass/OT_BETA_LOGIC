@@ -1569,20 +1569,25 @@ if (shouldEndGameOnMiss({
 }
 
 if (!isValidPlacement(i, prevColor)) {
-    grid[i] = prevColor;
+  grid[i] = prevColor;
 
-    currentMode = prevSnapshot.currentMode;
-    appState = prevSnapshot.appState;
-    lastSpecialGroup = prevSnapshot.lastSpecialGroup;
-    lastProbs = prevSnapshot.lastProbs;
-    lastTopMoves = prevSnapshot.lastTopMoves;
+  currentMode = prevSnapshot.currentMode;
+  appState = prevSnapshot.appState;
+  lastSpecialGroup = prevSnapshot.lastSpecialGroup;
+  lastProbs = prevSnapshot.lastProbs;
+  lastTopMoves = prevSnapshot.lastTopMoves;
 
-    clearPlacementsCache();
-    render();
-    renderUI();
-    updateColorAvailability();
-    return;
+  clearPlacementsCache();
+
+  if (appState.allBoards) {
+    installExactCaches(buildExactCaches(appState.allBoards));
   }
+
+  render();
+  renderUI();
+  updateColorAvailability();
+  return;
+}
 
   commitAcceptedMove({
   index: i,
