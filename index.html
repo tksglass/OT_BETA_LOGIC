@@ -109,6 +109,81 @@
   grid-row: auto;
 }
 
+.heatmap-board-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.cell.picker-open {
+  transform: scale(1.55);
+  z-index: 100;
+  overflow: visible;
+
+  box-shadow:
+    0 0 0 2px rgba(255,255,255,0.75),
+    0 4px 12px rgba(0,0,0,0.30);
+}
+
+.cell.picker-open[style*="--picker-outline-color"] {
+  outline: 3px solid var(--picker-outline-color);
+  outline-offset: -2px;
+}
+
+.tile-color-picker {
+  position: absolute;
+  inset: 2px;
+  z-index: 200;
+
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+
+  gap: 0;
+  padding: 2px;
+
+  border-radius: 4px;
+
+  background: #d1d5db;
+
+  box-shadow:
+    0 3px 10px rgba(0,0,0,0.25);
+}
+
+.tile-color-option {
+  border-radius: 0;
+
+  border: 1px solid rgba(0,0,0,0.15);
+
+  cursor: pointer;
+
+  box-sizing: border-box;
+}
+
+.tile-color-option:hover {
+  filter: brightness(1.12);
+}
+
+.tile-color-option.disabled {
+  opacity: 0.18;
+  cursor: default;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+
+.tile-color-option[data-color="rainbow"] {
+  background:
+    linear-gradient(
+      135deg,
+      rgb(239,68,68),
+      rgb(251,191,36),
+      rgb(34,197,94),
+      rgb(59,130,246),
+      rgb(168,85,247)
+    );
+}
+
 .color-btn[data-color="rainbow"] {
   background:
     linear-gradient(
@@ -519,6 +594,12 @@ button {
     opacity: 0.4;
     pointer-events: none;
   }
+  
+  .color-btn.preview-disabled {
+  opacity: 0.18;
+  pointer-events: none;
+  filter: grayscale(1);
+}
   
   .main-container {
   max-width: 720px;
@@ -1132,24 +1213,9 @@ button {
 
   <div class="board-wrapper">
 
-    <div class="board-row">
-      <div id="playBoard" class="board disabled"></div>
-
-      <div class="side-palette">
-        <span class="color-btn" data-color="orange" style="background:orange" onclick="selectColor('orange',event)"></span>
-        <span class="color-btn" data-color="red" style="background:red" onclick="selectColor('red',event)"></span>
-        <span class="color-btn" data-color="black" style="background:black" onclick="selectColor('black',event)"></span>
-        <span class="color-btn" data-color="white" style="background:white" onclick="selectColor('white',event)"></span>
-        <span class="color-btn" data-color="rainbow" onclick="selectColor('rainbow',event)"></span>
-      </div>
-    </div>
-
-    <div class="bottom-palette">
-      <span class="color-btn" data-color="teal" style="background:#4fd1c5" onclick="selectColor('teal',event)"></span>
-      <span class="color-btn" data-color="green" style="background:green" onclick="selectColor('green',event)"></span>
-      <span class="color-btn" data-color="yellow" style="background:yellow" onclick="selectColor('yellow',event)"></span>
-      <span class="color-btn" data-color="miss" style="background:#3b82f6" onclick="selectColor('miss',event)"></span>
-    </div>
+<div class="board-row">
+  <div id="playBoard" class="board disabled"></div>
+</div>
 
   </div>
 </div>
@@ -1161,7 +1227,26 @@ button {
 
 <div id="heatmapSubtitle" class="heatmap-subtitle"></div>
 
-<div id="heatmap" class="board"></div>
+<div class="heatmap-board-wrapper">
+  <div class="board-row">
+    <div id="heatmap" class="board"></div>
+
+    <div class="side-palette">
+      <span class="color-btn" data-color="orange" style="background:orange" onclick="selectColor('orange',event)"></span>
+      <span class="color-btn" data-color="red" style="background:red" onclick="selectColor('red',event)"></span>
+      <span class="color-btn" data-color="black" style="background:black" onclick="selectColor('black',event)"></span>
+      <span class="color-btn" data-color="white" style="background:white" onclick="selectColor('white',event)"></span>
+      <span class="color-btn" data-color="rainbow" onclick="selectColor('rainbow',event)"></span>
+    </div>
+  </div>
+  
+  <div class="bottom-palette">
+    <span class="color-btn" data-color="teal" style="background:#4fd1c5" onclick="selectColor('teal',event)"></span>
+    <span class="color-btn" data-color="green" style="background:green" onclick="selectColor('green',event)"></span>
+    <span class="color-btn" data-color="yellow" style="background:yellow" onclick="selectColor('yellow',event)"></span>
+    <span class="color-btn" data-color="miss" style="background:#3b82f6" onclick="selectColor('miss',event)"></span>
+  </div>
+</div>
 
 <div id="confidence" class="confidence"></div>
 
@@ -1236,6 +1321,12 @@ const SHIPS={
   rainbow:2,
 };
 const RARE_COLORS=['orange','red','black','white','rainbow'];
+
+const TILE_PICKER_COLORS = [
+  'miss', 'teal', 'yellow',
+  'green', 'orange', 'red',
+  'black', 'white', 'rainbow'
+];
 
 const TILE_EV = {
   miss: 10,
@@ -1448,6 +1539,7 @@ let lastHoveredTile = null;
 let heatmapPreviewActive = false;
 let heatmapMode = "probability";
 let lastAutoFillHitCount = 0;
+let activeColorPickerTile = null;
 
 let showGambaHighlight = false;
 
@@ -1538,26 +1630,143 @@ function handleCellClick(i){
     !isAnonymousRareShip(forced);
 
   if(canAutoPlaceForced){
-
-    const prevSelected = selectedColor;
-    const prevGrid = grid[i];
-
-    selectedColor = forced;
-
-    placeColor(i);
-
-    const success = grid[i] !== prevGrid;
-
-    selectedColor = prevSelected;
-
-    if(!success){
-      placeColor(i);
-    }
-
+    placeColorAs(i, forced);
     return;
   }
 
+  openTileColorPicker(i);
+}
+
+function openTileColorPicker(i) {
+  closeTileColorPicker();
+
+  const cell = DOM.playBoard[i];
+  if (!cell) return;
+
+  activeColorPickerTile = i;
+  cell.classList.add('picker-open');
+  
+if (grid[i] !== null) {
+  cell.style.setProperty(
+    '--picker-outline-color',
+    getPickerOutlineColor(grid[i])
+  );
+} else {
+  cell.style.removeProperty('--picker-outline-color');
+}
+
+  const picker = document.createElement('div');
+  picker.className = 'tile-color-picker';
+
+  const counts = getColorCountsForTileEdit(i);
+  const usedRare = getUsedRareFromCounts(counts);
+
+  for (const color of TILE_PICKER_COLORS) {
+    const option = document.createElement('div');
+    option.className = 'tile-color-option';
+    option.dataset.color = color;
+    option.style.background = getPickerColorBackground(color);
+
+    const disabled = isTilePickerColorDisabled(
+      color,
+      i,
+      counts,
+      usedRare
+    );
+
+    option.classList.toggle('disabled', disabled);
+
+    option.addEventListener('click', event => {
+      event.stopPropagation();
+      if (disabled) return;
+
+      placeColorAs(i, color);
+      closeTileColorPicker();
+    });
+
+    option.addEventListener('mouseenter', event => {
+      showColorTooltip(getColorTooltipLabel(color), event);
+    });
+
+    option.addEventListener('mousemove', moveColorTooltip);
+    option.addEventListener('mouseleave', hideColorTooltip);
+
+    picker.appendChild(option);
+  }
+
+  cell.appendChild(picker);
+}
+
+function closeTileColorPicker() {
+  if (activeColorPickerTile === null) return;
+
+  const cell = DOM.playBoard[activeColorPickerTile];
+
+  if (cell) {
+    cell.classList.remove('picker-open');
+	
+	cell.style.removeProperty('--picker-outline-color');
+
+    const picker = cell.querySelector('.tile-color-picker');
+    if (picker) picker.remove();
+  }
+
+  activeColorPickerTile = null;
+  hideColorTooltip();
+}
+
+function placeColorAs(i, color) {
+  const previewColor = selectedColor;
+
+  selectedColor = color;
   placeColor(i);
+  selectedColor = previewColor;
+
+  restoreSelectedPreviewButton();
+}
+
+function getColorCountsForTileEdit(tileIndex) {
+  const counts = getColorCounts();
+  const currentColor = grid[tileIndex];
+
+  if (currentColor && counts[currentColor] > 0) {
+    counts[currentColor]--;
+  }
+
+  return counts;
+}
+
+function getUsedRareFromCounts(counts) {
+  return RARE_COLORS.filter(color =>
+    counts[color] > 0
+  );
+}
+
+function isTilePickerColorDisabled(color, tileIndex, counts, usedRare) {
+  const currentColor = grid[tileIndex];
+
+  if (color === currentColor) {
+    return false;
+  }
+
+  return isColorDisabled(color, counts, usedRare);
+}
+
+function getPickerColorBackground(color) {
+  switch(color){
+    case 'miss': return '#3b82f6';
+    case 'teal': return '#4fd1c5';
+    case 'green': return 'green';
+    case 'yellow': return 'yellow';
+    case 'orange': return 'orange';
+    case 'red': return 'red';
+    case 'black': return 'black';
+    case 'white': return 'white';
+    case 'rainbow':
+      return 'linear-gradient(135deg, rgb(239,68,68), rgb(251,191,36), rgb(34,197,94), rgb(59,130,246), rgb(168,85,247))';
+    default:
+      return '#d1d5db';
+  }
 }
 
 function toggleColor(i) {
@@ -3365,13 +3574,13 @@ const missHeavyExtreme =
   hits < 2;
 
 if (
-  !huntMode &&
   (hitHeavyExtreme || missHeavyExtreme) &&
   !appState.isGuaranteed &&
   !appState.isTrueEndgame
 ) {
 
 normalClarityMove = getSafeModeProgressMove(allBoards, probs, {
+  huntMode,
   requireGuaranteedBlue: false,
   minBlueChance: 0,
   maxBluePenalty: 1,
@@ -4901,12 +5110,22 @@ function chooseLowestIndexCandidate(pool) {
 }
 
 function applyTiebreakLayer(pool, getValue, higherIsBetter, reason, passed) {
-  const nextPool = keepBestCandidates(pool, getValue, higherIsBetter);
+  const originalCount = pool.length;
+
+  const nextPool = keepBestCandidates(
+    pool,
+    getValue,
+    higherIsBetter
+  );
 
   return {
     pool: nextPool,
     winner: nextPool.length === 1
-      ? withTiebreaker(nextPool[0], reason, passed)
+      ? withTiebreaker(
+          nextPool[0],
+          `${reason} (${originalCount} candidates)`,
+          passed
+        )
       : null
   };
 }
@@ -5869,7 +6088,7 @@ function highlightStartingCorners(){
   const { huntMode } = getGameContext();
 
   const openingTiles = huntMode
-    ? [6, 8, 16, 18]              
+    ? [7, 11, 13, 17]              
     : [0, 4, 20, 24];  
 
   openingTiles.forEach(i => {
@@ -6078,6 +6297,7 @@ function handleKnownBoardInfo(messages) {
 
 function getSafeModeProgressMove(allBoards, probs, options = {}) {
   const {
+    huntMode = false,
     requireGuaranteedBlue = true,
     minBlueChance = 0.75,
     maxBluePenalty = 0.04,
@@ -6086,11 +6306,12 @@ function getSafeModeProgressMove(allBoards, probs, options = {}) {
 
   const unknown = getUnknownTiles();
 
-  const safeBlueChance = i => 1 - probs[i];
+  const targetChance = huntMode
+    ? i => probs[i]
+    : i => 1 - probs[i];
 
-  const safestTile = chooseBestSafeCandidate(unknown, allBoards, probs);
-  const safestBlueChance = safestTile !== null
-    ? safeBlueChance(safestTile)
+  const bestTargetChance = unknown.length
+    ? Math.max(...unknown.map(targetChance))
     : 0;
 
   const progressTiles = unknown.filter(i => {
@@ -6098,13 +6319,13 @@ function getSafeModeProgressMove(allBoards, probs, options = {}) {
 
     if (score.expectedRemaining >= allBoards.length) return false;
 
-    if (requireGuaranteedBlue && safeBlueChance(i) < 1) return false;
+    if (requireGuaranteedBlue && targetChance(i) < 1) return false;
 
     if (!requireGuaranteedBlue) {
-      const blueChance = safeBlueChance(i);
+      const chance = targetChance(i);
 
-      if (blueChance < minBlueChance) return false;
-      if (blueChance < safestBlueChance - maxBluePenalty) return false;
+      if (chance < minBlueChance) return false;
+      if (chance < bestTargetChance - maxBluePenalty) return false;
 
       const clarityGain = allBoards.length / score.expectedRemaining;
       if (clarityGain < minClarityGain) return false;
@@ -6342,7 +6563,12 @@ bestRare = withTiebreaker(
   );
 }
 
-const selected = chooseBestProgressCandidate(progressTiles, allBoards, probs);
+const selected = chooseBestProgressCandidate(
+  progressTiles,
+  allBoards,
+  probs,
+  huntMode
+);
 const getScore = makeCollapseScoreGetter(allBoards, probs);
 const score = getScore(selected.i);
 
@@ -6368,7 +6594,7 @@ function withSafeMoveReason(
   };
 }
 
-function chooseBestProgressCandidate(tiles, allBoards, probs) {
+function chooseBestProgressCandidate(tiles, allBoards, probs, huntMode = false) {
   const getScore = makeCollapseScoreGetter(allBoards, probs);
 
   let pool = tiles.map(tile => ({
@@ -6380,53 +6606,42 @@ function chooseBestProgressCandidate(tiles, allBoards, probs) {
     return pool[0] || null;
   }
 
-  pool = keepBestCandidates(
+  let result = applyTiebreakLayer(
     pool,
     candidate => getScore(candidate.i).expectedRemaining,
-    false
+    false,
+    "Lower expected remaining boards",
+    0
   );
 
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
-      "Lower expected remaining boards",
-      0
-    );
-  }
+  if (result.winner) return result.winner;
+  pool = result.pool;
 
-  pool = keepBestCandidates(
+  result = applyTiebreakLayer(
     pool,
     candidate => candidate.p,
-    false
+    huntMode,
+    huntMode
+      ? "Higher hit chance after equal board reduction"
+      : "Lower hit risk after equal board reduction",
+    1
   );
 
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
-      "Lower hit risk after equal board reduction",
-      1
-    );
-  }
+  if (result.winner) return result.winner;
+  pool = result.pool;
 
-  pool = keepBestCandidates(
+  result = applyTiebreakLayer(
     pool,
     candidate => getCandidateWeightedEV(candidate.i),
-    true
+    true,
+    "Higher expected value among candidates",
+    2
   );
 
-  if (pool.length === 1) {
-    return withTiebreaker(
-      pool[0],
-      "Higher expected value among candidates",
-      2
-    );
-  }
+  if (result.winner) return result.winner;
+  pool = result.pool;
 
-  return withTiebreaker(
-    chooseLowestIndexCandidate(pool),
-    "Lowest tile index (could not break tie)",
-    3
-  );
+  return finishWithLowestIndex(pool, 3);
 }
 
 function chooseBestSafeCandidate(tiles, allBoards, probs) {
@@ -6798,6 +7013,21 @@ function getRecommendationContext() {
 // T.12 UI
 // ===============================
 
+function getPickerOutlineColor(color) {
+  switch(color){
+    case 'miss': return '#3b82f6';
+    case 'teal': return '#4fd1c5';
+    case 'green': return 'green';
+    case 'yellow': return 'yellow';
+    case 'orange': return 'orange';
+    case 'red': return 'red';
+    case 'black': return 'black';
+    case 'white': return 'white';
+    case 'rainbow': return '#db2777';
+    default: return '#9ca3af';
+  }
+}
+
 function updateExactSolverUI(valid, preview = false) {
   DOM.confidence.textContent =
     `Exact boards: ${valid}${preview ? " (preview)" : ""}`;
@@ -6968,6 +7198,8 @@ function updateModeButtons(){
 }
 
 function render() {
+  closeTileColorPicker();
+
   const play = DOM.playBoard;
 
   for (let i = 0; i < 25; i++) {
@@ -8082,7 +8314,7 @@ function getOpeningHintText(){
   const { huntMode } = getGameContext();
 
   return huntMode
-    ? "Aggressive opening: any of the semi-corners are equally optimal starting moves."
+    ? "Aggressive opening: any tiles adjacent to center are equally optimal starting moves."
     : "Safe opening: all four corners are equally optimal starting moves.";
 }
 
@@ -8095,6 +8327,28 @@ function updateBoardLock(){
     currentMode === MODE.TOUCH_GRASS;
 
   board.classList.toggle('disabled', locked);
+}
+
+function isExactSolverActive() {
+  return appState?.solverInfo?.type === "exact";
+}
+
+function updateHeatmapPreviewColorAvailability() {
+  const enabled = isExactSolverActive();
+
+  document
+    .querySelectorAll('.side-palette .color-btn, .bottom-palette .color-btn')
+    .forEach(btn => {
+      btn.classList.toggle('preview-disabled', !enabled);
+
+      if (!enabled) {
+        btn.classList.remove('selected');
+      }
+    });
+
+  if (!enabled) {
+    selectedColor = null;
+  }
 }
 
 function updateColorAvailability(){
@@ -8119,7 +8373,11 @@ function updateColorAvailability(){
 
   if(!selectedStillValid){
     clearSelectedColor();
+  } else {
+    restoreSelectedPreviewButton();
   }
+
+  updateHeatmapPreviewColorAvailability();
 }
 
 function isColorDisabled(color, counts, usedRare){
@@ -8161,6 +8419,15 @@ function clearSelectedColor(){
   selectedColor = null;
   document.querySelectorAll('.color-btn')
     .forEach(b=>b.classList.remove('selected'));
+}
+
+function restoreSelectedPreviewButton(){
+  document.querySelectorAll('.color-btn').forEach(btn => {
+    btn.classList.toggle(
+      'selected',
+      !!selectedColor && btn.dataset.color === selectedColor
+    );
+  });
 }
 
 function lockConfigUI(){
@@ -10497,20 +10764,26 @@ window.toggleGambaHighlight = function() {
 };
 
 window.selectColor = function(c,e){
-if(e.target.classList.contains('disabled')) return;
+  if(
+    e.target.classList.contains('disabled') ||
+    e.target.classList.contains('preview-disabled')
+  ) return;
 
-selectedColor = c;
-  document.querySelectorAll('.color-btn').forEach(b=>b.classList.remove('selected'));
+  selectedColor = c;
+
+  document
+    .querySelectorAll('.color-btn')
+    .forEach(b => b.classList.remove('selected'));
+
   e.target.classList.add('selected');
-  updateBoardLock();
+
   updateColorAvailability();
-  
+
   const hasStarted = grid.some(c => c !== null);
 
-if(!hasStarted){
-  updateInfoBox();
-}
-
+  if(!hasStarted){
+    updateInfoBox();
+  }
 }
 
 window.setHeatmapMode = function(mode) {
@@ -10605,7 +10878,11 @@ function createBoards(){
 for(let i=0;i<25;i++){
   let cell=document.createElement('div');
   cell.className='cell';
-  cell.onclick=()=>handleCellClick(i);
+  cell.onclick = event => {
+  event.stopPropagation();
+  handleCellClick(i);
+};
+
 cell.addEventListener('mouseenter', event => {
   queueHeatmapPreview(i);
 
@@ -10670,6 +10947,7 @@ cacheDomLists();
 bindColorblindTooltips();
 
 createBoards();
+document.addEventListener('click', closeTileColorPicker);
 updateBoardLock();
 updateInfoBox();
 updateTopInfoVisibility();
