@@ -3783,8 +3783,13 @@ if (
   hasMissLeeway &&
   allBoards.length <= 1000
 ) {
-  appState.resolutionOpportunityMove =
+  const resolutionOpportunityMove =
     getBestResolutionOpportunityMove(allBoards, probs);
+
+  appState.resolutionOpportunityMove =
+    resolutionOpportunityMove?.opportunityChance >= 0.10
+      ? resolutionOpportunityMove
+      : null;
 }
 
 if (
