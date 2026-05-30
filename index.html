@@ -1882,25 +1882,29 @@ if (grid[tileIndex] === null) {
 }
 
 function canTileAcceptColorByPlacementRules(tileIndex, color) {
-  const previousColor = grid[tileIndex];
-
-  grid[tileIndex] = color;
-
-  clearPlacementValidationCachesOnly();
-
-  try {
+  return withTemporaryGridCell(tileIndex, color, () => {
     if (!isStateValid()) {
       return false;
     }
 
-const placementsMap = buildValidPlacementsMapForAllShips();
+    const placementsMap = buildValidPlacementsMapForAllShips();
 
-if (!placementsMap) {
-  return false;
+    if (!placementsMap) {
+      return false;
+    }
+
+    return hasAnyValidBoard(placementsMap);
+  });
 }
 
-return hasAnyValidBoard(placementsMap);
+function withTemporaryGridCell(tileIndex, color, fn) {
+  const previousColor = grid[tileIndex];
 
+  grid[tileIndex] = color;
+  clearPlacementValidationCachesOnly();
+
+  try {
+    return fn();
   } finally {
     grid[tileIndex] = previousColor;
     clearPlacementValidationCachesOnly();
@@ -5296,13 +5300,13 @@ function getEntropyTiebreakerMeta(
 
   if (Math.abs(entropyA - entropyB) > 0.000001) {
     return {
-      reason: "Higher outcome entropy among candidates",
+      reason: withCandidateCount("Higher outcome entropy among candidates", 2),
       passed: passedBeforeEntropy
     };
   }
 
   return {
-    reason: "Lowest tile index (could not break tie)",
+    reason: withCandidateCount("Lowest tile index (could not break tie)", 2),
     passed: passedBeforeEntropy + 1
   };
 }
@@ -5367,7 +5371,7 @@ function applyTiebreakLayer(pool, getValue, higherIsBetter, reason, passed) {
     winner: nextPool.length === 1
       ? withTiebreaker(
           nextPool[0],
-          `${reason} (${originalCount} candidate${originalCount === 1 ? "" : "s"})`,
+          withCandidateCount(reason, originalCount),
           passed
         )
       : null
@@ -5377,7 +5381,7 @@ function applyTiebreakLayer(pool, getValue, higherIsBetter, reason, passed) {
 function finishWithLowestIndex(pool, passed) {
   return withTiebreaker(
     chooseLowestIndexCandidate(pool),
-    `Lowest tile index (could not break tie, ${pool.length} candidates)`,
+    withCandidateCount("Lowest tile index (could not break tie)", pool.length),
     passed
   );
 }
@@ -5390,6 +5394,10 @@ function withTiebreaker(move, reason, passed = null) {
     tiebreaker: reason,
     tiebreakerPassed: passed
   };
+}
+
+function withCandidateCount(reason, count) {
+  return `${reason} (${count} candidate${count === 1 ? "" : "s"})`;
 }
 
 function getBestCollapseMove(
@@ -5413,25 +5421,37 @@ function getBestCollapseMove(
     false
   );
 
-  if (pool.length === 1) {
-    return withTiebreaker(pool[0], "Lower expected remaining boards", 0);
-  }
+  let candidateCount = pool.length;
 
-  pool = keepBestCandidates(
-    pool,
-    candidate => getCandidateWeightedEV(candidate.i),
-    true
-  );
-
-  if (pool.length === 1) {
-    return withTiebreaker(pool[0], "Higher expected value among candidates", 1);
-  }
-
+if (pool.length === 1) {
   return withTiebreaker(
-    chooseLowestIndexCandidate(pool),
-    "Lowest tile index (could not break tie)",
-    2
+    pool[0],
+    withCandidateCount("Lower expected remaining boards", candidateCount),
+    0
   );
+}
+
+candidateCount = pool.length;
+
+pool = keepBestCandidates(
+  pool,
+  candidate => getCandidateWeightedEV(candidate.i),
+  true
+);
+
+if (pool.length === 1) {
+  return withTiebreaker(
+    pool[0],
+    withCandidateCount("Higher expected value among candidates", candidateCount),
+    1
+  );
+}
+
+return withTiebreaker(
+  chooseLowestIndexCandidate(pool),
+  withCandidateCount("Lowest tile index (could not break tie)", pool.length),
+  2
+);
 }
 
 function getFutureCollapseDepth(boardCount) {
@@ -7100,8 +7120,8 @@ for (const candidate of pool.slice(1)) {
 bestRare = withTiebreaker(
   bestRare,
   pool.length === 1
-    ? "Higher expected value among candidates"
-    : "Lowest tile index (could not break tie)",
+    ? withCandidateCount("Higher expected value among candidates", pool.length)
+    : withCandidateCount("Lowest tile index (could not break tie)", pool.length),
   pool.length === 1 ? 2 : 3
 );
     }
@@ -7130,11 +7150,11 @@ bestRare = withTiebreaker(
     pool = tied;
 
     if (pool.length === 1) {
-      bestRare = withTiebreaker(
-        pool[0],
-        "Higher unfound rare chance",
-        0
-      );
+bestRare = withTiebreaker(
+  pool[0],
+  withCandidateCount("Higher unfound rare chance", rareCandidates.length),
+  0
+);
     } else {
       bestExpectedRemaining = Infinity;
       tied = [];
@@ -7153,11 +7173,11 @@ bestRare = withTiebreaker(
       pool = tied;
 
       if (pool.length === 1) {
-        bestRare = withTiebreaker(
-          pool[0],
-          "Lower expected remaining boards after equal rare chance",
-          1
-        );
+bestRare = withTiebreaker(
+  pool[0],
+  withCandidateCount("Lower expected remaining boards after equal rare chance", pool.length),
+  1
+);
       } else {
         let bestEV = -Infinity;
 tied = [];
@@ -7186,8 +7206,8 @@ for (const candidate of pool.slice(1)) {
 bestRare = withTiebreaker(
   bestRare,
   pool.length === 1
-    ? "Higher expected value among candidates"
-    : "Lowest tile index (could not break tie)",
+    ? withCandidateCount("Higher expected value among candidates", pool.length)
+    : withCandidateCount("Lowest tile index (could not break tie)", pool.length),
   pool.length === 1 ? 2 : 3
 );
       }
