@@ -1687,6 +1687,8 @@ svg.setAttribute('viewBox', '0 0 92 92');
 
   const counts = getColorCountsForTileEdit(tileIndex);
   const usedRare = getUsedRareFromCounts(counts);
+  
+  const placementRuleCache = {};
 
 const centerX = 46;
 const centerY = 46;
@@ -1721,12 +1723,13 @@ const innerRadius = 30;
       getRingSectorFill(color)
     );
 
-    const disabled = isTilePickerColorDisabled(
-      color,
-      tileIndex,
-      counts,
-      usedRare
-    );
+const disabled = isTilePickerColorDisabled(
+  color,
+  tileIndex,
+  counts,
+  usedRare,
+  placementRuleCache
+);
 
     sector.classList.toggle('disabled', disabled);
 
@@ -1846,14 +1849,70 @@ function getUsedRareFromCounts(counts) {
   );
 }
 
-function isTilePickerColorDisabled(color, tileIndex, counts, usedRare) {
+function isTilePickerColorDisabled(color, tileIndex, counts, usedRare, placementRuleCache = null) {
   const currentColor = grid[tileIndex];
 
   if (color === currentColor) {
     return false;
   }
 
-  return isColorDisabled(color, counts, usedRare);
+  if (isColorDisabled(color, counts, usedRare)) {
+    return true;
+  }
+
+if (grid[tileIndex] === null) {
+  if (
+    placementRuleCache &&
+    placementRuleCache[color] === undefined
+  ) {
+    placementRuleCache[color] =
+      canTileAcceptColorByPlacementRules(tileIndex, color);
+  }
+
+  const canAccept = placementRuleCache
+    ? placementRuleCache[color]
+    : canTileAcceptColorByPlacementRules(tileIndex, color);
+
+  if (!canAccept) {
+    return true;
+  }
+}
+
+  return false;
+}
+
+function canTileAcceptColorByPlacementRules(tileIndex, color) {
+  const previousColor = grid[tileIndex];
+
+  grid[tileIndex] = color;
+
+  clearPlacementValidationCachesOnly();
+
+  try {
+    if (!isStateValid()) {
+      return false;
+    }
+
+const placementsMap = buildValidPlacementsMapForAllShips();
+
+if (!placementsMap) {
+  return false;
+}
+
+return hasAnyValidBoard(placementsMap);
+
+  } finally {
+    grid[tileIndex] = previousColor;
+    clearPlacementValidationCachesOnly();
+  }
+}
+
+function clearPlacementValidationCachesOnly() {
+  placementsCache = {};
+  clearKnownCellsCache();
+  clearColorMaskCache();
+  gridStatsCache = null;
+  rareRulesCache = null;
 }
 
 function getPickerColorBackground(color) {
@@ -1921,15 +1980,11 @@ redoStack = [];
     isLoadingHash = false;
   }
 
-  clearPlacementsCache();
-  render();
+clearPlacementsCache();
 
-  appState = createEmptyAppState();
+appState = createEmptyAppState();
 
-  runSimulation();
-  updateColorAvailability();
-  renderUI();
-  updateBoardLock();
+refreshAfterBoardChange();
 };
 
 window.undoMove = function(){
@@ -1950,13 +2005,9 @@ appState = prev?.appState
   : createEmptyAppState();
   currentMode = prev?.currentMode ?? MODE.NORMAL;
 
-  clearPlacementsCache();
+clearPlacementsCache();
 
-  render();
-  updateColorAvailability();
-  runSimulation();
-  renderUI();
-  updateBoardLock();
+refreshAfterBoardChange();
 };
 
 window.redoMove = function(){
@@ -1976,13 +2027,9 @@ history.push({
 
   moves.push(move);
 
-  clearPlacementsCache();
+clearPlacementsCache();
 
-  render();
-  updateColorAvailability();
-  runSimulation();
-  renderUI();
-  updateBoardLock();
+refreshAfterBoardChange();
 };
 
 window.resetAll = function(){
@@ -2085,14 +2132,7 @@ function canPlaceColor() {
 function resetModeAndCache() {
   currentMode = MODE.NORMAL;
   clearPlacementsCache();
-  
-  appState.specialGroup = null;
-  appState.forcedTiles = null;
-  appState.collapseMove = null;
-appState.noEquivalencePlan = null;
-appState.uncertaintyMove = null;
-appState.clarityMove = null;
-appState.forcedResolutionMove = null;
+  clearTransientMoveState();
 }
 
 function ensureConfigLocked() {
@@ -2124,13 +2164,11 @@ function commitAcceptedMove(move) {
 }
 
 function finalizePlacement() {
-  render();
+	render();
 
-  appState = createEmptyAppState();
+	appState = createEmptyAppState();
 
-  runSimulation();
-  updateColorAvailability();
-  renderUI();
+	refreshAfterAnalysisStateChange();
 }
 
 function handleGameOver() {
@@ -2161,12 +2199,10 @@ function isValidPlacement(i, prevColor) {
     return false;
   }
 
-  for (let s of getShipList()) {
-    if (getPlacementsCached(s).length === 0) {
-      grid[i] = prevColor;
-      return false;
-    }
-  }
+if (!hasValidPlacementsForAllShips()) {
+  grid[i] = prevColor;
+  return false;
+}
 
   if (!hasAnyValidBoard()) {
     grid[i] = prevColor;
@@ -2192,6 +2228,53 @@ function createHistorySnapshot() {
     appState: deepClone(appState),
     currentMode
   };
+}
+
+function refreshAfterBoardChange() {
+  render();
+  updateColorAvailability();
+  runSimulation();
+  renderUI();
+  updateBoardLock();
+}
+
+function refreshAfterAnalysisStateChange() {
+  runSimulation();
+  updateColorAvailability();
+  renderUI();
+}
+
+function clearTransientMoveState() {
+  appState.specialGroup = null;
+  appState.forcedTiles = null;
+  appState.collapseMove = null;
+  appState.noEquivalencePlan = null;
+  appState.uncertaintyMove = null;
+  appState.clarityMove = null;
+  appState.forcedResolutionMove = null;
+  appState.finalDecisionMove = null;
+  appState.resolutionOpportunityMove = null;
+}
+
+function hasValidPlacementsForAllShips() {
+  for (const ship of getShipList()) {
+    if (getPlacementsCached(ship).length === 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function shouldHideBestStrategicMove(ctx = getInfoContext()) {
+  return (
+    !!appState.noEquivalencePlan?.length ||
+    !!appState.resolutionOpportunityMove ||
+    (
+      !ctx?.missEndsGame &&
+      !!appState.uncertaintyMove
+    )
+  );
 }
 
 function deepClone(obj) {
@@ -2258,7 +2341,15 @@ uncertaintyMove: obj.uncertaintyMove
 
 forcedResolutionMove: obj.forcedResolutionMove
   ? { ...obj.forcedResolutionMove }
-  : obj.forcedResolutionMove
+  : obj.forcedResolutionMove,
+
+finalDecisionMove: obj.finalDecisionMove
+  ? { ...obj.finalDecisionMove }
+  : obj.finalDecisionMove,
+
+resolutionOpportunityMove: obj.resolutionOpportunityMove
+  ? { ...obj.resolutionOpportunityMove }
+  : obj.resolutionOpportunityMove
 	  
 	  
   };
@@ -2278,6 +2369,8 @@ function createEmptyAppState(){
 clarityMove: null,
 uncertaintyMove: null,
 forcedResolutionMove: null,
+finalDecisionMove: null,
+resolutionOpportunityMove: null,
 solverInfo: null
   };
 }
@@ -2480,14 +2573,33 @@ function validateLineShape(board, cells, color){
   return true;
 }
 
-function hasAnyValidBoard(){
+function buildValidPlacementsMapForAllShips() {
+  const placementsMap = {};
+
+  for (const ship of getShipList()) {
+    const placements = getPlacementsCached(ship);
+
+    if (placements.length === 0) {
+      return null;
+    }
+
+    placementsMap[ship] = placements;
+  }
+
+  return placementsMap;
+}
+
+function hasAnyValidBoard(placementsMap = null){
   let ships = getShipList();
 
-  let placementsMap = {};
-  for(let s of ships){
-    let p = getPlacementsCached(s);
-    if(p.length === 0) return false;
-    placementsMap[s] = p;
+  if (!placementsMap) {
+    placementsMap = {};
+
+    for(let s of ships){
+      let p = getPlacementsCached(s);
+      if(p.length === 0) return false;
+      placementsMap[s] = p;
+    }
   }
 
   let board = Array(25).fill(null);
@@ -3631,6 +3743,21 @@ if (forcedResolutionMove) {
   return;
 }
 
+const currentCounts = getHitMissCounts();
+
+const hasMissLeeway =
+  !(currentCounts.hits >= 5 && currentCounts.misses >= 3);
+
+const finalDecisionMove = hasMissLeeway
+  ? getFinalDecisionSetupMove(allBoards, probs)
+  : null;
+
+if (finalDecisionMove) {
+  applyFinalDecisionSetupMove(finalDecisionMove, probs);
+  updateExactSolverUI(valid);
+  return;
+}
+
 const effectiveUnknownTiles = getEffectiveUnknownTilesForPrecalc();
 
 
@@ -3651,6 +3778,14 @@ if (
 
 ======= NEXT STEP PRESERVES UNAVOIDABLE GUESS ===========
 */
+
+if (
+  hasMissLeeway &&
+  allBoards.length <= 1000
+) {
+  appState.resolutionOpportunityMove =
+    getBestResolutionOpportunityMove(allBoards, probs);
+}
 
 if (
   allBoards.length <= PRECALC_BOARD_LIMIT &&
@@ -5227,7 +5362,7 @@ function applyTiebreakLayer(pool, getValue, higherIsBetter, reason, passed) {
     winner: nextPool.length === 1
       ? withTiebreaker(
           nextPool[0],
-          `${reason} (${originalCount} candidates)`,
+          `${reason} (${originalCount} candidate${originalCount === 1 ? "" : "s"})`,
           passed
         )
       : null
@@ -6016,6 +6151,336 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // ===============================
 // T.11 MOVE STRATEGY
 // ===============================
+
+function getBestResolutionOpportunityMove(allBoards, probs) {
+  if (!allBoards || allBoards.length <= 2) return null;
+  if (allBoards.length > 1000) return null;
+
+  const ctx = getPrecalcContext(allBoards);
+  const knownMask = getCurrentKnownMask();
+  const boardSet = ctx.allBoardSet;
+  const boardCount = getBoardSetCount(boardSet, ctx);
+  const candidateMask = FULL_BOARD_MASK & ~knownMask;
+
+  const forcedCandidates = [];
+  const finalDecisionCandidates = [];
+
+  for (let mask = candidateMask; mask; mask &= mask - 1) {
+    const bit = mask & -mask;
+    const tile = BIT_INDEX[bit];
+
+    if (appState.forcedTiles?.[tile]) continue;
+
+    const score = scoreResolutionOpportunityTile(
+      tile,
+      boardSet,
+      boardCount,
+      knownMask,
+      ctx,
+      probs
+    );
+
+    if (!score) continue;
+
+    if (score.opportunityType === "forcedResolution") {
+      forcedCandidates.push(score);
+    } else {
+      finalDecisionCandidates.push(score);
+    }
+  }
+
+  const candidates = forcedCandidates.length
+    ? forcedCandidates
+    : finalDecisionCandidates;
+
+  if (!candidates.length) return null;
+
+  let result = applyTiebreakLayer(
+    candidates,
+    c => c.opportunityChance,
+    true,
+    "Higher chance to create resolution opportunity",
+    0
+  );
+
+  if (result.winner) return result.winner;
+
+  result = applyTiebreakLayer(
+    result.pool,
+    c => c.bestOutcomeRemaining,
+    false,
+    "Fewer boards in best resolving outcome",
+    1
+  );
+
+  if (result.winner) return result.winner;
+
+  result = applyTiebreakLayer(
+    result.pool,
+    c => c.expectedRemaining,
+    false,
+    "Lower expected boards after reveal",
+    2
+  );
+
+  return result.winner || result.pool[0] || null;
+}
+
+function scoreResolutionOpportunityTile(
+  tile,
+  boardSet,
+  boardCount,
+  knownMask,
+  ctx,
+  probs
+) {
+  const outcomeSets = ctx.outcomeBoardSetsByTile[tile];
+  const nextKnownMask = knownMask | CELL_MASKS[tile];
+
+  const forcedOpportunity =
+    getDirectResolutionOpportunityForType(
+      "forcedResolution",
+      outcomeSets,
+      boardSet,
+      boardCount,
+      nextKnownMask,
+      ctx
+    );
+
+  if (forcedOpportunity) {
+    return {
+      i: tile,
+      p: probs[tile],
+      type: "resolutionOpportunity",
+      opportunityType: "forcedResolution",
+      opportunityChance: forcedOpportunity.opportunityChance,
+      bestOutcomeRemaining: forcedOpportunity.bestOutcomeRemaining,
+      bestOutcome: forcedOpportunity.bestOutcome,
+      expectedRemaining: forcedOpportunity.expectedRemaining
+    };
+  }
+
+  const finalDecisionOpportunity =
+    getDirectResolutionOpportunityForType(
+      "finalDecisionSetup",
+      outcomeSets,
+      boardSet,
+      boardCount,
+      nextKnownMask,
+      ctx
+    );
+
+  if (!finalDecisionOpportunity) return null;
+
+  return {
+    i: tile,
+    p: probs[tile],
+    type: "resolutionOpportunity",
+    opportunityType: "finalDecisionSetup",
+    opportunityChance: finalDecisionOpportunity.opportunityChance,
+    bestOutcomeRemaining: finalDecisionOpportunity.bestOutcomeRemaining,
+    bestOutcome: finalDecisionOpportunity.bestOutcome,
+    expectedRemaining: finalDecisionOpportunity.expectedRemaining
+  };
+}
+
+function getDirectResolutionOpportunityForType(
+  type,
+  outcomeSets,
+  boardSet,
+  boardCount,
+  nextKnownMask,
+  ctx
+) {
+  let opportunityChance = 0;
+  let bestOutcomeRemaining = Infinity;
+  let bestOutcome = null;
+  let expectedRemaining = 0;
+
+  for (const outcome in outcomeSets) {
+    const outcomeBoardSet = boardSet & outcomeSets[outcome];
+
+    if (outcomeBoardSet === 0n) continue;
+
+    const count = getBoardSetCount(outcomeBoardSet, ctx);
+    const pOutcome = count / boardCount;
+
+    expectedRemaining += pOutcome * count;
+
+    const createsOpportunity =
+      type === "forcedResolution"
+        ? isSolvedBoardSet(
+            outcomeBoardSet,
+            nextKnownMask,
+            ctx
+          )
+: count <= 2;
+
+    if (!createsOpportunity) continue;
+
+    opportunityChance += pOutcome;
+
+    if (count < bestOutcomeRemaining) {
+      bestOutcomeRemaining = count;
+      bestOutcome = outcome;
+    }
+  }
+
+  if (opportunityChance <= 0) return null;
+
+  return {
+    opportunityChance,
+    bestOutcomeRemaining,
+    bestOutcome,
+    expectedRemaining
+  };
+}
+
+function boardSetHasFinalDecisionSetupMove(boardSet, knownMask, ctx) {
+  const boardCount = getBoardSetCount(boardSet, ctx);
+  if (boardCount <= 2) return false;
+
+  const candidateMask = FULL_BOARD_MASK & ~knownMask;
+
+  for (let mask = candidateMask; mask; mask &= mask - 1) {
+    const bit = mask & -mask;
+    const tile = BIT_INDEX[bit];
+
+    if (appState.forcedTiles?.[tile]) continue;
+
+    if (
+      scoreFinalDecisionSetupTile(
+        tile,
+        boardSet,
+        boardCount,
+        ctx,
+        appState.probs || []
+      )
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getFinalDecisionSetupMove(allBoards, probs) {
+  if (!allBoards || allBoards.length <= 2) return null;
+  if (allBoards.length > PRECALC_BOARD_LIMIT) return null;
+
+  const ctx = getPrecalcContext(allBoards);
+  const knownMask = getCurrentKnownMask();
+  const boardSet = ctx.allBoardSet;
+  const boardCount = getBoardSetCount(boardSet, ctx);
+  const candidateMask = FULL_BOARD_MASK & ~knownMask;
+
+  const candidates = [];
+
+  for (let mask = candidateMask; mask; mask &= mask - 1) {
+    const bit = mask & -mask;
+    const tile = BIT_INDEX[bit];
+
+    if (appState.forcedTiles?.[tile]) continue;
+
+    const score = scoreFinalDecisionSetupTile(
+      tile,
+      boardSet,
+      boardCount,
+      ctx,
+      probs
+    );
+
+    if (score) candidates.push(score);
+  }
+
+  if (!candidates.length) return null;
+
+  let result = applyTiebreakLayer(
+    candidates,
+    c => c.riskAdjustedRemaining,
+    false,
+    "Lowest risk-adjusted boards after reveal",
+    0
+  );
+
+  if (result.winner) return result.winner;
+
+  result = applyTiebreakLayer(
+    result.pool,
+    c => c.expectedRemaining,
+    false,
+    "Lowest expected boards after reveal",
+    1
+  );
+
+  if (result.winner) return result.winner;
+
+  result = applyTiebreakLayer(
+    result.pool,
+    c => c.p,
+    false,
+    "Lower hit chance",
+    2
+  );
+
+  return result.winner || result.pool[0] || null;
+}
+
+function scoreFinalDecisionSetupTile(tile, boardSet, boardCount, ctx, probs) {
+  const outcomeSets = ctx.outcomeBoardSetsByTile[tile];
+
+  let expectedRemaining = 0;
+  let worstRemaining = 0;
+  let outcomeCount = 0;
+
+  for (const outcome in outcomeSets) {
+    const outcomeBoardSet = boardSet & outcomeSets[outcome];
+
+    if (outcomeBoardSet === 0n) continue;
+
+    const count = getBoardSetCount(outcomeBoardSet, ctx);
+
+    if (count > 2) return null;
+
+    const pOutcome = count / boardCount;
+
+    expectedRemaining += pOutcome * count;
+    worstRemaining = Math.max(worstRemaining, count);
+    outcomeCount++;
+  }
+
+  if (outcomeCount === 0) return null;
+
+  return {
+    i: tile,
+    p: probs[tile],
+    expectedRemaining,
+    worstRemaining,
+    riskAdjustedRemaining:
+      expectedRemaining + worstRemaining * 0.35,
+    type: "safe"
+  };
+}
+
+function applyFinalDecisionSetupMove(move, probs) {
+  appState.probs = probs;
+  appState.topMoves = [move];
+
+  appState.isTrueEndgame = false;
+  appState.isGuaranteed = false;
+  appState.specialGroup = null;
+  appState.collapseMove = null;
+  appState.noEquivalencePlan = null;
+  appState.safeOverride = false;
+  appState.safeOverrideSource = null;
+  appState.finalDecisionMove = move;
+
+  clearRecommendations();
+
+  if (grid[move.i] === null) {
+    DOM.playBoard[move.i].classList.add("recommended-safe");
+  }
+}
 
 function getForcedResolutionMove(allBoards, probs) {
   const EPSILON = 0.000001;
@@ -7477,13 +7942,16 @@ function renderDangerRecommendationHighlight() {
 
   const context = getInfoContext();
 
-  const move =
-    appState.noEquivalencePlan?.[0] ||
-    (
-      context.missEndsGame
-        ? null
-        : appState.uncertaintyMove
-    );
+const move =
+  appState.noEquivalencePlan?.[0] ||
+  (
+    context.missEndsGame
+      ? null
+      : (
+          appState.resolutionOpportunityMove ||
+          appState.uncertaintyMove
+        )
+  );
 
 if (!move || move.i === undefined) return;
 if (grid[move.i] !== null) return;
@@ -7496,15 +7964,23 @@ if (
   return;
 }
 
-  if (
-    appState.uncertaintyMove &&
-    move.i === appState.uncertaintyMove.i &&
-    getMatchingRecommendationForUncertaintyMove(move)
-  ) {
-    return;
-  }
+if (
+  appState.uncertaintyMove &&
+  move.i === appState.uncertaintyMove.i &&
+  getMatchingRecommendationForUncertaintyMove(move)
+) {
+  return;
+}
 
-  DOM.playBoard[move.i].classList.add("recommended-danger");
+if (
+  appState.resolutionOpportunityMove &&
+  move.i === appState.resolutionOpportunityMove.i &&
+  getMatchingRecommendationForResolutionOpportunityMove(move)
+) {
+  return;
+}
+
+DOM.playBoard[move.i].classList.add("recommended-danger");
 }
 
 function renderGuaranteedUnknownHits() {
@@ -7668,16 +8144,22 @@ if (handleGuaranteedInfo(messages)) {
 }
 
 if (!blockDecisionsForForcedHits) {
-  if (appendForcedResolutionCard(messages)) {
-    renderInfoMessages(messages);
-    return;
-  }
+if (appendForcedResolutionCard(messages)) {
+  renderInfoMessages(messages);
+  return;
+}
+
+if (appendFinalDecisionSetupCard(messages)) {
+  renderInfoMessages(messages);
+  return;
+}
 
   appendStrategyMessages(messages, context);
 }
 }
 
 appendRainbowCandidateCard(messages, context);
+appendResolutionOpportunityCard(messages, context);
 appendUncertaintyMoveCard(messages, context);
 appendFallback(messages);
 
@@ -7746,9 +8228,12 @@ function getMatchingRecommendationForUncertaintyMove(move) {
     return "Play the Best Safe Move.";
   }
 
-  if (best?.i === move.i) {
-    return "Play the Best Strategic Move.";
-  }
+if (
+  best?.i === move.i &&
+  !shouldHideBestStrategicMove()
+) {
+  return "Play the Best Strategic Move.";
+}
 
   if (alternative?.i === move.i) {
     if (alternativeType === "futureCollapse") {
@@ -7765,6 +8250,10 @@ function getMatchingRecommendationForUncertaintyMove(move) {
   return null;
 }
 
+function getMatchingRecommendationForResolutionOpportunityMove(move) {
+  return getMatchingRecommendationForUncertaintyMove(move);
+}
+
 function isRareClarifyingTile(tile) {
   if (tile === undefined || tile === null) return false;
 
@@ -7775,6 +8264,34 @@ function isRareClarifyingTile(tile) {
   }
 
   return getUnfoundRareProbability(tile, appState.allBoards || []) > 0;
+}
+
+function appendFinalDecisionSetupCard(messages) {
+  const move = appState.finalDecisionMove;
+  if (!move || move.i === undefined) return false;
+
+  const [r, c] = indexToCoord(move.i);
+
+  messages.push(
+    makeCard(
+      "Final Decision Setup",
+      `
+        Every possible outcome on this tile leads to Final Decision.
+        <br><br>
+        <b>Row ${r + 1}, Col ${c + 1}</b>
+        <br>
+        Blue chance: <b>${((1 - move.p) * 100).toFixed(1)}%</b>
+        <br>
+        Expected boards after reveal: <b>${move.expectedRemaining.toFixed(1)}</b>
+        <br>
+        Worst outcome: <b>${move.worstRemaining.toFixed(0)} boards</b>
+        ${getTiebreakerText(move)}
+      `,
+      "info-green"
+    )
+  );
+
+  return true;
 }
 
 function appendForcedResolutionCard(messages) {
@@ -7801,6 +8318,68 @@ function appendForcedResolutionCard(messages) {
   );
 
   return true;
+}
+
+function appendResolutionOpportunityCard(messages, context) {
+  const move = appState.resolutionOpportunityMove;
+
+  if (!move || move.i === undefined) return;
+  if (context?.missEndsGame) return;
+  if (grid[move.i] !== null) return;
+
+  const matchingRecommendation =
+    getMatchingRecommendationForResolutionOpportunityMove(move);
+
+  const chanceText =
+    `${(move.opportunityChance * 100).toFixed(1)}%`;
+
+  const outcomeText =
+    move.opportunityType === "forcedResolution"
+      ? "Forced Resolution"
+      : "Final Decision Setup";
+
+if (matchingRecommendation) {
+  const [r, c] = indexToCoord(move.i);
+
+  messages.push(
+    makeCard(
+      "Resolution Opportunity",
+      `
+        One possible outcome on the recommended tile creates ${outcomeText}.
+        <br><br>
+        <b>${matchingRecommendation}</b>
+        <br>
+        <span style="color:#dc2626; font-weight:bold">Row ${r + 1}, Col ${c + 1}</span>
+        <br>
+        Chance: <b>${chanceText}</b>
+      `,
+      "info-red"
+    )
+  );
+
+  return;
+}
+
+  const [r, c] = indexToCoord(move.i);
+
+  messages.push(
+    makeCard(
+      "Resolution Opportunity",
+      `
+        One possible outcome on this tile creates ${outcomeText}.
+        <br><br>
+        Consider:
+        <br>
+        <b>Row ${r + 1}, Col ${c + 1}</b>
+        <br>
+        Chance: <b>${chanceText}</b>
+        <br>
+        Best resolving branch: <b>${move.bestOutcomeRemaining} board${move.bestOutcomeRemaining === 1 ? "" : "s"}</b>
+        ${move.tiebreaker?.includes("(1 candidate)") ? "" : getTiebreakerText(move)}
+      `,
+      "info-red"
+    )
+  );
 }
 
 function appendUncertaintyMoveCard(messages, context) {
@@ -8359,7 +8938,7 @@ makeCard(
   );
 }
 
-if (best) {
+if (best && !shouldHideBestStrategicMove(ctx)) {
   messages.push(
 makeCard(
   "Best Strategic Move",
@@ -8466,7 +9045,8 @@ function updateColorAvailability(){
 
   let selectedStillValid = true;
 
-  document.querySelectorAll('.color-btn').forEach(btn=>{
+  DOM_LISTS.colorButtons.forEach(btn=>{
+  
     let color = btn.dataset.color;
     if(!color) return;
 
@@ -8525,12 +9105,13 @@ function applyButtonState(btn, disabled){
 
 function clearSelectedColor(){
   selectedColor = null;
-  document.querySelectorAll('.color-btn')
-    .forEach(b=>b.classList.remove('selected'));
+  DOM_LISTS.colorButtons.forEach(b =>
+    b.classList.remove('selected')
+  );
 }
 
 function restoreSelectedPreviewButton(){
-  document.querySelectorAll('.color-btn').forEach(btn => {
+  DOM_LISTS.colorButtons.forEach(btn => {
     btn.classList.toggle(
       'selected',
       !!selectedColor && btn.dataset.color === selectedColor
@@ -8600,6 +9181,13 @@ if (cell.classList.contains('recommended-safe')) {
     appState.forcedResolutionMove.i === i
   ) {
     return 'Forced Resolution';
+  }
+
+  if (
+    appState.finalDecisionMove &&
+    appState.finalDecisionMove.i === i
+  ) {
+    return 'Final Decision Setup';
   }
 
   return 'Best Safe Move';
@@ -9642,9 +10230,9 @@ function applyHighlights(play, topMoves, safest) {
     safest: displayedSafest
   } = getDisplayedRecommendations(topMoves, safest);
 
-  if (best) {
-    play[best.i].classList.add('recommended-best');
-  }
+	if (best && !shouldHideBestStrategicMove()) {
+		play[best.i].classList.add('recommended-best');
+	}
 
   if (alternative) {
     play[alternative.i].classList.add('recommended-second');
