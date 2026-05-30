@@ -8844,9 +8844,9 @@ function appendPreGameMessages(messages, ctx) {
         • 8 and 9 colors default to aggressive mode (finding non-blues.)<br><br>
 		• On 7 colors, consider manually changing to Aggressive mode if your first 3-4 moves are all hits.<br><br>
         • Unclicked guaranteed tiles get stripes in their color (or question mark if color not known). Clicking them before the solver tells you to could lead to worse outcomes. (incl. fill hit button)<br><br>
-        • 2-Step Collapse (later Future Collapse) searches the move tree for board count reduction, and penalize worst case scenarios. <br><br>
         • EV is shown when probabilities are tied. You can use it to decide tie breakers.<br><br>
 		BELOW IS EXACT SOLVING MODE ONLY<br><br>
+		• 2-Step Collapse (later Future Collapse) searches the move tree for board count reduction, and penalizes worst case scenarios. <br><br>
 	    • After clicking a tile, you can hover a color in the selector ring to recalculate the heatmap based on the tile being that color. This will respect the heatmap setting you've selected.<br><br>
 		• Toggling rare ship targeting only works for the current move. This prevents accidentally forgetting to turn it off.
 		`,
@@ -10864,6 +10864,34 @@ function getColorTooltipLabel(color) {
 function getTooltipColorForPlayTile(i) {
   if (grid[i] !== null) {
     return grid[i];
+  }
+  
+    if (
+    appState.finalDecisionMove &&
+    appState.finalDecisionMove.i === i
+  ) {
+    return "Final Decision Setup";
+  }
+
+  if (
+    appState.resolutionOpportunityMove &&
+    appState.resolutionOpportunityMove.i === i
+  ) {
+    return "Resolution Opportunity";
+  }
+
+  if (
+    appState.uncertaintyMove &&
+    appState.uncertaintyMove.i === i
+  ) {
+    return "Uncertainty Removal";
+  }
+
+  if (
+    appState.clarityMove &&
+    appState.clarityMove.i === i
+  ) {
+    return "Clarity Move";
   }
 
   if (
