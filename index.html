@@ -6813,6 +6813,69 @@ return withSafeMoveReason(
 );
 }
 
+function appendKnownSafeBlueBeforeForcedHitsCard(messages, ctx) {
+  const forcedTiles = appState.forcedTiles;
+  if (!forcedTiles) return false;
+  if (ctx.missEndsGame) return false;
+
+  const forcedEntries = Object.entries(forcedTiles)
+    .map(([index, color]) => ({
+      index: Number(index),
+      color
+    }))
+    .filter(({ index, color }) =>
+      grid[index] === null &&
+      color &&
+      !isAnonymousRareShip(color)
+    );
+
+  if (!forcedEntries.length) return false;
+
+  const unresolvedTiles = grid
+    .map((cell, index) => ({ cell, index }))
+    .filter(({ cell }) => cell === null);
+
+  const allUnresolvedKnown = unresolvedTiles.every(({ index }) =>
+    forcedTiles[index]
+  );
+
+  if (!allUnresolvedKnown) return false;
+
+  const forcedHits = forcedEntries.filter(({ color }) => color !== "miss");
+  const forcedMisses = forcedEntries.filter(({ color }) => color === "miss");
+
+  if (!forcedHits.length || !forcedMisses.length) return false;
+
+  const safeBlueClicksRemaining =
+    ctx.hits >= 5
+      ? Math.max(0, 3 - ctx.misses)
+      : forcedMisses.length;
+
+  if (safeBlueClicksRemaining <= 0) return false;
+
+  const move = forcedMisses[0];
+  const [r, c] = indexToCoord(move.index);
+
+  DOM.playBoard[move.index]?.classList.add("recommended-safe");
+
+  messages.push(
+    makeCard(
+      "Safe Blue Before Filling Hits",
+      `
+        Miss does not end the game yet.<br><br>
+        Play this known blue first:
+        <br>
+        <b style="color:#22c55e">Row ${r + 1}, Col ${c + 1}</b>
+        <br><br>
+        Then fill the guaranteed hits.
+      `,
+      "info-green"
+    )
+  );
+
+  return true;
+}
+
 function handleKnownBoardInfo(messages) {
   const forcedTiles = appState.forcedTiles;
   if (!forcedTiles) return false;
@@ -8101,11 +8164,6 @@ if (appState.specialGroup) {
 
   if (handleStaticModes(box)) return;
 
-if (handleKnownBoardInfo(messages)) {
-  renderInfoMessages(messages);
-  return;
-}
-
 appendSetupMessages(messages, context);
 appendOpeningHint(messages, context);
 appendPreGameMessages(messages, context);
@@ -8114,6 +8172,16 @@ const forcedHits = getAutoFillForcedHits();
 const blockDecisionsForForcedHits =
   context.missEndsGame &&
   forcedHits.length > 0;
+
+if (appendKnownSafeBlueBeforeForcedHitsCard(messages, context)) {
+  renderInfoMessages(messages);
+  return;
+}
+
+if (handleKnownBoardInfo(messages)) {
+  renderInfoMessages(messages);
+  return;
+}
 
 if (!blockDecisionsForForcedHits) {
   appendSafeModeProgressCard(messages);
@@ -8336,7 +8404,7 @@ function appendResolutionOpportunityCard(messages, context) {
   const outcomeText =
     move.opportunityType === "forcedResolution"
       ? "Forced Resolution"
-      : "Final Decision Setup";
+      : "Final Decision";
 
 if (matchingRecommendation) {
   const [r, c] = indexToCoord(move.i);
@@ -8345,7 +8413,7 @@ if (matchingRecommendation) {
     makeCard(
       "Resolution Opportunity",
       `
-        One possible outcome on the recommended tile creates ${outcomeText}.
+        One possible outcome on the recommended tile leads to ${outcomeText}.
         <br><br>
         <b>${matchingRecommendation}</b>
         <br>
@@ -8366,7 +8434,7 @@ if (matchingRecommendation) {
     makeCard(
       "Resolution Opportunity",
       `
-        One possible outcome on this tile creates ${outcomeText}.
+        One possible outcome on this tile leads to ${outcomeText}.
         <br><br>
         Consider:
         <br>
