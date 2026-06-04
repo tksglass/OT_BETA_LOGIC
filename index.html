@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 
 <!-- 
@@ -8237,21 +8238,36 @@ function renderRecommendationsIfNeeded(hasStarted) {
   if (!hasStarted) return;
 
   if (
-  appState.forcedResolutionMove &&
-  appState.forcedResolutionMove.i !== undefined
-) {
-  clearRecommendations();
+    appState.forcedResolutionMove &&
+    appState.forcedResolutionMove.i !== undefined
+  ) {
+    clearRecommendations();
 
-  const move = appState.forcedResolutionMove;
+    const move = appState.forcedResolutionMove;
 
-  if (grid[move.i] === null) {
-    DOM.playBoard[move.i].classList.add("recommended-safe");
+    if (grid[move.i] === null) {
+      DOM.playBoard[move.i].classList.add("recommended-safe");
+    }
+
+    return;
   }
 
-  return;
-}
+  if (
+    appState.finalDecisionMove &&
+    appState.finalDecisionMove.i !== undefined
+  ) {
+    clearRecommendations();
 
-if (appState.safeOverride && appState.topMoves?.length) {
+    const move = appState.finalDecisionMove;
+
+    if (grid[move.i] === null) {
+      DOM.playBoard[move.i].classList.add("recommended-safe");
+    }
+
+    return;
+  }
+
+  if (appState.safeOverride && appState.topMoves?.length) {
     clearRecommendations();
 
     const move = appState.topMoves[0];
