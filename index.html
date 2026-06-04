@@ -8329,45 +8329,50 @@ function renderDangerRecommendationHighlight() {
 
   const context = getInfoContext();
 
-const move =
-  appState.noEquivalencePlan?.[0] ||
-  (
-    context.missEndsGame
-      ? null
-      : (
-          appState.resolutionOpportunityMove ||
-          appState.uncertaintyMove
-        )
-  );
+  const moves = [];
 
-if (!move || move.i === undefined) return;
-if (grid[move.i] !== null) return;
+  if (appState.noEquivalencePlan?.[0]) {
+    moves.push(appState.noEquivalencePlan[0]);
+  } else if (!context.missEndsGame) {
+    if (appState.resolutionOpportunityMove) {
+      moves.push(appState.resolutionOpportunityMove);
+    }
 
-if (
-  appState.uncertaintyMove &&
-  move.i === appState.uncertaintyMove.i &&
-  !isRareClarifyingTile(move.i)
-) {
-  return;
-}
+    if (appState.uncertaintyMove) {
+      moves.push(appState.uncertaintyMove);
+    }
+  }
 
-if (
-  appState.uncertaintyMove &&
-  move.i === appState.uncertaintyMove.i &&
-  getMatchingRecommendationForUncertaintyMove(move)
-) {
-  return;
-}
+  for (const move of moves) {
+    if (!move || move.i === undefined) continue;
+    if (grid[move.i] !== null) continue;
 
-if (
-  appState.resolutionOpportunityMove &&
-  move.i === appState.resolutionOpportunityMove.i &&
-  getMatchingRecommendationForResolutionOpportunityMove(move)
-) {
-  return;
-}
+    if (
+      appState.uncertaintyMove &&
+      move.i === appState.uncertaintyMove.i &&
+      !isRareClarifyingTile(move.i)
+    ) {
+      continue;
+    }
 
-DOM.playBoard[move.i].classList.add("recommended-danger");
+    if (
+      appState.uncertaintyMove &&
+      move.i === appState.uncertaintyMove.i &&
+      getMatchingRecommendationForUncertaintyMove(move)
+    ) {
+      continue;
+    }
+
+    if (
+      appState.resolutionOpportunityMove &&
+      move.i === appState.resolutionOpportunityMove.i &&
+      getMatchingRecommendationForResolutionOpportunityMove(move)
+    ) {
+      continue;
+    }
+
+    DOM.playBoard[move.i].classList.add("recommended-danger");
+  }
 }
 
 function renderGuaranteedUnknownHits() {
