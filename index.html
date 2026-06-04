@@ -1400,9 +1400,6 @@ const FUTURE_COLLAPSE_BOARD_LIMIT = 200;
 const FUTURE_COLLAPSE_DEEP_BOARD_LIMIT = 50;
 const FUTURE_COLLAPSE_SHORTLIST = 5;
 
-const DEPTH2_ALL_BRANCHES_BOARD_LIMIT = 120;
-const DEPTH2_ALL_BRANCHES_UNKNOWN_LIMIT = 10;
-
 // ===============================
 // T.01A CONSTANT BUILDERS
 // ===============================
@@ -2313,6 +2310,7 @@ function hasValidPlacementsForAllShips() {
 function shouldHideBestStrategicMove(ctx = getInfoContext()) {
   return (
     !!appState.noEquivalencePlan?.length ||
+    !!appState.finalDecisionMove ||
     !!appState.resolutionOpportunityMove ||
     (
       !ctx?.missEndsGame &&
@@ -3804,31 +3802,6 @@ if (finalDecisionMove) {
 
 const effectiveUnknownTiles = getEffectiveUnknownTilesForPrecalc();
 
-if (
-  hasMissLeeway &&
-  allBoards.length <= DEPTH2_ALL_BRANCHES_BOARD_LIMIT &&
-  effectiveUnknownTiles.length <= DEPTH2_ALL_BRANCHES_UNKNOWN_LIMIT
-) {
-  const depth2AllBranchesMove =
-    getDepth2AllBranchesResolutionMove(
-      allBoards,
-      probs,
-      currentCounts,
-      effectiveUnknownTiles
-    );
-
-  if (depth2AllBranchesMove) {
-    if (depth2AllBranchesMove.depth2TargetType === "forcedResolution") {
-      applyForcedResolutionMove(depth2AllBranchesMove, probs);
-    } else {
-      applyFinalDecisionSetupMove(depth2AllBranchesMove, probs);
-    }
-
-    updateExactSolverUI(valid);
-    return;
-  }
-}
-
 
 
 /* ======== DISABLE NO EQUIVALENCE MOVE ===========
@@ -4726,19 +4699,6 @@ function getOutcomeKey(board, tile) {
 function getUnknownTiles(){
   const { occupiedMask, missMask } = getGridStats();
   return getUnknownTilesForKnownMask(occupiedMask | missMask);
-}
-
-function shouldSkipKnownCandidateTile(tile, probs = null, epsilon = 0.000001) {
-  if (appState.forcedTiles?.[tile]) return true;
-  if (probs && probs[tile] >= 1 - epsilon) return true;
-
-  return false;
-}
-
-function isBoardSetTileAlreadyKnown(tile, boardSet, ctx) {
-  const outcomeSets = getCachedBuckets(boardSet, tile, ctx);
-
-  return Object.keys(outcomeSets).length <= 1;
 }
 
 function getEffectiveUnknownTilesForPrecalc(){
@@ -6483,7 +6443,7 @@ function getFinalDecisionSetupMove(allBoards, probs) {
     const bit = mask & -mask;
     const tile = BIT_INDEX[bit];
 
-    if (shouldSkipKnownCandidateTile(tile, probs)) continue;
+    if (appState.forcedTiles?.[tile]) continue;
 
     const score = scoreFinalDecisionSetupTile(
       tile,
@@ -6518,15 +6478,17 @@ function getFinalDecisionSetupMove(allBoards, probs) {
 
   if (result.winner) return result.winner;
 
-  result = applyTiebreakLayer(
-    result.pool,
-    c => c.p,
-    false,
-    "Lower hit chance",
-    2
-  );
+result = applyTiebreakLayer(
+  result.pool,
+  c => c.p,
+  false,
+  "Lower hit chance",
+  2
+);
 
-  return result.winner || result.pool[0] || null;
+if (result.winner) return result.winner;
+
+return finishWithLowestIndex(result.pool, 3);
 }
 
 function scoreFinalDecisionSetupTile(tile, boardSet, boardCount, ctx, probs) {
@@ -6565,308 +6527,6 @@ function scoreFinalDecisionSetupTile(tile, boardSet, boardCount, ctx, probs) {
   };
 }
 
-function getDepth2AllBranchesResolutionMove(
-  allBoards,
-  probs,
-  currentCounts,
-  candidateTiles
-) {
-  if (!allBoards || allBoards.length <= 2) return null;
-  if (allBoards.length > DEPTH2_ALL_BRANCHES_BOARD_LIMIT) return null;
-  if (!candidateTiles || candidateTiles.length > DEPTH2_ALL_BRANCHES_UNKNOWN_LIMIT) return null;
-
-  const ctx = getPrecalcContext(allBoards);
-  const knownMask = getCurrentKnownMask();
-  const boardSet = ctx.allBoardSet;
-  const boardCount = getBoardSetCount(boardSet, ctx);
-
-  const forcedCandidates = [];
-  const finalDecisionCandidates = [];
-
-  for (const firstTile of candidateTiles) {
-    if (appState.forcedTiles?.[firstTile]) continue;
-
-    const forcedScore = scoreDepth2AllBranchesFirstTile(
-      "forcedResolution",
-      firstTile,
-      boardSet,
-      boardCount,
-      knownMask,
-      ctx,
-      probs,
-      currentCounts
-    );
-
-    if (forcedScore) {
-      forcedCandidates.push(forcedScore);
-      continue;
-    }
-
-    const finalDecisionScore = scoreDepth2AllBranchesFirstTile(
-      "finalDecisionSetup",
-      firstTile,
-      boardSet,
-      boardCount,
-      knownMask,
-      ctx,
-      probs,
-      currentCounts
-    );
-
-    if (finalDecisionScore) {
-      finalDecisionCandidates.push(finalDecisionScore);
-    }
-  }
-
-  const candidates = forcedCandidates.length
-    ? forcedCandidates
-    : finalDecisionCandidates;
-
-  if (!candidates.length) return null;
-
-  let result = applyTiebreakLayer(
-    candidates,
-    c => c.riskAdjustedRemaining,
-    false,
-    "Lowest risk-adjusted boards after first reveal",
-    0
-  );
-
-  if (result.winner) return result.winner;
-
-  result = applyTiebreakLayer(
-    result.pool,
-    c => c.expectedRemaining,
-    false,
-    "Lowest expected boards after first reveal",
-    1
-  );
-
-  if (result.winner) return result.winner;
-
-  result = applyTiebreakLayer(
-    result.pool,
-    c => c.p,
-    false,
-    "Lower hit chance",
-    2
-  );
-
-  return result.winner || result.pool[0] || null;
-}
-
-function scoreDepth2AllBranchesFirstTile(
-  targetType,
-  firstTile,
-  boardSet,
-  boardCount,
-  knownMask,
-  ctx,
-  probs,
-  currentCounts
-) {
-const outcomeSets = getCachedBuckets(boardSet, firstTile, ctx);
-const nextKnownMask = knownMask | CELL_MASKS[firstTile];
-
-let expectedRemaining = 0;
-let worstRemaining = 0;
-let outcomeCount = 0;
-
-for (const outcome in outcomeSets) {
-  const outcomeBoardSet = outcomeSets[outcome];
-
-    const nextCounts = getCountsAfterOutcome(currentCounts, outcome);
-
-    if (isMissTerminalLoss(nextCounts)) {
-      return null;
-    }
-
-    const count = getBoardSetCount(outcomeBoardSet, ctx);
-    const pOutcome = count / boardCount;
-
-    expectedRemaining += pOutcome * count;
-    worstRemaining = Math.max(worstRemaining, count);
-    outcomeCount++;
-
-    const branchIsAlreadyGood =
-      targetType === "forcedResolution"
-        ? isSolvedBoardSet(outcomeBoardSet, nextKnownMask, ctx)
-        : count <= 2;
-
-    if (branchIsAlreadyGood) {
-      continue;
-    }
-
-    const branchHasFollowup =
-      targetType === "forcedResolution"
-        ? boardSetHasForcedResolutionMoveMissAware(
-            outcomeBoardSet,
-            nextKnownMask,
-            ctx,
-            nextCounts
-          )
-        : boardSetHasFinalDecisionSetupMoveMissAware(
-            outcomeBoardSet,
-            nextKnownMask,
-            ctx,
-            nextCounts
-          );
-
-    if (!branchHasFollowup) {
-      return null;
-    }
-  }
-
-  if (outcomeCount === 0) return null;
-
-  return {
-    i: firstTile,
-    p: probs[firstTile],
-    expectedRemaining,
-    worstRemaining,
-    riskAdjustedRemaining:
-      expectedRemaining + worstRemaining * 0.35,
-    type: targetType === "forcedResolution"
-      ? "forcedResolution"
-      : "safe",
-    depth2TargetType: targetType,
-    isDepth2AllBranches: true
-  };
-}
-
-function boardSetHasForcedResolutionMoveMissAware(
-  boardSet,
-  knownMask,
-  ctx,
-  counts
-) {
-  const candidateMask = FULL_BOARD_MASK & ~knownMask;
-
-  for (let mask = candidateMask; mask; mask &= mask - 1) {
-    const bit = mask & -mask;
-    const tile = BIT_INDEX[bit];
-
-    if (appState.forcedTiles?.[tile]) continue;
-if (isBoardSetTileAlreadyKnown(tile, boardSet, ctx)) continue;
-
-    if (
-      doesTileForceSolvedStateMissAware(
-        tile,
-        boardSet,
-        knownMask,
-        ctx,
-        counts
-      )
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function boardSetHasFinalDecisionSetupMoveMissAware(
-  boardSet,
-  knownMask,
-  ctx,
-  counts
-) {
-  const boardCount = getBoardSetCount(boardSet, ctx);
-  if (boardCount <= 2) {
-  return !isMissTerminalLoss(counts);
-}
-
-  const candidateMask = FULL_BOARD_MASK & ~knownMask;
-
-  for (let mask = candidateMask; mask; mask &= mask - 1) {
-    const bit = mask & -mask;
-    const tile = BIT_INDEX[bit];
-
-    if (appState.forcedTiles?.[tile]) continue;
-if (isBoardSetTileAlreadyKnown(tile, boardSet, ctx)) continue;
-
-    if (
-      doesTileForceFinalDecisionStateMissAware(
-        tile,
-        boardSet,
-        ctx,
-        counts
-      )
-    ) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function doesTileForceSolvedStateMissAware(
-  tile,
-  boardSet,
-  knownMask,
-  ctx,
-  counts
-) {
-const outcomeSets = getCachedBuckets(boardSet, tile, ctx);
-const nextKnownMask = knownMask | CELL_MASKS[tile];
-
-for (const outcome in outcomeSets) {
-  const outcomeBoardSet = outcomeSets[outcome];
-
-    const nextCounts = getCountsAfterOutcome(counts, outcome);
-
-    if (isMissTerminalLoss(nextCounts)) {
-      return false;
-    }
-
-    if (!isSolvedBoardSet(outcomeBoardSet, nextKnownMask, ctx)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function doesTileForceFinalDecisionStateMissAware(
-  tile,
-  boardSet,
-  ctx,
-  counts
-) {
-const outcomeSets = getCachedBuckets(boardSet, tile, ctx);
-
-for (const outcome in outcomeSets) {
-  const outcomeBoardSet = outcomeSets[outcome];
-
-    const nextCounts = getCountsAfterOutcome(counts, outcome);
-
-    if (isMissTerminalLoss(nextCounts)) {
-      return false;
-    }
-
-    const count = getBoardSetCount(outcomeBoardSet, ctx);
-
-    if (count > 2) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function getCountsAfterOutcome(counts, outcome) {
-  const isMiss = String(outcome) === "0";
-
-  return {
-    hits: counts.hits + (isMiss ? 0 : 1),
-    misses: counts.misses + (isMiss ? 1 : 0)
-  };
-}
-
-function isMissTerminalLoss(counts) {
-  return counts.hits >= 5 && counts.misses > 3;
-}
-
 function applyFinalDecisionSetupMove(move, probs) {
   appState.probs = probs;
   appState.topMoves = [move];
@@ -6878,7 +6538,6 @@ function applyFinalDecisionSetupMove(move, probs) {
   appState.noEquivalencePlan = null;
   appState.safeOverride = false;
   appState.safeOverrideSource = null;
-  appState.forcedResolutionMove = null;
   appState.finalDecisionMove = move;
 
   clearRecommendations();
@@ -6909,7 +6568,7 @@ function getForcedResolutionMove(allBoards, probs) {
     const bit = mask & -mask;
     const tile = BIT_INDEX[bit];
 
-    if (shouldSkipKnownCandidateTile(tile, probs, EPSILON)) continue;
+    if (probs[tile] >= 1 - EPSILON) continue;
 
     if (!doesTileForceSolvedState(tile, boardSet, knownMask, ctx)) {
       continue;
@@ -6953,7 +6612,6 @@ function applyForcedResolutionMove(move, probs) {
   appState.specialGroup = null;
   appState.safeOverride = true;
   appState.safeOverrideSource = "forcedResolution";
-  appState.finalDecisionMove = null;
   appState.forcedResolutionMove = move;
 
   lastProbs = probs;
@@ -7844,7 +7502,7 @@ function getCandidateReduction(c) {
 function getSafestMove(candidates, huntMode = false) {
   if (!candidates.length) return null;
 
-  const RISK_BAND = 0.015;
+  const RISK_BAND = 0.05;
 
   const getPrimaryChance = huntMode
     ? candidate => candidate.p
@@ -7860,46 +7518,196 @@ function getSafestMove(candidates, huntMode = false) {
 
   if (pool.length === 1) return pool[0];
 
-  let result = applyTiebreakLayer(
-    pool,
-    getCandidateReduction,
-    true,
-    huntMode
-      ? "Higher board reduction within aggressive hit band"
-      : "Higher board reduction within safe risk band",
-    0
-  );
+pool.forEach(candidate => {
+  if (!candidate.undiscoveredShip) {
+    candidate.undiscoveredShip =
+      getUndiscoveredShipTiebreakStats(
+        candidate.i,
+        appState.allBoards
+      );
+  }
+});
 
-  if (result.winner) return result.winner;
-  pool = result.pool;
+let result;
+let layer = 0;
 
-  result = applyTiebreakLayer(
-    pool,
-    getPrimaryChance,
-    true,
-    huntMode
-      ? "Higher hit chance after equal reduction"
-      : "Higher miss chance after equal reduction",
-    1
-  );
-
-  if (result.winner) return result.winner;
-  pool = result.pool;
+for (const size of [4, 3, 2]) {
+  if (!poolHasUndiscoveredShipSize(pool, size)) {
+    continue;
+  }
 
   result = applyTiebreakLayer(
     pool,
-    candidate => getCandidateWeightedEV(candidate.i),
+    candidate => candidate.undiscoveredShip[`size${size}`],
     true,
-    huntMode
-      ? "Higher expected value among equal-reduction and hit-chance candidates"
-      : "Higher expected value among equal-reduction and miss-chance candidates",
-    2
+    `Higher chance to reveal undiscovered size-${size} ship within safety band`,
+    layer
   );
 
   if (result.winner) return result.winner;
-  pool = result.pool;
 
-  return finishWithLowestIndex(pool, 3);
+  pool = result.pool;
+  layer++;
+}
+
+result = applyTiebreakLayer(
+  pool,
+  getCandidateReduction,
+  true,
+  "Higher board reduction after equal undiscovered-ship chance",
+  layer
+);
+
+if (result.winner) return result.winner;
+pool = result.pool;
+layer++;
+
+result = applyTiebreakLayer(
+  pool,
+  getPrimaryChance,
+  true,
+  huntMode
+    ? "Higher hit chance after equal undiscovered-ship chance and reduction"
+    : "Higher miss chance after equal undiscovered-ship chance and reduction",
+  layer
+);
+
+if (result.winner) return result.winner;
+pool = result.pool;
+layer++;
+
+result = applyTiebreakLayer(
+  pool,
+  candidate => getCandidateWeightedEV(candidate.i),
+  true,
+  "Higher expected value among equal safe candidates",
+  layer
+);
+
+if (result.winner) return result.winner;
+pool = result.pool;
+layer++;
+
+  return finishWithLowestIndex(pool, layer);
+}
+
+function poolHasUndiscoveredShipSize(pool, size) {
+  return pool.some(candidate =>
+    candidate.undiscoveredShip?.[`size${size}`] > 0
+  );
+}
+
+function getUndiscoveredShipTierForColor(
+  color,
+  colorCounts = getGridStats().colorCounts
+) {
+  if (!color) return 0;
+
+  if (isAnonymousRareShip(color)) {
+    return 2;
+  }
+
+  if (RARE_COLORS.includes(color)) {
+    return colorCounts[color] === 0 ? 2 : 0;
+  }
+
+  if (!SHIPS[color]) return 0;
+
+  if (colorCounts[color] > 0) {
+    return 0;
+  }
+
+  return getShipSize(color);
+}
+
+function getUndiscoveredShipTiebreakStats(tile, allBoards) {
+  const stats = {
+    size4: 0,
+    size3: 0,
+    size2: 0
+  };
+
+  if (!allBoards || !allBoards.length) {
+    return stats;
+  }
+
+  const colorCounts = getGridStats().colorCounts;
+  const invBoardCount = 1 / allBoards.length;
+
+  for (const board of allBoards) {
+    const color = getBoardColorAt(board, tile);
+    const tier = getUndiscoveredShipTierForColor(color, colorCounts);
+
+    if (tier === 4) {
+      stats.size4++;
+    } else if (tier === 3) {
+      stats.size3++;
+    } else if (tier === 2) {
+      stats.size2++;
+    }
+  }
+
+  stats.size4 *= invBoardCount;
+  stats.size3 *= invBoardCount;
+  stats.size2 *= invBoardCount;
+
+  return stats;
+}
+
+function compareUndiscoveredShipTiebreak(a, b) {
+  const size4Diff =
+    b.undiscoveredShip.size4 - a.undiscoveredShip.size4;
+
+  if (Math.abs(size4Diff) > 0.000001) {
+    return size4Diff;
+  }
+
+  const size3Diff =
+    b.undiscoveredShip.size3 - a.undiscoveredShip.size3;
+
+  if (Math.abs(size3Diff) > 0.000001) {
+    return size3Diff;
+  }
+
+  const size2Diff =
+    b.undiscoveredShip.size2 - a.undiscoveredShip.size2;
+
+  if (Math.abs(size2Diff) > 0.000001) {
+    return size2Diff;
+  }
+
+  return 0;
+}
+
+function getUndiscoveredShipTiebreakLabel(current, next) {
+  if (
+    Math.abs(
+      current.undiscoveredShip.size4 -
+      next.undiscoveredShip.size4
+    ) > 0.000001
+  ) {
+    return "Higher chance to reveal undiscovered size-4 ship";
+  }
+
+  if (
+    Math.abs(
+      current.undiscoveredShip.size3 -
+      next.undiscoveredShip.size3
+    ) > 0.000001
+  ) {
+    return "Higher chance to reveal undiscovered size-3 ship";
+  }
+
+  if (
+    Math.abs(
+      current.undiscoveredShip.size2 -
+      next.undiscoveredShip.size2
+    ) > 0.000001
+  ) {
+    return "Higher chance to reveal undiscovered size-2 ship";
+  }
+
+  return null;
 }
 
 function scoreStrategicCandidate(c, huntMode) {
@@ -7973,6 +7781,8 @@ function rankCandidates(candidates, huntMode) {
     c.reduction = getCandidateReduction(c);
     c.score = scoreStrategicCandidate(c, huntMode);
     c.ev = getCandidateWeightedEV(c.i);
+    c.undiscoveredShip =
+      getUndiscoveredShipTiebreakStats(c.i, appState.allBoards);
     c.tiebreaker = null;
     c.tiebreakerPassed = null;
   });
@@ -7981,8 +7791,27 @@ function rankCandidates(candidates, huntMode) {
     const scoreDiff = b.score - a.score;
     if (Math.abs(scoreDiff) > 0.000001) return scoreDiff;
 
-    const reductionDiff = b.reduction - a.reduction;
-    if (Math.abs(reductionDiff) > 0.000001) return reductionDiff;
+    if (huntMode) {
+      const undiscoveredDiff =
+        compareUndiscoveredShipTiebreak(a, b);
+
+      if (undiscoveredDiff !== 0) {
+        return undiscoveredDiff;
+      }
+
+      const reductionDiff = b.reduction - a.reduction;
+      if (Math.abs(reductionDiff) > 0.000001) return reductionDiff;
+    } else {
+      const reductionDiff = b.reduction - a.reduction;
+      if (Math.abs(reductionDiff) > 0.000001) return reductionDiff;
+
+      const undiscoveredDiff =
+        compareUndiscoveredShipTiebreak(a, b);
+
+      if (undiscoveredDiff !== 0) {
+        return undiscoveredDiff;
+      }
+    }
 
     const pDiff = b.p - a.p;
     if (Math.abs(pDiff) > 0.000001) return pDiff;
@@ -7999,24 +7828,96 @@ function rankCandidates(candidates, huntMode) {
 
     if (Math.abs(current.score - next.score) > 0.000001) continue;
 
+    if (huntMode) {
+      const undiscoveredLabel =
+        getUndiscoveredShipTiebreakLabel(current, next);
+
+      if (undiscoveredLabel) {
+current.tiebreaker = withCandidateCount(
+  `${undiscoveredLabel} after equal strategic score`,
+  candidates.length
+);
+        current.tiebreakerPassed = 1;
+        continue;
+      }
+
+      if (Math.abs(current.reduction - next.reduction) > 0.000001) {
+       current.tiebreaker = withCandidateCount(
+  "Higher board reduction after equal strategic score and undiscovered-ship chance",
+  candidates.length
+);
+        current.tiebreakerPassed = 2;
+        continue;
+      }
+
+      if (Math.abs(current.p - next.p) > 0.000001) {
+        current.tiebreaker = withCandidateCount(
+  "Higher hit chance among candidates",
+  candidates.length
+);
+        current.tiebreakerPassed = 3;
+        continue;
+      }
+
+      if (Math.abs(current.ev - next.ev) > 0.000001) {
+        current.tiebreaker = withCandidateCount(
+  "Higher expected value among candidates",
+  candidates.length
+);
+        current.tiebreakerPassed = 4;
+      } else {
+        current.tiebreaker = withCandidateCount(
+  "Lowest tile index (could not break tie)",
+  candidates.length
+);
+        current.tiebreakerPassed = 5;
+      }
+
+      continue;
+    }
+
     if (Math.abs(current.reduction - next.reduction) > 0.000001) {
-      current.tiebreaker = "Higher board reduction after equal strategic score";
+      current.tiebreaker = withCandidateCount(
+  "Higher board reduction after equal strategic score",
+  candidates.length
+);
       current.tiebreakerPassed = 1;
       continue;
     }
 
-    if (Math.abs(current.p - next.p) > 0.000001) {
-      current.tiebreaker = "Higher hit chance among candidates";
+    const undiscoveredLabel =
+      getUndiscoveredShipTiebreakLabel(current, next);
+
+    if (undiscoveredLabel) {
+current.tiebreaker = withCandidateCount(
+  `${undiscoveredLabel} after equal strategic score and board reduction`,
+  candidates.length
+);
       current.tiebreakerPassed = 2;
       continue;
     }
 
-    if (Math.abs(current.ev - next.ev) > 0.000001) {
-      current.tiebreaker = "Higher expected value among candidates";
+    if (Math.abs(current.p - next.p) > 0.000001) {
+      current.tiebreaker = withCandidateCount(
+  "Higher hit chance among candidates",
+  candidates.length
+);
       current.tiebreakerPassed = 3;
-    } else {
-      current.tiebreaker = "Lowest tile index (could not break tie)";
+      continue;
+    }
+
+    if (Math.abs(current.ev - next.ev) > 0.000001) {
+      current.tiebreaker = withCandidateCount(
+  "Higher expected value among candidates",
+  candidates.length
+);
       current.tiebreakerPassed = 4;
+    } else {
+      current.tiebreaker = withCandidateCount(
+  "Lowest tile index (could not break tie)",
+  candidates.length
+);
+      current.tiebreakerPassed = 5;
     }
   }
 }
@@ -8342,21 +8243,6 @@ function renderRecommendationsIfNeeded(hasStarted) {
   clearRecommendations();
 
   const move = appState.forcedResolutionMove;
-
-  if (grid[move.i] === null) {
-    DOM.playBoard[move.i].classList.add("recommended-safe");
-  }
-
-  return;
-}
-
-if (
-  appState.finalDecisionMove &&
-  appState.finalDecisionMove.i !== undefined
-) {
-  clearRecommendations();
-
-  const move = appState.finalDecisionMove;
 
   if (grid[move.i] === null) {
     DOM.playBoard[move.i].classList.add("recommended-safe");
@@ -8762,25 +8648,12 @@ function appendFinalDecisionSetupCard(messages) {
 
   const [r, c] = indexToCoord(move.i);
 
-  const title = move.isDepth2AllBranches
-    ? "2-Step Final Decision Setup"
-    : "Final Decision Setup";
-
-  const introText = move.isDepth2AllBranches
-    ? "Every possible outcome on this tile either reaches Final Decision or better, or leaves a follow-up move that forces Final Decision."
-    : "Every possible outcome on this tile leads to Final Decision or better.";
-
-  const outcomeLabel = move.isDepth2AllBranches
-    ? "Expected boards after first reveal"
-    : "Expected boards after reveal";
-
-  const worstLabel = move.isDepth2AllBranches
-    ? "Worst first outcome"
-    : "Worst outcome";
+const introText =
+  "Every possible outcome on this tile leads to Final Decision or better.";
 
   messages.push(
     makeCard(
-      title,
+      "Final Decision Setup",
       `
         ${introText}
         <br><br>
@@ -8788,9 +8661,9 @@ function appendFinalDecisionSetupCard(messages) {
         <br>
         Blue chance: <b>${((1 - move.p) * 100).toFixed(1)}%</b>
         <br>
-        ${outcomeLabel}: <b>${move.expectedRemaining.toFixed(1)}</b>
+        Expected boards after reveal: <b>${move.expectedRemaining.toFixed(1)}</b>
         <br>
-        ${worstLabel}: <b>${move.worstRemaining.toFixed(0)} boards</b>
+        Worst outcome: <b>${move.worstRemaining.toFixed(0)} boards</b>
         ${getTiebreakerText(move)}
       `,
       "info-green"
@@ -8806,34 +8679,17 @@ function appendForcedResolutionCard(messages) {
 
   const [r, c] = indexToCoord(move.i);
 
-  const title = move.isDepth2AllBranches
-    ? "2-Step Forced Resolution Setup"
-    : "Forced Resolution";
-
-  const introText = move.isDepth2AllBranches
-    ? "Every possible outcome on this tile either solves the board or leaves a follow-up move that forces resolution."
-    : "This move solves the board no matter the outcome.";
-
-  const outcomeLabel = move.isDepth2AllBranches
-    ? "Expected boards after first reveal"
-    : "Expected boards after reveal";
-
-  const worstText = move.isDepth2AllBranches
-    ? `<br>Worst first outcome: <b>${move.worstRemaining.toFixed(0)} boards</b>`
-    : "";
-
   messages.push(
     makeCard(
-      title,
+      "Forced Resolution",
       `
-        ${introText}
+        This move solves the board no matter the outcome.
         <br><br>
         <b>Row ${r + 1}, Col ${c + 1}</b>
         <br>
         Blue chance: <b>${((1 - move.p) * 100).toFixed(1)}%</b>
         <br>
-        ${outcomeLabel}: <b>${move.expectedRemaining.toFixed(1)}</b>
-        ${worstText}
+        Expected boards after reveal: <b>${move.expectedRemaining.toFixed(1)}</b>
         ${getTiebreakerText(move)}
       `,
       "info-green"
