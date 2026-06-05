@@ -3836,6 +3836,7 @@ if (
 }
 
 if (
+  !appState.resolutionOpportunityMove &&
   allBoards.length <= PRECALC_BOARD_LIMIT &&
   effectiveUnknownTiles.length <= PRECALC_UNKNOWN_TILE_LIMIT
 ) {
@@ -7467,11 +7468,9 @@ function findGuaranteedMove(candidates, huntMode) {
     return guaranteedMiss;
   }
 
-  if (shouldForceHeuristics()) {
-    return null;
-  }
+  const { missEndsGame } = getInfoContext();
 
-  if(isEarlyGame()){
+  if (!missEndsGame) {
     return null;
   }
 
