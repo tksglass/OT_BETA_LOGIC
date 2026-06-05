@@ -1528,6 +1528,7 @@ let gridStatsCache = null;
 let gridMask = 0;
 let outcomeBucketsCache = null;
 let tileShipSizesCache = null;
+let mcmcUndiscoveredShipStatsCache = null;
 let unfoundBonusCache = null;
 let tileEVStatsCache = null;
 let hitCountsCache = null;
@@ -2427,6 +2428,7 @@ function clearPlacementsCache() {
   tileShipSizesCache = null;
   unfoundBonusCache = null;
 tileEVStatsCache = null;
+mcmcUndiscoveredShipStatsCache = null;
 hitCountsCache = null;
 rareUnfoundCountsCache = null;
 hitMasksCache = null;
@@ -3174,8 +3176,14 @@ function shouldSkipSimulation() {
   return isLoadingHash || isGameOverMode;
 }
 
-function finalizeSimulation({ counts, valid, attempts }) {
+function finalizeSimulation({ counts, valid, attempts, mcmcUndiscoveredShipStats }) {
   const probs = counts.map(c => (valid ? c / valid : 0));
+
+mcmcUndiscoveredShipStatsCache =
+  finalizeMCMCUndiscoveredShipStats(
+    mcmcUndiscoveredShipStats,
+    valid
+  );
 
 appState = {
   ...createEmptyAppState(),
@@ -3346,9 +3354,10 @@ return (
 function runMonteCarlo(ctx) {
   appState.forcedTiles = null;
 
-  const counts = Array(25).fill(0);
-  let valid = 0;
-  let attempts = 0;
+const counts = Array(25).fill(0);
+const mcmcUndiscoveredShipStats = createEmptyMCMCUndiscoveredShipStats();
+let valid = 0;
+let attempts = 0;
   const seen = new Set();
 
   const NUM_CHAINS =
@@ -3372,10 +3381,21 @@ function runMonteCarlo(ctx) {
 
     runMCMCLoops(chains, ships, placementsMap);
 
-    valid += collectSamples(chains, counts, seen, valid);
+    valid += collectSamples(
+  chains,
+  counts,
+  seen,
+  valid,
+  mcmcUndiscoveredShipStats
+);
   }
 
-  return { counts, valid, attempts };
+  return {
+  counts,
+  valid,
+  attempts,
+  mcmcUndiscoveredShipStats
+};
 }
 
 function backtrackPlace(
@@ -3581,7 +3601,7 @@ function runMCMCLoops(chains, ships, placementsMap) {
   }
 }
 
-function collectSamples(chains, counts, seen, validSoFar) {
+function collectSamples(chains, counts, seen, validSoFar, mcmcUndiscoveredShipStats = null) {
   let newValid = 0;
 
   for (let chain of chains) {
@@ -3600,11 +3620,56 @@ function collectSamples(chains, counts, seen, validSoFar) {
     newValid++;
 
     for (let i = 0; i < 25; i++) {
-      if (board[i]) counts[i]++;
-    }
+  const color = board[i];
+
+  if (!color) continue;
+
+  counts[i]++;
+
+  if (mcmcUndiscoveredShipStats) {
+    addMCMCUndiscoveredShipSample(
+      mcmcUndiscoveredShipStats,
+      i,
+      color
+    );
+  }
+}
   }
 
   return newValid;
+}
+
+function createEmptyMCMCUndiscoveredShipStats() {
+  return Array.from({ length: 25 }, () => ({
+    size4: 0,
+    size3: 0,
+    size2: 0
+  }));
+}
+
+function addMCMCUndiscoveredShipSample(stats, tile, color) {
+  const tier = getUndiscoveredShipTierForColor(
+    color,
+    getGridStats().colorCounts
+  );
+
+  if (tier === 4) {
+    stats[tile].size4++;
+  } else if (tier === 3) {
+    stats[tile].size3++;
+  } else if (tier === 2) {
+    stats[tile].size2++;
+  }
+}
+
+function finalizeMCMCUndiscoveredShipStats(stats, valid) {
+  if (!stats || !valid) return null;
+
+  return stats.map(tileStats => ({
+    size4: tileStats.size4 / valid,
+    size3: tileStats.size3 / valid,
+    size2: tileStats.size2 / valid
+  }));
 }
 
 // ===============================
@@ -7628,7 +7693,7 @@ function getUndiscoveredShipTiebreakStats(tile, allBoards) {
   };
 
   if (!allBoards || !allBoards.length) {
-    return stats;
+    return mcmcUndiscoveredShipStatsCache?.[tile] || stats;
   }
 
   const colorCounts = getGridStats().colorCounts;
