@@ -4044,6 +4044,7 @@ if (
       : null;
 }
 
+/* SEE YA UNAVOIDABLE GUESS MOVE
 if (
   !appState.resolutionOpportunityMove &&
   allBoards.length <= PRECALC_BOARD_LIMIT &&
@@ -4052,6 +4053,8 @@ if (
   appState.uncertaintyMove =
     getBestUncertaintyRemovalMove(allBoards, probs);
 }
+
+GET FUKT */ 
 
 const analysis = analyzeEquivalence(allBoards, probs);
 analysis.collapseMove = getBestTwoStepCollapseMove(allBoards, probs);
