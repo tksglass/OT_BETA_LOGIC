@@ -250,6 +250,14 @@ button {
   margin-bottom: 10px;
 }
 
+.simulation-subtitle {
+  font-size: 12px;
+  color: #666;
+  text-align: left;
+  margin-bottom: 8px;
+  font-style: italic;
+}
+
 .boards {
   display: flex;
   flex-direction: column;
@@ -831,7 +839,16 @@ button {
 
 .utility-controls-row {
   flex-basis: 100%;
-  justify-content: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.utility-group-left,
+.utility-group-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .utility-controls-row .label {
@@ -843,6 +860,29 @@ button {
 .utility-controls-row button {
   font-size: 11px;
   padding: 3px 7px;
+}
+
+#safeRiskBandSelect {
+  font-size: 11px;
+  padding: 3px 8px;
+  border: 1px solid #9ca3af;
+  border-radius: 6px;
+  background: #f9fafb;
+  color: #111827;
+  cursor: pointer;
+}
+
+.safety-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.safety-checkbox input {
+  margin: 0;
 }
 
 #simulationBoardContainer {
@@ -1217,15 +1257,46 @@ button {
 </div>
 
 <div class="section utility-controls-row">
-  <span class="label">Accessibility:</span>
 
-  <button id="colorblindToggleBtn" onclick="toggleColorblindMode(this)">
-    Colorblind
-  </button>
-  
-  <button id="staggerBoardToggleBtn" onclick="toggleStaggerBoardMode(this)">
-    Broken Grid
-  </button>
+  <div class="utility-group-left">
+    <span class="label">Accessibility:</span>
+
+    <button id="colorblindToggleBtn" onclick="toggleColorblindMode(this)">
+      Colorblind
+    </button>
+    
+    <button id="staggerBoardToggleBtn" onclick="toggleStaggerBoardMode(this)">
+      Broken Grid
+    </button>
+  </div>
+
+  <div class="utility-group-right">
+    <span class="label">Safety Settings:</span>
+
+<select
+  id="safeRiskBandSelect"
+  onchange="setSafeRiskBand(Number(this.value))"
+>
+  <option value="1">Risk Band: 1%</option>
+  <option value="3">Risk Band: 3%</option>
+  <option value="5" selected>Risk Band: 5%</option>
+</select>
+
+<button
+  id="safeAvoidAdjacentKnownToggle"
+  onclick="toggleSafeAvoidAdjacentKnown(this)"
+>
+  Avoid adjacency
+</button>
+
+<button
+  id="safeAggressiveAvoidHighProbToggle"
+  onclick="toggleSafeAggressiveAvoidHighProb(this)"
+>
+  Avoid &gt;90% Prob
+</button>
+  </div>
+
 </div>
 
   </div>
@@ -1343,6 +1414,10 @@ button {
     style="display:none;"
   >
     <h3>Simulation Board</h3>
+
+<div class="simulation-subtitle">
+  Randomly generated board unrelated to your OT.
+</div>
     <div class="board-wrapper">
       <div id="simulationBoard" class="board"></div>
     </div>
@@ -1599,6 +1674,9 @@ let lastAutoFillHitCount = 0;
 let activeColorPickerTile = null;
 
 let showGambaHighlight = false;
+let safeRiskBand = 0.05;
+let safeAvoidAdjacentKnown = false;
+let safeAggressiveAvoidHighProb = false;
 
 let simulationMode = false;
 let simulationBoard = null;
@@ -2108,23 +2186,6 @@ function generateRandomSimulationBoard() {
   return null;
 }
 
-function getRandomConcreteSimulationShips() {
-  const rareSets = getPossibleRareSetsForMode();
-
-  if (!rareSets.length) return null;
-
-  const rareSet = rareSets[
-    Math.floor(Math.random() * rareSets.length)
-  ];
-
-  return shuffle([
-    'teal',
-    'green',
-    'yellow',
-    ...rareSet
-  ]);
-}
-
 function buildRandomizedPlacementsMap(ships) {
   const placementsMap = buildPlacementsMap(ships);
 
@@ -2135,20 +2196,6 @@ function buildRandomizedPlacementsMap(ships) {
   }
 
   return placementsMap;
-}
-
-function isValidCompleteSimulationBoard(board) {
-  const previousGrid = grid;
-
-  grid = Array(25).fill(null);
-  clearPlacementValidationCachesOnly();
-
-  try {
-    return isBoardValid(board, true);
-  } finally {
-    grid = previousGrid;
-    clearPlacementValidationCachesOnly();
-  }
 }
 
 function getRandomConcreteSimulationShips() {
@@ -7814,10 +7861,86 @@ function getCandidateReduction(c) {
   return 2 * c.p * (1 - c.p);
 }
 
+function shouldApplySafeAdjacentAvoidance() {
+  if (!safeAvoidAdjacentKnown) return false;
+
+  const context = getInfoContext();
+
+  const { huntMode } = getGameContext();
+
+return (
+  !huntMode ||
+  !context?.missEndsGame
+);
+}
+
+function couldBelongToKnownShip(index) {
+  for (const color of Object.keys(SHIPS)) {
+
+    if (color === 'red' || color === 'rainbow') {
+      continue;
+    }
+
+    const knownCells = [];
+
+    for (let i = 0; i < 25; i++) {
+      if (grid[i] === color) {
+        knownCells.push(i);
+      }
+    }
+
+    if (knownCells.length === 0) continue;
+
+    const possiblePlacements = getPlacementsCached(color);
+
+    const couldBeThisShip =
+  getTileColorProbability(index, color) > 0 &&
+  possiblePlacements.some(placement =>
+    placement.cells.includes(index) &&
+    knownCells.every(i => placement.cells.includes(i))
+  );
+
+    if (couldBeThisShip) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function shouldApplyAggressiveHighProbAvoidance(huntMode) {
+  if (!safeAggressiveAvoidHighProb) return false;
+  if (!huntMode) return false;
+
+  const context = getInfoContext();
+
+  return !context?.missEndsGame;
+}
+
 function getSafestMove(candidates, huntMode = false) {
   if (!candidates.length) return null;
 
-  const RISK_BAND = 0.05;
+  if (shouldApplySafeAdjacentAvoidance()) {
+    const nonAdjacentCandidates = candidates.filter(candidate =>
+  !couldBelongToKnownShip(candidate.i)
+);
+
+    if (nonAdjacentCandidates.length > 0) {
+      candidates = nonAdjacentCandidates;
+    }
+  }
+  
+  if (shouldApplyAggressiveHighProbAvoidance(huntMode)) {
+  const belowNinetyCandidates = candidates.filter(candidate =>
+    candidate.p <= 0.90
+  );
+
+  if (belowNinetyCandidates.length > 0) {
+    candidates = belowNinetyCandidates;
+  }
+}
+
+  const RISK_BAND = safeRiskBand;
 
   const getPrimaryChance = huntMode
     ? candidate => candidate.p
@@ -8277,6 +8400,45 @@ function getRecommendationContext() {
 // T.12 UI
 // ===============================
 
+function updateSafetySettingButtons() {
+  const context = getInfoContext();
+  const { huntMode } = getGameContext();
+
+  const adjacencyBtn = document.getElementById(
+    'safeAvoidAdjacentKnownToggle'
+  );
+
+  const highProbBtn = document.getElementById(
+    'safeAggressiveAvoidHighProbToggle'
+  );
+
+  if (adjacencyBtn) {
+const canUseAdjacencyAvoid =
+  !huntMode ||
+  !context?.missEndsGame;
+
+    adjacencyBtn.disabled = !canUseAdjacencyAvoid;
+
+    if (!canUseAdjacencyAvoid) {
+      safeAvoidAdjacentKnown = false;
+      adjacencyBtn.classList.remove('active-btn');
+    }
+  }
+
+  if (highProbBtn) {
+    const canUseHighProbAvoid =
+      huntMode &&
+      !context?.missEndsGame;
+
+    highProbBtn.disabled = !canUseHighProbAvoid;
+
+    if (!canUseHighProbAvoid) {
+      safeAggressiveAvoidHighProb = false;
+      highProbBtn.classList.remove('active-btn');
+    }
+  }
+}
+
 function getPickerOutlineColor(color) {
   switch(color){
     case 'miss': return '#3b82f6';
@@ -8433,10 +8595,17 @@ function updateTopInfoVisibility(){
 }
 
 function updateModeButtons(){
-  const safeBtn = document.getElementById('modeSafe');
-  const aggressiveBtn = document.getElementById('modeAggressive');
+const safeBtn = document.getElementById('modeSafe');
+const aggressiveBtn = document.getElementById('modeAggressive');
+const simulationBtn = document.getElementById('simulationToggleBtn');
 
-  if(!safeBtn || !aggressiveBtn) return;
+if(!safeBtn || !aggressiveBtn) return;
+
+if (simulationBtn) {
+  simulationBtn.disabled =
+    rareCount === null ||
+    (!simulationMode && hasGameStarted());
+}
 
   safeBtn.classList.remove('active-btn', 'disabled');
   aggressiveBtn.classList.remove('active-btn', 'disabled');
@@ -8454,6 +8623,8 @@ function updateModeButtons(){
   } else {
     safeBtn.classList.add('active-btn');
   }
+  
+  updateSafetySettingButtons();
 }
 
 function render() {
@@ -9298,6 +9469,10 @@ return `
 function buildModeCard(){
   const { huntMode } = getGameContext();
 
+  const safetyText = safeAvoidAdjacentKnown
+    ? "<br>• Avoiding adjacency: red/rainbow exempt"
+    : "";
+
   return makeCard(
     "Mode Info",
     `
@@ -9307,6 +9482,7 @@ function buildModeCard(){
           ? "• Finding <b>non-blues</b>.<br>• Heatmap shows % chance of <b>non-blue</b>."
           : "• Finding <b>blues</b>.<br>• Heatmap shows % chance of <b>blue</b>."
       }
+      ${safetyText}
     `,
     "info-blue"
   );
@@ -12141,6 +12317,34 @@ function getMovesForCurrentGrid(){
 // ===============================
 // T.16 EVENT BINDS
 // ===============================
+
+window.toggleSafeAggressiveAvoidHighProb = function(btn) {
+  safeAggressiveAvoidHighProb = !safeAggressiveAvoidHighProb;
+
+  btn.classList.toggle('active-btn', safeAggressiveAvoidHighProb);
+
+  runSimulation();
+  renderUI();
+  updateColorAvailability();
+};
+
+window.toggleSafeAvoidAdjacentKnown = function(btn) {
+  safeAvoidAdjacentKnown = !safeAvoidAdjacentKnown;
+
+  btn.classList.toggle('active-btn', safeAvoidAdjacentKnown);
+
+  runSimulation();
+  renderUI();
+  updateColorAvailability();
+};
+
+window.setSafeRiskBand = function(value) {
+  safeRiskBand = value / 100;
+
+  runSimulation();
+  renderUI();
+  updateColorAvailability();
+};
 
 window.toggleStaggerBoardMode = function(btn){
   staggerBoardMode = (staggerBoardMode + 1) % 3;
