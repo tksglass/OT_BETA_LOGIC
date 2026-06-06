@@ -2065,64 +2065,99 @@ simulationRevealed = Array(25).fill(false);
 }
 
 function generateRandomSimulationBoard() {
-  const ships = prepareSortedShips();
-  const placementsMap = buildPlacementsMap(ships);
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const ships = getRandomConcreteSimulationShips();
+    if (!ships) continue;
 
-  if (!placementsMap) {
-    return null;
-  }
+    const placementsMap = buildRandomizedPlacementsMap(ships);
+    if (!placementsMap) continue;
 
-  for (let attempt = 0; attempt < 80; attempt++) {
     const board = Array(25).fill(null);
 
     if (!backtrackPlace(ships, placementsMap, 0, board)) {
       continue;
     }
 
-    return materializeSimulationBoard(board);
+    if (isValidCompleteSimulationBoard(board)) {
+      return board;
+    }
   }
 
   return null;
 }
 
-function materializeSimulationBoard(board) {
-  const rareSet = getRandomSimulationRareSet();
+function getRandomConcreteSimulationShips() {
+  const rareSets = getPossibleRareSetsForMode();
 
-  if (!rareSet) {
-    return null;
-  }
+  if (!rareSets.length) return null;
 
-  const hiddenRareColors = shuffle(
-    rareSet.filter(color => color !== 'orange')
-  );
+  const rareSet = rareSets[
+    Math.floor(Math.random() * rareSets.length)
+  ];
 
-  const anonymousRareMap = {};
-  let nextRareIndex = 0;
-
-  return board.map(color => {
-    if (!isAnonymousRareShip(color)) {
-      return color;
-    }
-
-    if (!anonymousRareMap[color]) {
-      anonymousRareMap[color] =
-        hiddenRareColors[nextRareIndex++] || null;
-    }
-
-    return anonymousRareMap[color];
-  });
+  return shuffle([
+    'teal',
+    'green',
+    'yellow',
+    ...rareSet
+  ]);
 }
 
-function getRandomSimulationRareSet() {
-  const possibleSets = getPossibleRareSetsForMode();
+function buildRandomizedPlacementsMap(ships) {
+  const placementsMap = buildPlacementsMap(ships);
 
-  if (!possibleSets.length) {
-    return null;
+  if (!placementsMap) return null;
+
+  for (const ship of ships) {
+    placementsMap[ship] = shuffle([...placementsMap[ship]]);
   }
 
-  return possibleSets[
-    Math.floor(Math.random() * possibleSets.length)
-  ];
+  return placementsMap;
+}
+
+function isValidCompleteSimulationBoard(board) {
+  const previousGrid = grid;
+
+  grid = Array(25).fill(null);
+  clearPlacementValidationCachesOnly();
+
+  try {
+    return isBoardValid(board, true);
+  } finally {
+    grid = previousGrid;
+    clearPlacementValidationCachesOnly();
+  }
+}
+
+function getRandomConcreteSimulationShips() {
+  const rareSets = getPossibleRareSetsForMode();
+
+  if (!rareSets.length) return null;
+
+  const rareSet = shuffle(
+    rareSets[Math.floor(Math.random() * rareSets.length)]
+  );
+
+  return shuffle([
+    'teal',
+    'green',
+    'yellow',
+    ...rareSet
+  ]);
+}
+
+function isValidCompleteSimulationBoard(board) {
+  const previousGrid = grid;
+
+  grid = Array(25).fill(null);
+  clearPlacementValidationCachesOnly();
+
+  try {
+    return isBoardValid(board, true);
+  } finally {
+    grid = previousGrid;
+    clearPlacementValidationCachesOnly();
+  }
 }
 
 function revealSimulationTile(i) {
