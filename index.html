@@ -9514,10 +9514,11 @@ function appendPreGameMessages(messages, ctx) {
         • 8 and 9 colors default to aggressive mode (finding non-blues.)<br><br>
 		• On 7 colors, consider manually changing to Aggressive mode if your first 3-4 moves are all hits.<br><br>
         • Unclicked guaranteed tiles get stripes in their color (or question mark if color not known). Clicking them before the solver tells you to could lead to worse outcomes. (incl. fill hit button)<br><br>
-        • EV is shown when probabilities are tied. You can use it to decide tie breakers.<br><br>
+		• "Risk band" is how much hit chance can be traded for a potentially better move.<br><br>
+		• "Avoid adjacency" avoids clustering around existing ship information when possible. Auto-disabled when appropriate.<br><br>
+		• "Avoid >90% Prob" delays near-certain hits in favor of gathering additional information. Auto-disabled when appropriate.<br><br>
 		BELOW IS EXACT SOLVING MODE ONLY<br><br>
-		• 2-Step Collapse (later Future Collapse) searches the move tree for board count reduction, and penalizes worst case scenarios. <br><br>
-	    • After clicking a tile, you can hover a color in the selector ring to recalculate the heatmap based on the tile being that color. This will respect the heatmap setting you've selected.<br><br>
+	    • After clicking a tile, you can hover a color in the selector ring to recalculate the selected heatmap based on the tile being that color.<br><br>
 		• Toggling rare ship targeting only works for the current move. This prevents accidentally forgetting to turn it off.
 		`,
         "info-blue info-hint"
