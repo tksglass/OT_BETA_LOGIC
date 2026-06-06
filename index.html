@@ -46,7 +46,24 @@
   min-height: 100vh;
 }
   h2, h3 { margin: 5px 0; }
-  .topbar { background: #d1d5db; flex-wrap: nowrap; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+  
+  .topbar {
+  background: #d1d5db;
+  padding: 15px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  justify-content: space-between;
+
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 12px;
+}
+
   .reset-container { background: #d1d5db; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
   .label { font-weight: bold; margin-right: 10px; }
 
@@ -288,56 +305,6 @@ button {
   color: white;
 }
 
-.heatmap-toggle {
-  font-size: 12px;
-  padding: 5px 10px;
-  border-radius: 8px;
-
-  background: #f3f4f6;
-  color: #111827;
-
-  border: 1px solid #9ca3af;
-
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.7),
-    0 2px 4px rgba(0,0,0,0.15);
-
-  cursor: pointer;
-
-  transition:
-    transform 0.08s ease,
-    box-shadow 0.08s ease,
-    background 0.15s ease;
-}
-
-.heatmap-toggle:hover {
-  background: #e5e7eb;
-}
-
-.heatmap-toggle:active {
-  transform: translateY(1px);
-
-  box-shadow:
-    inset 0 2px 4px rgba(0,0,0,0.2);
-}
-
-.heatmap-toggle.active-btn {
-  background: #2563eb;
-  color: white;
-
-  border-color: #1e3a8a;
-
-  box-shadow:
-    inset 0 1px 2px rgba(255,255,255,0.3),
-    0 2px 6px rgba(37,99,235,0.4);
-}
-
-.heatmap-toggle.disabled {
-  opacity: 0.4;
-  cursor: default;
-  box-shadow: none;
-}
-
 .heatmap-subtitle {
   font-size: 12px;
   color: #374151;
@@ -375,7 +342,7 @@ button {
 .layout {
   display: flex;
   gap: 20px;
-  align-items: stretch;
+  align-items: flex-start;
 }
 
 .left-column {
@@ -467,7 +434,7 @@ button {
     0 4px 10px rgba(0,0,0,0.1);
 }
 
-.topbar, #infoBox {
+#infoBox {
   width: 100%;
   box-sizing: border-box;
 }
@@ -689,23 +656,13 @@ button {
   margin-bottom: 6px;
 }
 
-.info-purple { border-color: #6d28d9; }
-.info-purple .info-card-title { color: #a855f7; }
-
-.info-gold { border-color: #b45309; }
-.info-gold .info-card-title {
-  color: #92400e;
-}
-
-.info-green { border-color: #065f46; }
-.info-green .info-card-title { color: #22c55e; }
-
-.info-blue { border-color: #1e3a8a; }
-.info-blue .info-card-title { color: #60a5fa; }
-
 .info-green {
   border-color: #065f46;
   background: rgba(34,197,94,0.08);
+}
+
+.info-green .info-card-title {
+  color: #22c55e;
 }
 
 .info-purple {
@@ -713,10 +670,26 @@ button {
   background: rgba(168,85,247,0.08);
 }
 
+.info-purple .info-card-title {
+  color: #a855f7;
+}
+
 .info-gold {
   border-color: #b45309;
   background: rgba(251,191,36,0.12);
-  color: #111827; 
+  color: #111827;
+}
+
+.info-gold .info-card-title {
+  color: #92400e;
+}
+
+.info-blue {
+  border-color: #1e3a8a;
+}
+
+.info-blue .info-card-title {
+  color: #60a5fa;
 }
 
 .info-progress {
@@ -726,15 +699,6 @@ button {
 
 .info-progress .info-card-title {
   color: #06b6d4;
-}
-
-.topbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
 }
 
 #topInfoBox.hidden,
@@ -924,7 +888,6 @@ button {
   background: #dc2626;
 }
 
-.topbar,
 .board-container,
 #infoBox {
   border-radius: 12px;
@@ -1347,7 +1310,6 @@ button {
   </button>
 </div>
 </div>
-<br>
   <div class="board-container">
 <div class="heatmap-header">
   <h3 id="heatmapTitle">Probability Heatmap</h3>
@@ -1413,14 +1375,13 @@ button {
     class="board-container"
     style="display:none;"
   >
-    <h3>Simulation Board</h3>
-
-<div class="simulation-subtitle">
-  Randomly generated board unrelated to your OT.
-</div>
+    <h3>Simulated Board</h3>
     <div class="board-wrapper">
       <div id="simulationBoard" class="board"></div>
     </div>
+	<div class="simulation-subtitle">
+  Randomly generated board unrelated to your OT.<br> Used for testing the solver.
+</div>
   </div>
 
   <div id="infoBox"></div>
@@ -1689,6 +1650,7 @@ const DOM_LISTS = {
 };
 
 let rareRulesCache = null;
+let tilePickerLegalityCache = new Map();
 
 // ===============================
 // T.03 ACTIONS
@@ -1797,202 +1759,6 @@ function clearTilePickerPreview() {
   clearHeatmapPreview();
 }
 
-function openTileColorPicker(i) {
-  closeTileColorPicker();
-
-  const cell = DOM.playBoard[i];
-  if (!cell) return;
-
-  activeColorPickerTile = i;
-  cell.classList.add('picker-open');
-
-  if (grid[i] !== null) {
-    cell.style.setProperty(
-      '--picker-outline-color',
-      getPickerOutlineColor(grid[i])
-    );
-  } else {
-    cell.style.removeProperty('--picker-outline-color');
-  }
-
-  const picker = document.createElement('div');
-  picker.className = 'tile-color-picker';
-
-  const svg = createTileColorRing(i);
-  picker.appendChild(svg);
-
-  cell.appendChild(picker);
-}
-
-function createTileColorRing(tileIndex) {
-  const svgNS = 'http://www.w3.org/2000/svg';
-
-const svg = document.createElementNS(svgNS, 'svg');
-svg.classList.add('tile-color-ring');
-svg.setAttribute('viewBox', '0 0 92 92');
-
-  const defs = document.createElementNS(svgNS, 'defs');
-
-  const rainbowGradient = document.createElementNS(svgNS, 'linearGradient');
-  rainbowGradient.setAttribute('id', 'tilePickerRainbowGradient');
-  rainbowGradient.setAttribute('x1', '0%');
-  rainbowGradient.setAttribute('y1', '0%');
-  rainbowGradient.setAttribute('x2', '100%');
-  rainbowGradient.setAttribute('y2', '100%');
-
-  [
-    ['0%', 'rgb(239,68,68)'],
-    ['25%', 'rgb(251,191,36)'],
-    ['50%', 'rgb(34,197,94)'],
-    ['75%', 'rgb(59,130,246)'],
-    ['100%', 'rgb(168,85,247)']
-  ].forEach(([offset, color]) => {
-    const stop = document.createElementNS(svgNS, 'stop');
-    stop.setAttribute('offset', offset);
-    stop.setAttribute('stop-color', color);
-    rainbowGradient.appendChild(stop);
-  });
-
-  defs.appendChild(rainbowGradient);
-  svg.appendChild(defs);
-
-  const counts = getColorCountsForTileEdit(tileIndex);
-  const usedRare = getUsedRareFromCounts(counts);
-  
-  const placementRuleCache = {};
-
-const centerX = 46;
-const centerY = 46;
-const outerRadius = 60;
-const innerRadius = 30;
-  const sliceAngle = 360 / TILE_PICKER_COLORS.length;
-  const startOffset = -90 - (sliceAngle / 2);
-
-  TILE_PICKER_COLORS.forEach((color, index) => {
-    const startAngle = startOffset + index * sliceAngle;
-    const endAngle = startAngle + sliceAngle;
-
-    const sector = document.createElementNS(svgNS, 'path');
-
-    sector.classList.add('tile-color-sector');
-    sector.dataset.color = color;
-
-    sector.setAttribute(
-      'd',
-      getDonutSectorPath(
-        centerX,
-        centerY,
-        innerRadius,
-        outerRadius,
-        startAngle,
-        endAngle
-      )
-    );
-
-    sector.setAttribute(
-      'fill',
-      getRingSectorFill(color)
-    );
-
-const disabled = isTilePickerColorDisabled(
-  color,
-  tileIndex,
-  counts,
-  usedRare,
-  placementRuleCache
-);
-
-    sector.classList.toggle('disabled', disabled);
-
-    sector.addEventListener('click', event => {
-      event.stopPropagation();
-      if (disabled) return;
-
-      placeColorAs(tileIndex, color);
-      closeTileColorPicker();
-    });
-
-sector.addEventListener('mouseenter', event => {
-  showColorTooltip(getColorTooltipLabel(color), event);
-
-  if (!disabled) {
-    previewTilePickerColor(tileIndex, color);
-  }
-});
-
-sector.addEventListener('mousemove', moveColorTooltip);
-
-sector.addEventListener('mouseleave', () => {
-  hideColorTooltip();
-  clearTilePickerPreview();
-});
-
-    svg.appendChild(sector);
-  });
-
-  const hole = document.createElementNS(svgNS, 'circle');
-  hole.classList.add('tile-color-ring-hole');
-  hole.setAttribute('cx', centerX);
-  hole.setAttribute('cy', centerY);
-  hole.setAttribute('r', innerRadius - 1);
-
-  svg.appendChild(hole);
-
-  return svg;
-}
-
-function getDonutSectorPath(cx, cy, innerR, outerR, startAngle, endAngle) {
-  const outerStart = polarToCartesian(cx, cy, outerR, startAngle);
-  const outerEnd = polarToCartesian(cx, cy, outerR, endAngle);
-  const innerEnd = polarToCartesian(cx, cy, innerR, endAngle);
-  const innerStart = polarToCartesian(cx, cy, innerR, startAngle);
-
-  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
-
-  return [
-    `M ${outerStart.x} ${outerStart.y}`,
-    `A ${outerR} ${outerR} 0 ${largeArcFlag} 1 ${outerEnd.x} ${outerEnd.y}`,
-    `L ${innerEnd.x} ${innerEnd.y}`,
-    `A ${innerR} ${innerR} 0 ${largeArcFlag} 0 ${innerStart.x} ${innerStart.y}`,
-    'Z'
-  ].join(' ');
-}
-
-function polarToCartesian(cx, cy, radius, angleInDegrees) {
-  const angleInRadians = angleInDegrees * Math.PI / 180;
-
-  return {
-    x: cx + radius * Math.cos(angleInRadians),
-    y: cy + radius * Math.sin(angleInRadians)
-  };
-}
-
-function getRingSectorFill(color) {
-  if (color === 'rainbow') {
-    return 'url(#tilePickerRainbowGradient)';
-  }
-
-  return getPickerColorBackground(color);
-}
-
-function closeTileColorPicker() {
-  if (activeColorPickerTile === null) return;
-
-  const cell = DOM.playBoard[activeColorPickerTile];
-
-  if (cell) {
-    cell.classList.remove('picker-open');
-	
-	cell.style.removeProperty('--picker-outline-color');
-
-    const picker = cell.querySelector('.tile-color-picker');
-    if (picker) picker.remove();
-  }
-
-  activeColorPickerTile = null;
-  hideColorTooltip();
-}
-
 function placeColorAs(i, color) {
   const previewColor = selectedColor;
 
@@ -2037,12 +1803,12 @@ if (grid[tileIndex] === null) {
     placementRuleCache[color] === undefined
   ) {
     placementRuleCache[color] =
-      canTileAcceptColorByPlacementRules(tileIndex, color);
+      canTileAcceptColorByPlacementRulesCached(tileIndex, color);
   }
 
   const canAccept = placementRuleCache
     ? placementRuleCache[color]
-    : canTileAcceptColorByPlacementRules(tileIndex, color);
+    : canTileAcceptColorByPlacementRulesCached(tileIndex, color);
 
   if (!canAccept) {
     return true;
@@ -2090,23 +1856,6 @@ function clearPlacementValidationCachesOnly() {
   rareRulesCache = null;
 }
 
-function getPickerColorBackground(color) {
-  switch(color){
-    case 'miss': return '#3b82f6';
-    case 'teal': return '#4fd1c5';
-    case 'green': return 'green';
-    case 'yellow': return 'yellow';
-    case 'orange': return 'orange';
-    case 'red': return 'red';
-    case 'black': return 'black';
-    case 'white': return 'white';
-    case 'rainbow':
-      return 'linear-gradient(135deg, rgb(239,68,68), rgb(251,191,36), rgb(34,197,94), rgb(59,130,246), rgb(168,85,247))';
-    default:
-      return '#d1d5db';
-  }
-}
-
 function toggleColor(i) {
   const isSameColor = grid[i] === selectedColor;
   return isSameColor ? null : selectedColor;
@@ -2114,160 +1863,6 @@ function toggleColor(i) {
 
 function setGridCell(index, value) {
   grid[index] = value;
-}
-
-function startSimulationMode(btn = null) {
-  if (rareCount === null) {
-    showError("Choose number of colors first.");
-    return;
-  }
-
-  grid = Array(25).fill(null);
-  selectedColor = null;
-  history = [];
-  moves = [];
-  redoStack = [];
-  currentMode = MODE.NORMAL;
-  appState = createEmptyAppState();
-
-  clearPlacementsCache();
-
-simulationBoard = generateRandomSimulationBoard();
-simulationRevealed = Array(25).fill(false);
-
-if (!simulationBoard) {
-  showError("Could not generate a valid simulation board.");
-  return;
-}
-
-  simulationMode = true;
-  btn?.classList.add('active-btn');
-
-  ensureConfigLocked();
-  clearPlacementsCache();
-
-  render();
-  renderSimulationBoard();
-  updateSimulationUI();
-  refreshAfterAnalysisStateChange();
-  updateBoardLock();
-}
-
-function stopSimulationMode(btn = null) {
-simulationMode = false;
-simulationBoard = null;
-simulationRevealed = Array(25).fill(false);
-
-  btn?.classList.remove('active-btn');
-
-  updateSimulationUI();
-  renderSimulationBoard();
-}
-
-function generateRandomSimulationBoard() {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    const ships = getRandomConcreteSimulationShips();
-    if (!ships) continue;
-
-    const placementsMap = buildRandomizedPlacementsMap(ships);
-    if (!placementsMap) continue;
-
-    const board = Array(25).fill(null);
-
-    if (!backtrackPlace(ships, placementsMap, 0, board)) {
-      continue;
-    }
-
-    if (isValidCompleteSimulationBoard(board)) {
-      return board;
-    }
-  }
-
-  return null;
-}
-
-function buildRandomizedPlacementsMap(ships) {
-  const placementsMap = buildPlacementsMap(ships);
-
-  if (!placementsMap) return null;
-
-  for (const ship of ships) {
-    placementsMap[ship] = shuffle([...placementsMap[ship]]);
-  }
-
-  return placementsMap;
-}
-
-function getRandomConcreteSimulationShips() {
-  const rareSets = getPossibleRareSetsForMode();
-
-  if (!rareSets.length) return null;
-
-  const rareSet = shuffle(
-    rareSets[Math.floor(Math.random() * rareSets.length)]
-  );
-
-  return shuffle([
-    'teal',
-    'green',
-    'yellow',
-    ...rareSet
-  ]);
-}
-
-function isValidCompleteSimulationBoard(board) {
-  const previousGrid = grid;
-
-  grid = Array(25).fill(null);
-  clearPlacementValidationCachesOnly();
-
-  try {
-    return isBoardValid(board, true);
-  } finally {
-    grid = previousGrid;
-    clearPlacementValidationCachesOnly();
-  }
-}
-
-function revealSimulationTile(i) {
-  if (!simulationMode) return;
-  if (!simulationBoard) return;
-
-  simulationRevealed[i] = true;
-
-  renderSimulationBoard();
-}
-
-function updateSimulationUI() {
-  if (!DOM.simulationBoardContainer) return;
-
-  DOM.simulationBoardContainer.style.display =
-    simulationMode ? '' : 'none';
-}
-
-function renderSimulationBoard() {
-  if (!DOM.simulationBoard) return;
-
-  for (let i = 0; i < 25; i++) {
-    const cell = DOM.simulationBoard[i];
-    if (!cell) continue;
-
-    cell.className = 'cell';
-    cell.textContent = '';
-
-    if (!simulationMode || !simulationBoard) {
-      cell.style.background = '';
-      continue;
-    }
-
-    if (simulationRevealed[i]) {
-      const color = simulationBoard[i] || 'miss';
-      cell.style.background = getPickerColorBackground(color);
-      cell.classList.add('placed-tile');
-    } else {
-      cell.style.background = '#d1d5db';
-    }
-  }
 }
 
 function recordMove(index, prevColor, newColor) {
@@ -2596,28 +2191,6 @@ function clearTransientMoveState() {
   appState.resolutionOpportunityMove = null;
 }
 
-function hasValidPlacementsForAllShips() {
-  for (const ship of getShipList()) {
-    if (getPlacementsCached(ship).length === 0) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function shouldHideBestStrategicMove(ctx = getInfoContext()) {
-  return (
-    !!appState.noEquivalencePlan?.length ||
-    !!appState.finalDecisionMove ||
-    !!appState.resolutionOpportunityMove ||
-    (
-      !ctx?.missEndsGame &&
-      !!appState.uncertaintyMove
-    )
-  );
-}
-
 function deepClone(obj) {
   if (obj === null || obj === undefined) return obj;
 
@@ -2732,11 +2305,44 @@ hitMasksCache = null;
 equivalenceGroupsCache = null;
 precalcContextCache = null;
 rareRulesCache = null;
+tilePickerLegalityCache.clear();
 }
 
 // ===============================
 // T.05 VALIDATION
 // ===============================
+
+function getTilePickerLegalityCacheKey(tileIndex, color) {
+  return [
+    rareCount,
+    tileIndex,
+    color,
+    grid.map(c => c || '-').join(',')
+  ].join('|');
+}
+
+function canTileAcceptColorByPlacementRulesCached(tileIndex, color) {
+  const key = getTilePickerLegalityCacheKey(tileIndex, color);
+
+  if (tilePickerLegalityCache.has(key)) {
+    return tilePickerLegalityCache.get(key);
+  }
+
+  const result = canTileAcceptColorByPlacementRules(tileIndex, color);
+  tilePickerLegalityCache.set(key, result);
+
+  return result;
+}
+
+function hasValidPlacementsForAllShips() {
+  for (const ship of getShipList()) {
+    if (getPlacementsCached(ship).length === 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 function isStateValid(){
   const { colorCounts, colorMasks } = getGridStats();
@@ -3437,6 +3043,160 @@ function getUsedRare(){
 // ===============================
 // T.08 SIMULATION 
 // ===============================
+
+function startSimulationMode(btn = null) {
+  if (rareCount === null) {
+    showError("Choose number of colors first.");
+    return;
+  }
+
+  grid = Array(25).fill(null);
+  selectedColor = null;
+  history = [];
+  moves = [];
+  redoStack = [];
+  currentMode = MODE.NORMAL;
+  appState = createEmptyAppState();
+
+  clearPlacementsCache();
+
+simulationBoard = generateRandomSimulationBoard();
+simulationRevealed = Array(25).fill(false);
+
+if (!simulationBoard) {
+  showError("Could not generate a valid simulation board.");
+  return;
+}
+
+  simulationMode = true;
+  btn?.classList.add('active-btn');
+
+  ensureConfigLocked();
+  clearPlacementsCache();
+
+  render();
+  renderSimulationBoard();
+  updateSimulationUI();
+  refreshAfterAnalysisStateChange();
+  updateBoardLock();
+}
+
+function stopSimulationMode(btn = null) {
+simulationMode = false;
+simulationBoard = null;
+simulationRevealed = Array(25).fill(false);
+
+  btn?.classList.remove('active-btn');
+
+  updateSimulationUI();
+  renderSimulationBoard();
+}
+
+function generateRandomSimulationBoard() {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const ships = getRandomConcreteSimulationShips();
+    if (!ships) continue;
+
+    const placementsMap = buildRandomizedPlacementsMap(ships);
+    if (!placementsMap) continue;
+
+    const board = Array(25).fill(null);
+
+    if (!backtrackPlace(ships, placementsMap, 0, board)) {
+      continue;
+    }
+
+    if (isValidCompleteSimulationBoard(board)) {
+      return board;
+    }
+  }
+
+  return null;
+}
+
+function buildRandomizedPlacementsMap(ships) {
+  const placementsMap = buildPlacementsMap(ships);
+
+  if (!placementsMap) return null;
+
+  for (const ship of ships) {
+    placementsMap[ship] = shuffle([...placementsMap[ship]]);
+  }
+
+  return placementsMap;
+}
+
+function getRandomConcreteSimulationShips() {
+  const rareSets = getPossibleRareSetsForMode();
+
+  if (!rareSets.length) return null;
+
+  const rareSet = shuffle(
+    rareSets[Math.floor(Math.random() * rareSets.length)]
+  );
+
+  return shuffle([
+    'teal',
+    'green',
+    'yellow',
+    ...rareSet
+  ]);
+}
+
+function isValidCompleteSimulationBoard(board) {
+  const previousGrid = grid;
+
+  grid = Array(25).fill(null);
+  clearPlacementValidationCachesOnly();
+
+  try {
+    return isBoardValid(board, true);
+  } finally {
+    grid = previousGrid;
+    clearPlacementValidationCachesOnly();
+  }
+}
+
+function revealSimulationTile(i) {
+  if (!simulationMode) return;
+  if (!simulationBoard) return;
+
+  simulationRevealed[i] = true;
+
+  renderSimulationBoard();
+}
+
+function updateSimulationUI() {
+  if (!DOM.simulationBoardContainer) return;
+
+  DOM.simulationBoardContainer.style.display =
+    simulationMode ? '' : 'none';
+}
+
+function renderSimulationBoard() {
+  if (!DOM.simulationBoard) return;
+
+  for (let i = 0; i < 25; i++) {
+    const cell = DOM.simulationBoard[i];
+    if (!cell) continue;
+
+    cell.className = 'cell';
+    cell.textContent = '';
+
+    if (!simulationMode || !simulationBoard) {
+      cell.style.background = '';
+      continue;
+    }
+
+    if (simulationRevealed[i]) {
+      const color = simulationBoard[i] || 'miss';
+      cell.style.background = getPickerColorBackground(color);
+      cell.classList.add('placed-tile');
+    } else {
+      cell.style.background = '#d1d5db';
+    }
+  }
+}
 
 function runSimulation(){
 
@@ -6579,6 +6339,19 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // T.11 MOVE STRATEGY
 // ===============================
 
+function shouldHideBestStrategicMove(ctx = getInfoContext()) {
+  return (
+    !!appState.noEquivalencePlan?.length ||
+    !!appState.finalDecisionMove ||
+    !!appState.resolutionOpportunityMove ||
+    (
+      !ctx?.missEndsGame &&
+      !!appState.uncertaintyMove
+    )
+  );
+}
+
+
 function getBestResolutionOpportunityMove(allBoards, probs) {
   if (!allBoards || allBoards.length <= 2) return null;
   if (allBoards.length > 1000) return null;
@@ -7094,9 +6867,14 @@ function highlightStartingCorners(){
 
   const { huntMode } = getGameContext();
 
-  const openingTiles = huntMode
-    ? [7, 11, 13, 17]              
-    : [0, 4, 20, 24];  
+const isManualSafeMode = forcedStartMode === "safe";
+const use89ColorOpening = rareCount >= 4 && !isManualSafeMode;
+
+const openingTiles = use89ColorOpening
+  ? [8, 12, 16]
+  : huntMode
+    ? [7, 11, 13, 17]
+    : [0, 4, 20, 24];
 
   openingTiles.forEach(i => {
     if(!grid[i]) { 
@@ -9887,8 +9665,15 @@ function appendOpeningHint(messages, ctx) {
 function getOpeningHintText(){
   const { huntMode } = getGameContext();
 
+  const isManualSafeMode = forcedStartMode === "safe";
+  const use89ColorOpening = rareCount >= 4 && !isManualSafeMode;
+
+  if (use89ColorOpening) {
+    return "8/9-color aggressive opening: play all 3 highlighted tiles.";
+  }
+
   return huntMode
-    ? "Aggressive opening: any tiles adjacent to center are equally optimal starting moves."
+    ? "Aggressive opening: any of the semi-corners are equally optimal starting moves."
     : "Safe opening: all four corners are equally optimal starting moves.";
 }
 
@@ -10029,6 +9814,219 @@ function showError(msg){
 // ===============================
 // T.13 VISUALS
 // ===============================
+
+function openTileColorPicker(i) {
+  closeTileColorPicker();
+
+  const cell = DOM.playBoard[i];
+  if (!cell) return;
+
+  activeColorPickerTile = i;
+  cell.classList.add('picker-open');
+
+  if (grid[i] !== null) {
+    cell.style.setProperty(
+      '--picker-outline-color',
+      getPickerOutlineColor(grid[i])
+    );
+  } else {
+    cell.style.removeProperty('--picker-outline-color');
+  }
+
+  const picker = document.createElement('div');
+  picker.className = 'tile-color-picker';
+
+  const svg = createTileColorRing(i);
+  picker.appendChild(svg);
+
+  cell.appendChild(picker);
+}
+
+function createTileColorRing(tileIndex) {
+  const svgNS = 'http://www.w3.org/2000/svg';
+
+const svg = document.createElementNS(svgNS, 'svg');
+svg.classList.add('tile-color-ring');
+svg.setAttribute('viewBox', '0 0 92 92');
+
+  const defs = document.createElementNS(svgNS, 'defs');
+
+  const rainbowGradient = document.createElementNS(svgNS, 'linearGradient');
+  rainbowGradient.setAttribute('id', 'tilePickerRainbowGradient');
+  rainbowGradient.setAttribute('x1', '0%');
+  rainbowGradient.setAttribute('y1', '0%');
+  rainbowGradient.setAttribute('x2', '100%');
+  rainbowGradient.setAttribute('y2', '100%');
+
+  [
+    ['0%', 'rgb(239,68,68)'],
+    ['25%', 'rgb(251,191,36)'],
+    ['50%', 'rgb(34,197,94)'],
+    ['75%', 'rgb(59,130,246)'],
+    ['100%', 'rgb(168,85,247)']
+  ].forEach(([offset, color]) => {
+    const stop = document.createElementNS(svgNS, 'stop');
+    stop.setAttribute('offset', offset);
+    stop.setAttribute('stop-color', color);
+    rainbowGradient.appendChild(stop);
+  });
+
+  defs.appendChild(rainbowGradient);
+  svg.appendChild(defs);
+
+  const counts = getColorCountsForTileEdit(tileIndex);
+  const usedRare = getUsedRareFromCounts(counts);
+  
+  const placementRuleCache = {};
+
+const centerX = 46;
+const centerY = 46;
+const outerRadius = 60;
+const innerRadius = 30;
+  const sliceAngle = 360 / TILE_PICKER_COLORS.length;
+  const startOffset = -90 - (sliceAngle / 2);
+
+  TILE_PICKER_COLORS.forEach((color, index) => {
+    const startAngle = startOffset + index * sliceAngle;
+    const endAngle = startAngle + sliceAngle;
+
+    const sector = document.createElementNS(svgNS, 'path');
+
+    sector.classList.add('tile-color-sector');
+    sector.dataset.color = color;
+
+    sector.setAttribute(
+      'd',
+      getDonutSectorPath(
+        centerX,
+        centerY,
+        innerRadius,
+        outerRadius,
+        startAngle,
+        endAngle
+      )
+    );
+
+    sector.setAttribute(
+      'fill',
+      getRingSectorFill(color)
+    );
+
+const disabled = isTilePickerColorDisabled(
+  color,
+  tileIndex,
+  counts,
+  usedRare,
+  placementRuleCache
+);
+
+    sector.classList.toggle('disabled', disabled);
+
+    sector.addEventListener('click', event => {
+      event.stopPropagation();
+      if (disabled) return;
+
+      placeColorAs(tileIndex, color);
+      closeTileColorPicker();
+    });
+
+sector.addEventListener('mouseenter', event => {
+  showColorTooltip(getColorTooltipLabel(color), event);
+
+  if (!disabled) {
+    previewTilePickerColor(tileIndex, color);
+  }
+});
+
+sector.addEventListener('mousemove', moveColorTooltip);
+
+sector.addEventListener('mouseleave', () => {
+  hideColorTooltip();
+  clearTilePickerPreview();
+});
+
+    svg.appendChild(sector);
+  });
+
+  const hole = document.createElementNS(svgNS, 'circle');
+  hole.classList.add('tile-color-ring-hole');
+  hole.setAttribute('cx', centerX);
+  hole.setAttribute('cy', centerY);
+  hole.setAttribute('r', innerRadius - 1);
+
+  svg.appendChild(hole);
+
+  return svg;
+}
+
+function getDonutSectorPath(cx, cy, innerR, outerR, startAngle, endAngle) {
+  const outerStart = polarToCartesian(cx, cy, outerR, startAngle);
+  const outerEnd = polarToCartesian(cx, cy, outerR, endAngle);
+  const innerEnd = polarToCartesian(cx, cy, innerR, endAngle);
+  const innerStart = polarToCartesian(cx, cy, innerR, startAngle);
+
+  const largeArcFlag = endAngle - startAngle <= 180 ? 0 : 1;
+
+  return [
+    `M ${outerStart.x} ${outerStart.y}`,
+    `A ${outerR} ${outerR} 0 ${largeArcFlag} 1 ${outerEnd.x} ${outerEnd.y}`,
+    `L ${innerEnd.x} ${innerEnd.y}`,
+    `A ${innerR} ${innerR} 0 ${largeArcFlag} 0 ${innerStart.x} ${innerStart.y}`,
+    'Z'
+  ].join(' ');
+}
+
+function polarToCartesian(cx, cy, radius, angleInDegrees) {
+  const angleInRadians = angleInDegrees * Math.PI / 180;
+
+  return {
+    x: cx + radius * Math.cos(angleInRadians),
+    y: cy + radius * Math.sin(angleInRadians)
+  };
+}
+
+function getRingSectorFill(color) {
+  if (color === 'rainbow') {
+    return 'url(#tilePickerRainbowGradient)';
+  }
+
+  return getPickerColorBackground(color);
+}
+
+function closeTileColorPicker() {
+  if (activeColorPickerTile === null) return;
+
+  const cell = DOM.playBoard[activeColorPickerTile];
+
+  if (cell) {
+    cell.classList.remove('picker-open');
+	
+	cell.style.removeProperty('--picker-outline-color');
+
+    const picker = cell.querySelector('.tile-color-picker');
+    if (picker) picker.remove();
+  }
+
+  activeColorPickerTile = null;
+  hideColorTooltip();
+}
+
+function getPickerColorBackground(color) {
+  switch(color){
+    case 'miss': return '#3b82f6';
+    case 'teal': return '#4fd1c5';
+    case 'green': return 'green';
+    case 'yellow': return 'yellow';
+    case 'orange': return 'orange';
+    case 'red': return 'red';
+    case 'black': return 'black';
+    case 'white': return 'white';
+    case 'rainbow':
+      return 'linear-gradient(135deg, rgb(239,68,68), rgb(251,191,36), rgb(34,197,94), rgb(59,130,246), rgb(168,85,247))';
+    default:
+      return '#d1d5db';
+  }
+}
 
 function getRecommendationTooltipForPlayTile(i) {
   const cell = DOM.playBoard[i];
