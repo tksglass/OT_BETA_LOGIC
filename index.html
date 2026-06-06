@@ -822,6 +822,17 @@ button {
   margin-bottom: 0;
 }
 
+.utility-controls-row {
+  flex-basis: 100%;
+  justify-content: center;
+}
+
+#simulationBoardContainer {
+  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 #undoBtn {
   background: #374151;
   color: #f9fafb;
@@ -1164,35 +1175,38 @@ button {
 <div class="controls-row">
   <div class="topbar">
 
-    <div class="section">
-      <span class="label">Colors:</span>
-      <button onclick="setRare(2,this)">6</button>
-      <button onclick="setRare(3,this)">7</button>
-      <button onclick="setRare(4,this)">8</button>
-      <button onclick="setRare(5,this)">9</button>
-    </div>
-	
-	<div class="section">
+<div class="section">
+  <span class="label">Colors:</span>
+  <button onclick="setRare(2,this)">6</button>
+  <button onclick="setRare(3,this)">7</button>
+  <button onclick="setRare(4,this)">8</button>
+  <button onclick="setRare(5,this)">9</button>
+</div>
+
+<div class="section">
+  <span class="label">Mode:</span>
+  <button id="modeSafe" onclick="setMode('safe', this)">
+    Safe
+  </button>
+
+  <button id="modeAggressive" onclick="setMode('aggressive', this)">
+    Aggressive
+  </button>
+</div>
+
+<div class="section utility-controls-row">
   <button id="colorblindToggleBtn" onclick="toggleColorblindMode(this)">
     Colorblind
   </button>
   
-   <button id="staggerBoardToggleBtn" onclick="toggleStaggerBoardMode(this)">
+  <button id="staggerBoardToggleBtn" onclick="toggleStaggerBoardMode(this)">
     Broken Grid
   </button>
-  
+
+  <button id="simulationToggleBtn" onclick="toggleSimulationMode(this)">
+    Simulation
+  </button>
 </div>
-
-    <div class="section">
-      <span class="label">Mode:</span>
-<button id="modeSafe" onclick="setMode('safe', this)">
-  Safe
-</button>
-
-<button id="modeAggressive" onclick="setMode('aggressive', this)">
-  Aggressive
-</button>
-    </div>
 
   </div>
   
@@ -1301,7 +1315,19 @@ button {
     </div>
 
 </div> 
+
 <div id="infoBox"></div>
+
+<div
+  id="simulationBoardContainer"
+  class="board-container"
+  style="display:none;"
+>
+  <h3>Simulation Board</h3>
+  <div class="board-wrapper">
+    <div id="simulationBoard" class="board"></div>
+  </div>
+</div>
 
 </div> 
 
@@ -1386,6 +1412,8 @@ const ID_TO_COLOR = Object.fromEntries(
 const DOM = {
   playBoard: null,
   heatmap: null,
+  simulationBoard: null,
+  simulationBoardContainer: null,
   heatmapTitle: null,
   heatmapSubtitle: null,
   heatmapToggleBtn: null,
@@ -1549,6 +1577,10 @@ let lastAutoFillHitCount = 0;
 let activeColorPickerTile = null;
 
 let showGambaHighlight = false;
+
+let simulationMode = false;
+let simulationBoard = null;
+let simulationRevealed = Array(25).fill(false);
 
 const DOM_LISTS = {
   colorButtons: null,
@@ -1984,6 +2016,157 @@ function setGridCell(index, value) {
   grid[index] = value;
 }
 
+function startSimulationMode(btn = null) {
+  if (rareCount === null) {
+    showError("Choose number of colors first.");
+    return;
+  }
+
+  grid = Array(25).fill(null);
+  selectedColor = null;
+  history = [];
+  moves = [];
+  redoStack = [];
+  currentMode = MODE.NORMAL;
+  appState = createEmptyAppState();
+
+  clearPlacementsCache();
+
+simulationBoard = generateRandomSimulationBoard();
+simulationRevealed = Array(25).fill(false);
+
+if (!simulationBoard) {
+  showError("Could not generate a valid simulation board.");
+  return;
+}
+
+  simulationMode = true;
+  btn?.classList.add('active-btn');
+
+  ensureConfigLocked();
+  clearPlacementsCache();
+
+  render();
+  renderSimulationBoard();
+  updateSimulationUI();
+  refreshAfterAnalysisStateChange();
+  updateBoardLock();
+}
+
+function stopSimulationMode(btn = null) {
+simulationMode = false;
+simulationBoard = null;
+simulationRevealed = Array(25).fill(false);
+
+  btn?.classList.remove('active-btn');
+
+  updateSimulationUI();
+  renderSimulationBoard();
+}
+
+function generateRandomSimulationBoard() {
+  const ships = prepareSortedShips();
+  const placementsMap = buildPlacementsMap(ships);
+
+  if (!placementsMap) {
+    return null;
+  }
+
+  for (let attempt = 0; attempt < 80; attempt++) {
+    const board = Array(25).fill(null);
+
+    if (!backtrackPlace(ships, placementsMap, 0, board)) {
+      continue;
+    }
+
+    return materializeSimulationBoard(board);
+  }
+
+  return null;
+}
+
+function materializeSimulationBoard(board) {
+  const rareSet = getRandomSimulationRareSet();
+
+  if (!rareSet) {
+    return null;
+  }
+
+  const hiddenRareColors = shuffle(
+    rareSet.filter(color => color !== 'orange')
+  );
+
+  const anonymousRareMap = {};
+  let nextRareIndex = 0;
+
+  return board.map(color => {
+    if (!isAnonymousRareShip(color)) {
+      return color;
+    }
+
+    if (!anonymousRareMap[color]) {
+      anonymousRareMap[color] =
+        hiddenRareColors[nextRareIndex++] || null;
+    }
+
+    return anonymousRareMap[color];
+  });
+}
+
+function getRandomSimulationRareSet() {
+  const possibleSets = getPossibleRareSetsForMode();
+
+  if (!possibleSets.length) {
+    return null;
+  }
+
+  return possibleSets[
+    Math.floor(Math.random() * possibleSets.length)
+  ];
+}
+
+function revealSimulationTile(i) {
+  if (!simulationMode) return;
+  if (!simulationBoard) return;
+
+  simulationRevealed[i] = true;
+
+  renderSimulationBoard();
+}
+
+function updateSimulationUI() {
+  if (!DOM.infoBox || !DOM.simulationBoardContainer) return;
+
+  DOM.infoBox.style.display = simulationMode ? 'none' : '';
+  DOM.simulationBoardContainer.style.display =
+    simulationMode ? '' : 'none';
+}
+
+function renderSimulationBoard() {
+  if (!DOM.simulationBoard) return;
+
+  for (let i = 0; i < 25; i++) {
+    const cell = DOM.simulationBoard[i];
+    if (!cell) continue;
+
+    cell.className = 'cell';
+    cell.textContent = '';
+
+    if (!simulationMode || !simulationBoard) {
+      cell.style.background = '';
+      continue;
+    }
+
+    if (simulationRevealed[i]) {
+      const color = simulationBoard[i] || 'miss';
+      cell.style.background = getPickerColorBackground(color);
+      cell.classList.add('placed-tile');
+    } else {
+      cell.style.background = '#d1d5db';
+    }
+  }
+}
+
 function recordMove(index, prevColor, newColor) {
   const move = { index, prevColor, newColor };
 
@@ -2148,6 +2331,16 @@ updateAutoHitsButton();
 targetRareShipsMode = false;
 showGambaHighlight = false;
 
+simulationMode = false;
+simulationBoard = null;
+simulationRevealed = Array(25).fill(false);
+document
+  .getElementById('simulationToggleBtn')
+  ?.classList.remove('active-btn');
+
+updateSimulationUI();
+renderSimulationBoard();
+
 }
 
 // ===============================
@@ -2275,6 +2468,7 @@ function createHistorySnapshot() {
 
 function refreshAfterBoardChange() {
   render();
+  renderSimulationBoard();
   updateColorAvailability();
   runSimulation();
   renderUI();
@@ -11943,6 +12137,14 @@ window.toggleColorblindMode = function(btn){
   btn.classList.toggle('active-btn', colorblindMode);
 };
 
+window.toggleSimulationMode = function(btn){
+  if (simulationMode) {
+    stopSimulationMode(btn);
+  } else {
+    startSimulationMode(btn);
+  }
+};
+
 window.toggleGambaHighlight = function() {
   showGambaHighlight = !showGambaHighlight;
   renderUI();
@@ -12089,9 +12291,11 @@ async function updateLastUpdatedBadge() {
 function createBoards(){
   const play=document.getElementById('playBoard');
   const heat=document.getElementById('heatmap');
+  const sim=document.getElementById('simulationBoard');
 
   play.innerHTML='';
   heat.innerHTML='';
+  if (sim) sim.innerHTML='';
 
 for(let i=0;i<25;i++){
   let cell=document.createElement('div');
@@ -12142,6 +12346,18 @@ cell.addEventListener('mouseleave', () => {
   let h=document.createElement('div');
   h.className='cell';
   heat.appendChild(h);
+
+if (sim) {
+  let s = document.createElement('div');
+  s.className = 'cell';
+
+  s.onclick = event => {
+    event.stopPropagation();
+    revealSimulationTile(i);
+  };
+
+  sim.appendChild(s);
+}
 }
 }
 
@@ -12167,6 +12383,8 @@ function cacheDomLists(){
 
 DOM.playBoard = document.getElementById('playBoard').children;
 DOM.heatmap = document.getElementById('heatmap').children;
+DOM.simulationBoard = document.getElementById('simulationBoard').children;
+DOM.simulationBoardContainer = document.getElementById('simulationBoardContainer');
 DOM.heatmapTitle = document.getElementById('heatmapTitle');
 DOM.heatmapSubtitle = document.getElementById('heatmapSubtitle');
 DOM.heatmapToggleBtn = null;
