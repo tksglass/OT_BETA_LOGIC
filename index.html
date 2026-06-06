@@ -293,16 +293,49 @@ button {
 }
 
 .heatmap-mode-buttons {
-  display: flex;
+  display: inline-flex;
   justify-content: center;
-  gap: 6px;
-  margin-top: 10px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 0;
+
+  margin: 14px auto 0;
+  padding: 4px;
+
+  background: #e5e7eb;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.65),
+    0 1px 3px rgba(0,0,0,0.08);
+}
+
+.heatmap-mode-buttons button {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: #4b5563;
+  border: 0;
+  box-shadow: none;
+}
+
+.heatmap-mode-buttons button:hover {
+  background: rgba(255,255,255,0.55);
 }
 
 .heatmap-mode-buttons button.active-btn {
-  background: #4CAF50;
+  background: #22c55e;
   color: white;
+  box-shadow:
+    0 1px 3px rgba(0,0,0,0.16),
+    inset 0 1px 0 rgba(255,255,255,0.28);
+}
+
+.heatmap-mode-buttons button.disabled,
+.heatmap-mode-buttons button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .heatmap-subtitle {
@@ -316,6 +349,52 @@ button {
   color: #dc2626; 
   font-weight: 600;
   opacity: 1;
+}
+
+#rareTargetToggleBtn {
+  padding: 8px 14px;
+  cursor: pointer;
+
+  background: #e5e7eb;
+  color: #4b5563;
+
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+
+  font-size: 12px;
+  font-weight: 500;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.65),
+    0 1px 3px rgba(0,0,0,0.08);
+
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.05s ease;
+}
+
+#rareTargetToggleBtn:hover {
+  background: #dbe3ea;
+
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.75),
+    0 2px 5px rgba(0,0,0,0.12);
+}
+
+#rareTargetToggleBtn:active {
+  transform: translateY(1px);
+
+  box-shadow:
+    inset 0 2px 4px rgba(0,0,0,0.12);
+}
+
+#rareTargetToggleBtn.active-btn {
+  background: #4CAF50;
+  color: white;
+  border-color: #4CAF50;
+
+  box-shadow: none;
 }
 
 .last-updated-badge {
@@ -343,6 +422,14 @@ button {
   display: flex;
   gap: 20px;
   align-items: flex-start;
+}
+
+.right-column {
+  align-self: stretch;
+}
+
+#infoBox {
+  flex: 1;
 }
 
 .left-column {
@@ -12331,7 +12418,12 @@ window.toggleSafeAvoidAdjacentKnown = function(btn) {
 
   btn.classList.toggle('active-btn', safeAvoidAdjacentKnown);
 
-  runSimulation();
+  if (lastProbs) {
+    finalizeSimulation(lastProbs);
+  } else {
+    runSimulation();
+  }
+
   renderUI();
   updateColorAvailability();
 };
