@@ -56,6 +56,13 @@
   }
   .color-btn:hover { transform: scale(1.1); }
   
+  .right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex: 1;
+}
+  
   .color-btn.selected {
   transform: scale(1.15);
   box-shadow: 0 0 0 3px black, 0 0 8px rgba(0,0,0,0.4);
@@ -1316,17 +1323,19 @@ button {
 
 </div> 
 
-<div id="infoBox"></div>
-
-<div
-  id="simulationBoardContainer"
-  class="board-container"
-  style="display:none;"
->
-  <h3>Simulation Board</h3>
-  <div class="board-wrapper">
-    <div id="simulationBoard" class="board"></div>
+<div class="right-column">
+  <div
+    id="simulationBoardContainer"
+    class="board-container"
+    style="display:none;"
+  >
+    <h3>Simulation Board</h3>
+    <div class="board-wrapper">
+      <div id="simulationBoard" class="board"></div>
+    </div>
   </div>
+
+  <div id="infoBox"></div>
 </div>
 
 </div> 
@@ -2170,9 +2179,8 @@ function revealSimulationTile(i) {
 }
 
 function updateSimulationUI() {
-  if (!DOM.infoBox || !DOM.simulationBoardContainer) return;
+  if (!DOM.simulationBoardContainer) return;
 
-  DOM.infoBox.style.display = simulationMode ? 'none' : '';
   DOM.simulationBoardContainer.style.display =
     simulationMode ? '' : 'none';
 }
