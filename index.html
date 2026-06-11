@@ -66,6 +66,80 @@
 
   .reset-container { background: #d1d5db; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
   .label { font-weight: bold; margin-right: 10px; }
+  
+  .advanced-settings-container {
+  background: #d1d5db;
+  padding: 12px 15px;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+
+.advanced-settings-panel.hidden {
+  display: none;
+}
+
+.advanced-settings-panel {
+  margin-top: 10px;
+}
+
+.advanced-settings-note {
+  font-size: 12px;
+  opacity: 0.75;
+  margin-bottom: 10px;
+}
+
+.advanced-settings-share-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.advanced-settings-share-row button {
+  font-size: 11px;
+  padding: 5px 9px;
+}
+
+.tie-breaker-class {
+  background: #f3f4f6;
+  border: 1px solid #9ca3af;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.tie-breaker-class-title {
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.tie-breaker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid rgba(156,163,175,0.45);
+}
+
+.tie-breaker-row:first-of-type {
+  border-top: none;
+}
+
+.tie-breaker-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.tie-breaker-controls button {
+  font-size: 11px;
+  padding: 3px 7px;
+}
+
+.tie-breaker-locked {
+  opacity: 0.65;
+  font-size: 12px;
+}
 
   .color-btn {
     width:25px;height:25px;border-radius:50%;display:inline-block;margin-right:6px;
@@ -1327,9 +1401,11 @@ button {
   id="safeRiskBandSelect"
   onchange="setSafeRiskBand(Number(this.value))"
 >
-  <option value="1">Risk Band: 1%</option>
-  <option value="3">Risk Band: 3%</option>
-  <option value="5" selected>Risk Band: 5%</option>
+<option value="1">Risk Band: 1%</option>
+<option value="2">Risk Band: 2%</option>
+<option value="3">Risk Band: 3%</option>
+<option value="4">Risk Band: 4%</option>
+<option value="5" selected>Risk Band: 5%</option>
 </select>
 
 <button
@@ -1367,6 +1443,23 @@ button {
     <button id="resetBtn" onclick="resetAll()">Reset</button>
   </div>
 
+</div>
+
+<div class="advanced-settings-container">
+  <button
+    id="advancedSettingsToggle"
+    onclick="toggleAdvancedSettings()"
+  >
+    ▼ Advanced Settings
+  </button>
+
+  <div id="advancedSettingsPanel" class="advanced-settings-panel hidden">
+    <div class="advanced-settings-note">
+      You can change the order tie breakers are applied here. This will fundamentally change how the solver works, so do not change this unless you know what you are doing.
+    </div>
+
+    <div id="advancedSettingsContent"></div>
+  </div>
 </div>
 
 <div class="layout">
@@ -1574,6 +1667,250 @@ const FUTURE_COLLAPSE_BOARD_LIMIT = 200;
 const FUTURE_COLLAPSE_DEEP_BOARD_LIMIT = 50;
 const FUTURE_COLLAPSE_SHORTLIST = 5;
 
+const LOCKED_FALLBACK_TIEBREAKER = "tileIndex";
+
+const DEFAULT_TIEBREAKER_CONFIG = {
+  finalDecisionSetup: [
+    "riskAdjustedRemaining",
+    "expectedRemaining",
+    "hitChance",
+    "worstUnresolvedTiles"
+  ],
+
+    forcedResolution: [
+    "hitChance",
+    "expectedRemaining"
+  ],
+
+  resolutionOpportunity: [
+    "opportunityChance",
+    "bestOutcomeRemaining",
+    "expectedRemaining"
+  ],
+  
+      futureCollapse: [
+    "futureRiskAdjustedRemaining",
+    "weightedEV"
+  ],
+
+  rareShipTargeting: [
+  "expectedRemaining",
+  "rareTargetHitChance",
+  "weightedEV"
+],
+
+   progressMove: [
+    "expectedRemaining",
+    "modeHitChance",
+    "weightedEV"
+  ],
+
+    bestSafeAggressive: [
+    "undiscoveredSize4",
+    "undiscoveredSize3",
+    "undiscoveredSize2",
+    "safeBoardReduction",
+    "safePrimaryChance",
+    "safeWeightedEV"
+  ],
+
+  strategicAggressive: [
+    "strategicUndiscoveredSize4",
+    "strategicUndiscoveredSize3",
+    "strategicUndiscoveredSize2",
+    "strategicBoardReduction",
+    "strategicHitChance",
+    "weightedEV"
+  ],
+
+  strategicSafe: [
+    "strategicBoardReduction",
+    "strategicUndiscoveredSize4",
+    "strategicUndiscoveredSize3",
+    "strategicUndiscoveredSize2",
+    "strategicHitChance",
+    "weightedEV"
+  ]
+  
+  
+};
+
+let tieBreakerConfig = loadTieBreakerConfig();
+
+const TIEBREAKER_DEFINITIONS = {
+  riskAdjustedRemaining: {
+    label: "Lowest risk-adjusted boards after reveal",
+    getValue: c => c.riskAdjustedRemaining,
+    higherIsBetter: false
+  },
+
+  expectedRemaining: {
+    label: "Lowest expected boards after reveal",
+    getValue: c => c.expectedRemaining,
+    higherIsBetter: false
+  },
+
+  hitChance: {
+    label: "Lower hit chance",
+    getValue: c => c.p,
+    higherIsBetter: false
+  },
+
+  worstUnresolvedTiles: {
+    label: "Fewest unresolved tiles in worst outcome",
+    getValue: c => c.worstUnresolvedTiles,
+    higherIsBetter: false
+  },
+  
+    opportunityChance: {
+    label: "Higher chance to create resolution opportunity",
+    getValue: c => c.opportunityChance,
+    higherIsBetter: true
+  },
+
+  bestOutcomeRemaining: {
+    label: "Fewer boards in best resolving outcome",
+    getValue: c => c.bestOutcomeRemaining,
+    higherIsBetter: false
+  },
+  
+    futureRiskAdjustedRemaining: {
+    label: "Lower future risk-adjusted remaining boards",
+    getValue: c => c.riskAdjustedRemaining,
+    higherIsBetter: false
+  },
+
+  weightedEV: {
+  label: "Higher expected value among candidates",
+  getValue: c =>
+    c.weightedEV ?? getCandidateWeightedEV(c.i),
+  higherIsBetter: true
+},
+
+modeHitChance: {
+  label: c =>
+    c.huntMode
+      ? "Higher hit chance after equal board reduction"
+      : "Lower hit risk after equal board reduction",
+  getValue: c => c.p,
+  higherIsBetter: c => c.huntMode
+},
+
+undiscoveredSize4: {
+  label: "Higher chance to reveal undiscovered size-4 ship within risk band",
+  getValue: c => c.undiscoveredShip?.size4 || 0,
+  higherIsBetter: true,
+  shouldSkip: pool => !poolHasUndiscoveredShipSize(pool, 4)
+},
+
+undiscoveredSize3: {
+  label: "Higher chance to reveal undiscovered size-3 ship within risk band",
+  getValue: c => c.undiscoveredShip?.size3 || 0,
+  higherIsBetter: true,
+  shouldSkip: pool => !poolHasUndiscoveredShipSize(pool, 3)
+},
+
+undiscoveredSize2: {
+  label: "Higher chance to reveal undiscovered size-2 ship within risk band",
+  getValue: c => c.undiscoveredShip?.size2 || 0,
+  higherIsBetter: true,
+  shouldSkip: pool => !poolHasUndiscoveredShipSize(pool, 2)
+},
+
+safeBoardReduction: {
+  label: "Higher board reduction after equal undiscovered-ship chance",
+  getValue: c => c.safeBoardReduction,
+  higherIsBetter: true
+},
+
+safePrimaryChance: {
+  label: c =>
+    c.huntMode
+      ? "Higher hit chance after equal undiscovered-ship chance and reduction"
+      : "Higher miss chance after equal undiscovered-ship chance and reduction",
+  getValue: c => c.safePrimaryChance,
+  higherIsBetter: true
+},
+
+safeWeightedEV: {
+  label: "Higher expected value among equal safe candidates",
+  getValue: c => getCandidateWeightedEV(c.i),
+  higherIsBetter: true
+},
+
+strategicUndiscoveredSize4: {
+  label: "Higher chance to reveal undiscovered size-4 ship",
+  getValue: c => c.undiscoveredShip?.size4 || 0,
+  higherIsBetter: true
+},
+
+strategicUndiscoveredSize3: {
+  label: "Higher chance to reveal undiscovered size-3 ship",
+  getValue: c => c.undiscoveredShip?.size3 || 0,
+  higherIsBetter: true
+},
+
+strategicUndiscoveredSize2: {
+  label: "Higher chance to reveal undiscovered size-2 ship",
+  getValue: c => c.undiscoveredShip?.size2 || 0,
+  higherIsBetter: true
+},
+
+strategicBoardReduction: {
+  label: "Higher board reduction after equal strategic score",
+  getValue: c => c.reduction,
+  higherIsBetter: true
+},
+
+strategicHitChance: {
+  label: "Higher hit chance among candidates",
+  getValue: c => c.p,
+  higherIsBetter: true
+},
+
+rareTargetHitChance: {
+  label: "Higher non-blue chance after equal board collapse",
+  getValue: c => c.p,
+  higherIsBetter: true
+}
+};
+
+const MOVE_CLASS_EXPORT_KEYS = {
+  finalDecisionSetup: "fds",
+  forcedResolution: "fr",
+  resolutionOpportunity: "ro",
+  futureCollapse: "fc",
+  rareShipTargeting: "rst",
+  progressMove: "pm",
+  bestSafeAggressive: "bsa",
+  strategicAggressive: "sta",
+  strategicSafe: "sts"
+};
+
+const TIEBREAKER_EXPORT_IDS = {
+  riskAdjustedRemaining: 0,
+  expectedRemaining: 1,
+  hitChance: 2,
+  worstUnresolvedTiles: 3,
+  opportunityChance: 4,
+  bestOutcomeRemaining: 5,
+  futureRiskAdjustedRemaining: 6,
+  weightedEV: 7,
+  rareTargetHitChance: 8,
+  modeHitChance: 9,
+  undiscoveredSize4: 10,
+  undiscoveredSize3: 11,
+  undiscoveredSize2: 12,
+  safeBoardReduction: 13,
+  safePrimaryChance: 14,
+  strategicUndiscoveredSize4: 15,
+  strategicUndiscoveredSize3: 16,
+  strategicUndiscoveredSize2: 17,
+  strategicBoardReduction: 18,
+  strategicHitChance: 19,
+  safeWeightedEV: 20
+};
+
 // ===============================
 // T.01A CONSTANT BUILDERS
 // ===============================
@@ -1739,6 +2076,18 @@ const DOM_LISTS = {
 let rareRulesCache = null;
 let tilePickerLegalityCache = new Map();
 
+let expandedTieBreakerSections = {
+  finalDecisionSetup: false,
+  forcedResolution: false,
+  resolutionOpportunity: false,
+  futureCollapse: false,
+  rareShipTargeting: false,
+  progressMove: false,
+  bestSafeAggressive: false,
+  strategicAggressive: false,
+  strategicSafe: false
+};
+
 // ===============================
 // T.03 ACTIONS
 // ===============================
@@ -1903,44 +2252,6 @@ if (grid[tileIndex] === null) {
 }
 
   return false;
-}
-
-function canTileAcceptColorByPlacementRules(tileIndex, color) {
-  return withTemporaryGridCell(tileIndex, color, () => {
-    if (!isStateValid()) {
-      return false;
-    }
-
-    const placementsMap = buildValidPlacementsMapForAllShips();
-
-    if (!placementsMap) {
-      return false;
-    }
-
-    return hasAnyValidBoard(placementsMap);
-  });
-}
-
-function withTemporaryGridCell(tileIndex, color, fn) {
-  const previousColor = grid[tileIndex];
-
-  grid[tileIndex] = color;
-  clearPlacementValidationCachesOnly();
-
-  try {
-    return fn();
-  } finally {
-    grid[tileIndex] = previousColor;
-    clearPlacementValidationCachesOnly();
-  }
-}
-
-function clearPlacementValidationCachesOnly() {
-  placementsCache = {};
-  clearKnownCellsCache();
-  clearColorMaskCache();
-  gridStatsCache = null;
-  rareRulesCache = null;
 }
 
 function toggleColor(i) {
@@ -2398,6 +2709,44 @@ tilePickerLegalityCache.clear();
 // ===============================
 // T.05 VALIDATION
 // ===============================
+
+function canTileAcceptColorByPlacementRules(tileIndex, color) {
+  return withTemporaryGridCell(tileIndex, color, () => {
+    if (!isStateValid()) {
+      return false;
+    }
+
+    const placementsMap = buildValidPlacementsMapForAllShips();
+
+    if (!placementsMap) {
+      return false;
+    }
+
+    return hasAnyValidBoard(placementsMap);
+  });
+}
+
+function withTemporaryGridCell(tileIndex, color, fn) {
+  const previousColor = grid[tileIndex];
+
+  grid[tileIndex] = color;
+  clearPlacementValidationCachesOnly();
+
+  try {
+    return fn();
+  } finally {
+    grid[tileIndex] = previousColor;
+    clearPlacementValidationCachesOnly();
+  }
+}
+
+function clearPlacementValidationCachesOnly() {
+  placementsCache = {};
+  clearKnownCellsCache();
+  clearColorMaskCache();
+  gridStatsCache = null;
+  rareRulesCache = null;
+}
 
 function getTilePickerLegalityCacheKey(tileIndex, color) {
   return [
@@ -3180,7 +3529,9 @@ simulationRevealed = Array(25).fill(false);
 }
 
 function generateRandomSimulationBoard() {
-  for (let attempt = 0; attempt < 200; attempt++) {
+  const boards = [];
+
+  for (let attempt = 0; attempt < 500; attempt++) {
     const ships = getRandomConcreteSimulationShips();
     if (!ships) continue;
 
@@ -3194,11 +3545,13 @@ function generateRandomSimulationBoard() {
     }
 
     if (isValidCompleteSimulationBoard(board)) {
-      return board;
+      boards.push([...board]);
     }
   }
 
-  return null;
+  if (!boards.length) return null;
+
+  return boards[Math.floor(Math.random() * boards.length)];
 }
 
 function buildRandomizedPlacementsMap(ships) {
@@ -5927,37 +6280,20 @@ function getBestFutureCollapseMove(allBoards, probs, depth) {
 
   if (!pool.length) return null;
 
-  let result = applyTiebreakLayer(
-    pool,
-    candidate => candidate.riskAdjustedRemaining,
-    false,
-    "Lower future risk-adjusted remaining boards",
-    0
-  );
+for (const candidate of pool) {
+  candidate.weightedEV = getCandidateWeightedEV(candidate.i);
+}
 
-  if (result.winner) {
-    result.winner.isFutureCollapse = true;
-    return result.winner;
-  }
+const best = applyConfiguredTiebreakers(
+  pool,
+  "futureCollapse"
+);
 
-  pool = result.pool;
-
-  result = applyTiebreakLayer(
-    pool,
-    candidate => getCandidateWeightedEV(candidate.i),
-    true,
-    "Higher expected value among candidates",
-    1
-  );
-
-  if (result.winner) {
-    result.winner.isFutureCollapse = true;
-    return result.winner;
-  }
-
-  const best = finishWithLowestIndex(pool, 2);
+if (best) {
   best.isFutureCollapse = true;
-  return best;
+}
+
+return best;
 }
 
 function scoreTwoStepCollapse(allBoards, firstTile, probs, unknownTiles) {
@@ -6111,44 +6447,28 @@ function getBestTwoStepCollapseMove(allBoards, probs) {
 
   let pool = [];
 
-  for (const candidate of shortlist) {
-    pool.push(
-      scoreTwoStepCollapse(
-        allBoards,
-        candidate.i,
-        probs,
-        unknownTiles
-      )
-    );
-  }
+const evStats = getTileEVStats(allBoards);
 
-  if (!pool.length) return null;
-
-  let result = applyTiebreakLayer(
-    pool,
-    candidate => candidate.riskAdjustedRemaining,
-    false,
-    "Lower two-step risk-adjusted remaining boards",
-    0
+for (const candidate of shortlist) {
+  const score = scoreTwoStepCollapse(
+    allBoards,
+    candidate.i,
+    probs,
+    unknownTiles
   );
 
-  if (result.winner) return result.winner;
-  pool = result.pool;
+  score.weightedEV =
+    evStats[score.i]?.weightedEV || 0;
 
-  const evStats = getTileEVStats(allBoards);
+  pool.push(score);
+}
 
-  result = applyTiebreakLayer(
-    pool,
-    candidate => evStats[candidate.i]?.weightedEV || 0,
-    true,
-    "Higher expected value among candidates",
-    1
-  );
+if (!pool.length) return null;
 
-  if (result.winner) return result.winner;
-  pool = result.pool;
-
-  return finishWithLowestIndex(pool, 2);
+return applyConfiguredTiebreakers(
+  pool,
+  "futureCollapse"
+);
 }
 
 function handleTwoBoardEndgame(valid, probs, allBoards) {
@@ -6485,35 +6805,10 @@ function getBestResolutionOpportunityMove(allBoards, probs) {
 
   if (!candidates.length) return null;
 
-  let result = applyTiebreakLayer(
+  return applyConfiguredTiebreakers(
     candidates,
-    c => c.opportunityChance,
-    true,
-    "Higher chance to create resolution opportunity",
-    0
+    "resolutionOpportunity"
   );
-
-  if (result.winner) return result.winner;
-
-  result = applyTiebreakLayer(
-    result.pool,
-    c => c.bestOutcomeRemaining,
-    false,
-    "Fewer boards in best resolving outcome",
-    1
-  );
-
-  if (result.winner) return result.winner;
-
-  result = applyTiebreakLayer(
-    result.pool,
-    c => c.expectedRemaining,
-    false,
-    "Lower expected boards after reveal",
-    2
-  );
-
-  return result.winner || result.pool[0] || null;
 }
 
 function scoreResolutionOpportunityTile(
@@ -6654,6 +6949,167 @@ function boardSetHasFinalDecisionSetupMove(boardSet, knownMask, ctx) {
   return false;
 }
 
+function invertObject(obj) {
+  return Object.fromEntries(
+    Object.entries(obj).map(([key, value]) => [value, key])
+  );
+}
+
+function encodeTieBreakerSettings() {
+  const packed = {};
+
+  for (const moveClass in tieBreakerConfig) {
+    const shortKey = MOVE_CLASS_EXPORT_KEYS[moveClass];
+    if (!shortKey) continue;
+
+    packed[shortKey] = tieBreakerConfig[moveClass]
+      .map(key => TIEBREAKER_EXPORT_IDS[key])
+      .filter(id => id !== undefined);
+  }
+
+  return `OTV1:${toBase64Url(JSON.stringify(packed))}`;
+}
+
+function decodeTieBreakerSettings(code) {
+  const trimmed = code.trim();
+
+  if (trimmed.startsWith("OTV1:")) {
+    const packed = JSON.parse(
+      fromBase64Url(trimmed.slice(5))
+    );
+
+    const moveClassByShortKey =
+      invertObject(MOVE_CLASS_EXPORT_KEYS);
+
+    const tieBreakerById =
+      invertObject(TIEBREAKER_EXPORT_IDS);
+
+    const unpacked = {};
+
+    for (const shortKey in packed) {
+      const moveClass = moveClassByShortKey[shortKey];
+      if (!moveClass || !Array.isArray(packed[shortKey])) continue;
+
+      unpacked[moveClass] = packed[shortKey]
+        .map(id => tieBreakerById[id])
+        .filter(Boolean);
+    }
+
+    return unpacked;
+  }
+
+  const parsed = JSON.parse(atob(trimmed));
+  return parsed.tieBreakers || parsed;
+}
+
+function loadTieBreakerSettingsCode(code) {
+  try {
+    const imported = decodeTieBreakerSettings(code);
+
+    localStorage.setItem(
+      "otTieBreakerConfig",
+      JSON.stringify(imported)
+    );
+
+    tieBreakerConfig = loadTieBreakerConfig();
+    saveTieBreakerConfig();
+
+    renderAdvancedSettings();
+
+    if (lastProbs) {
+      runSimulation();
+      renderUI();
+      updateColorAvailability();
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function applyConfiguredTiebreakers(candidates, moveClass, context = {}) {
+  let pool = candidates;
+  const order = tieBreakerConfig[moveClass] || [];
+  let layer = 0;
+
+  for (const key of order) {
+    const def = TIEBREAKER_DEFINITIONS[key];
+
+    if (!def) continue;
+
+    if (
+      def.shouldSkip &&
+      def.shouldSkip(pool, context)
+    ) {
+      continue;
+    }
+
+    const label =
+      typeof def.label === "function"
+        ? def.label(context)
+        : def.label;
+
+    const higherIsBetter =
+      typeof def.higherIsBetter === "function"
+        ? def.higherIsBetter(context)
+        : def.higherIsBetter;
+
+    const result = applyTiebreakLayer(
+      pool,
+      c => def.getValue(c, context),
+      higherIsBetter,
+      label,
+      layer
+    );
+
+    if (result.winner) return result.winner;
+
+    pool = result.pool;
+    layer++;
+  }
+
+  return finishWithLowestIndex(pool, layer);
+}
+
+window.moveTieBreaker = function(moveClass, key, direction) {
+  const order = tieBreakerConfig[moveClass];
+  if (!order) return;
+
+  const index = order.indexOf(key);
+  if (index === -1) return;
+
+  const nextIndex = index + direction;
+  if (nextIndex < 0 || nextIndex >= order.length) return;
+
+  [order[index], order[nextIndex]] =
+    [order[nextIndex], order[index]];
+
+  saveTieBreakerConfig();
+  renderAdvancedSettings();
+
+  if (lastProbs) {
+    runSimulation();
+    renderUI();
+    updateColorAvailability();
+  }
+};
+
+window.resetTieBreakers = function(moveClass) {
+  tieBreakerConfig[moveClass] = [
+    ...DEFAULT_TIEBREAKER_CONFIG[moveClass]
+  ];
+
+  saveTieBreakerConfig();
+  renderAdvancedSettings();
+
+  if (lastProbs) {
+    runSimulation();
+    renderUI();
+    updateColorAvailability();
+  }
+};
+
 function getFinalDecisionSetupMove(allBoards, probs) {
   if (!allBoards || allBoards.length <= 2) return null;
   if (allBoards.length > PRECALC_BOARD_LIMIT) return null;
@@ -6685,37 +7141,10 @@ function getFinalDecisionSetupMove(allBoards, probs) {
 
   if (!candidates.length) return null;
 
-  let result = applyTiebreakLayer(
+  return applyConfiguredTiebreakers(
     candidates,
-    c => c.riskAdjustedRemaining,
-    false,
-    "Lowest risk-adjusted boards after reveal",
-    0
+    "finalDecisionSetup"
   );
-
-  if (result.winner) return result.winner;
-
-  result = applyTiebreakLayer(
-    result.pool,
-    c => c.expectedRemaining,
-    false,
-    "Lowest expected boards after reveal",
-    1
-  );
-
-  if (result.winner) return result.winner;
-
-result = applyTiebreakLayer(
-  result.pool,
-  c => c.p,
-  false,
-  "Lower hit chance",
-  2
-);
-
-if (result.winner) return result.winner;
-
-return finishWithLowestIndex(result.pool, 3);
 }
 
 function scoreFinalDecisionSetupTile(tile, boardSet, boardCount, ctx, probs) {
@@ -6724,6 +7153,9 @@ function scoreFinalDecisionSetupTile(tile, boardSet, boardCount, ctx, probs) {
   let expectedRemaining = 0;
   let worstRemaining = 0;
   let outcomeCount = 0;
+  
+  const nextKnownMask = getCurrentKnownMask() | CELL_MASKS[tile];
+  let worstUnresolvedTiles = 0;
 
   for (const outcome in outcomeSets) {
     const outcomeBoardSet = boardSet & outcomeSets[outcome];
@@ -6739,6 +7171,14 @@ function scoreFinalDecisionSetupTile(tile, boardSet, boardCount, ctx, probs) {
     expectedRemaining += pOutcome * count;
     worstRemaining = Math.max(worstRemaining, count);
     outcomeCount++;
+	worstUnresolvedTiles = Math.max(
+    worstUnresolvedTiles,
+    countUnresolvedTilesInBoardSet(
+    outcomeBoardSet,
+    nextKnownMask,
+    ctx
+  )
+);
   }
 
   if (outcomeCount === 0) return null;
@@ -6748,9 +7188,10 @@ function scoreFinalDecisionSetupTile(tile, boardSet, boardCount, ctx, probs) {
     p: probs[tile],
     expectedRemaining,
     worstRemaining,
-    riskAdjustedRemaining:
-      expectedRemaining + worstRemaining * 0.35,
-    type: "safe"
+    worstUnresolvedTiles,
+	riskAdjustedRemaining:
+    expectedRemaining + worstRemaining * 0.35,
+	type: "safe"
   };
 }
 
@@ -6787,7 +7228,7 @@ function getForcedResolutionMove(allBoards, probs) {
   const boardSet = ctx.allBoardSet;
   const boardCount = getBoardSetCount(boardSet, ctx);
 
-  let best = null;
+    const candidates = [];
 
   const candidateMask = FULL_BOARD_MASK & ~knownMask;
 
@@ -6811,24 +7252,15 @@ function getForcedResolutionMove(allBoards, probs) {
       expectedRemaining
     };
 
-    if (
-      !best ||
-      move.p < best.p - EPSILON ||
-      (
-        Math.abs(move.p - best.p) <= EPSILON &&
-        move.expectedRemaining < best.expectedRemaining - EPSILON
-      ) ||
-      (
-        Math.abs(move.p - best.p) <= EPSILON &&
-        Math.abs(move.expectedRemaining - best.expectedRemaining) <= EPSILON &&
-        move.i < best.i
-      )
-    ) {
-      best = move;
-    }
+    candidates.push(move);
   }
 
-  return best;
+  if (!candidates.length) return null;
+
+  return applyConfiguredTiebreakers(
+    candidates,
+    "forcedResolution"
+  );
 }
 
 function applyForcedResolutionMove(move, probs) {
@@ -6866,6 +7298,29 @@ function doesTileForceSolvedState(tile, boardSet, knownMask, ctx) {
   }
 
   return true;
+}
+
+function countUnresolvedTilesInBoardSet(boardSet, knownMask, ctx) {
+  const total = getBoardSetCount(boardSet, ctx);
+  const unknownMask = FULL_BOARD_MASK & ~knownMask;
+
+  let unresolved = 0;
+
+  for (let mask = unknownMask; mask; mask &= mask - 1) {
+    const bit = mask & -mask;
+    const tile = BIT_INDEX[bit];
+
+    const hitCount = getBoardSetCount(
+      boardSet & ctx.tileHitBoardSets[tile],
+      ctx
+    );
+
+    if (hitCount !== 0 && hitCount !== total) {
+      unresolved++;
+    }
+  }
+
+  return unresolved;
 }
 
 function isSolvedBoardSet(boardSet, knownMask, ctx) {
@@ -6995,7 +7450,8 @@ function getTargetRareShipMove(allBoards, probs) {
       i,
       p: probs[i],
       rareP,
-      expectedRemaining: collapse.expectedRemaining
+      expectedRemaining: collapse.expectedRemaining,
+      weightedEV: getCandidateWeightedEV(i)
     });
   }
 
@@ -7011,29 +7467,12 @@ function getTargetRareShipMove(allBoards, probs) {
     c.rareP >= maxRareP - rareNearTieWindow
   );
 
-  let pool = nearBestRare;
-const EPSILON = 0.000001;
-
-let bestExpected = Infinity;
-let tied = [];
-
-for (const candidate of pool) {
-  if (candidate.expectedRemaining < bestExpected - EPSILON) {
-    bestExpected = candidate.expectedRemaining;
-    tied = [candidate];
-  } else if (Math.abs(candidate.expectedRemaining - bestExpected) <= EPSILON) {
-    tied.push(candidate);
-  }
-}
-
-pool = tied;
-
-if (pool.length === 1) {
-  const best = withTiebreaker(
-    pool[0],
-    "Lower expected remaining boards among near-tied rare-targeting moves",
-    0
+  const best = applyConfiguredTiebreakers(
+    nearBestRare,
+    "rareShipTargeting"
   );
+
+  if (!best) return null;
 
   return withSafeMoveReason(
     makeMoveObject(best.i),
@@ -7041,73 +7480,6 @@ if (pool.length === 1) {
     best.tiebreaker,
     best.tiebreakerPassed
   );
-}
-
-let bestP = -Infinity;
-tied = [];
-
-for (const candidate of pool) {
-  if (candidate.p > bestP + EPSILON) {
-    bestP = candidate.p;
-    tied = [candidate];
-  } else if (Math.abs(candidate.p - bestP) <= EPSILON) {
-    tied.push(candidate);
-  }
-}
-
-pool = tied;
-
-if (pool.length === 1) {
-  const best = withTiebreaker(
-    pool[0],
-    "Higher non-blue chance after equal board collapse",
-    1
-  );
-
-  return withSafeMoveReason(
-    makeMoveObject(best.i),
-    `This tile is tied or nearly tied for rare ship chance (${(best.rareP * 100).toFixed(1)}%) and gives the best board collapse among those rare-targeting options.`,
-    best.tiebreaker,
-    best.tiebreakerPassed
-  );
-}
-
-let bestEV = -Infinity;
-tied = [];
-
-for (const candidate of pool) {
-  const ev = getCandidateWeightedEV(candidate.i);
-
-  if (ev > bestEV + EPSILON) {
-    bestEV = ev;
-    tied = [candidate];
-  } else if (Math.abs(ev - bestEV) <= EPSILON) {
-    tied.push(candidate);
-  }
-}
-
-pool = tied;
-
-let best = pool[0];
-
-for (const candidate of pool.slice(1)) {
-  if (candidate.i < best.i) best = candidate;
-}
-
-best = withTiebreaker(
-  best,
-  pool.length === 1
-    ? "Higher expected value among candidates"
-    : "Lowest tile index (could not break tie)",
-  pool.length === 1 ? 2 : 3
-);
-
-return withSafeMoveReason(
-  makeMoveObject(best.i),
-  `This tile is tied or nearly tied for rare ship chance (${(best.rareP * 100).toFixed(1)}%) and gives the best board collapse among those rare-targeting options.`,
-  best.tiebreaker,
-  best.tiebreakerPassed
-);
 }
 
 function appendKnownSafeBlueBeforeForcedHitsCard(messages, ctx) {
@@ -7280,7 +7652,12 @@ function getSafeModeProgressMove(allBoards, probs, options = {}) {
     .filter(i => partialTiles.has(i));
 
 if (partialCandidates.length) {
-  const selected = chooseBestProgressCandidate(partialCandidates, allBoards, probs);
+  const selected = chooseBestProgressCandidate(
+  partialCandidates,
+  allBoards,
+  probs,
+  huntMode
+);
 
 return withSafeMoveReason(
   makeMoveObject(selected.i),
@@ -7535,51 +7912,26 @@ function withSafeMoveReason(
 function chooseBestProgressCandidate(tiles, allBoards, probs, huntMode = false) {
   const getScore = makeCollapseScoreGetter(allBoards, probs);
 
-  let pool = tiles.map(tile => ({
-    i: tile,
-    p: probs[tile]
-  }));
+  const pool = tiles.map(tile => {
+    const score = getScore(tile);
+
+    return {
+      i: tile,
+      p: probs[tile],
+      expectedRemaining: score.expectedRemaining,
+      weightedEV: getCandidateWeightedEV(tile)
+    };
+  });
 
   if (pool.length <= 1) {
     return pool[0] || null;
   }
 
-  let result = applyTiebreakLayer(
+  return applyConfiguredTiebreakers(
     pool,
-    candidate => getScore(candidate.i).expectedRemaining,
-    false,
-    "Lower expected remaining boards",
-    0
+    "progressMove",
+    { huntMode }
   );
-
-  if (result.winner) return result.winner;
-  pool = result.pool;
-
-  result = applyTiebreakLayer(
-    pool,
-    candidate => candidate.p,
-    huntMode,
-    huntMode
-      ? "Higher hit chance after equal board reduction"
-      : "Lower hit risk after equal board reduction",
-    1
-  );
-
-  if (result.winner) return result.winner;
-  pool = result.pool;
-
-  result = applyTiebreakLayer(
-    pool,
-    candidate => getCandidateWeightedEV(candidate.i),
-    true,
-    "Higher expected value among candidates",
-    2
-  );
-
-  if (result.winner) return result.winner;
-  pool = result.pool;
-
-  return finishWithLowestIndex(pool, 3);
 }
 
 function chooseBestSafeCandidate(tiles, allBoards, probs) {
@@ -7743,6 +8095,26 @@ return (
 }
 
 function couldBelongToKnownShip(index) {
+  const ships = getShipList();
+
+if (
+  ships.includes('red') &&
+  getPlacementsCached('red').some(placement =>
+    placement.cells.includes(index)
+  )
+) {
+  return false;
+}
+
+if (
+  ships.includes('rainbow') &&
+  getPlacementsCached('rainbow').some(placement =>
+    placement.cells.includes(index)
+  )
+) {
+  return false;
+}
+
   for (const color of Object.keys(SHIPS)) {
 
     if (color === 'red' || color === 'rainbow') {
@@ -7799,9 +8171,13 @@ function getSafestMove(candidates, huntMode = false) {
   }
   
   if (shouldApplyAggressiveHighProbAvoidance(huntMode)) {
-  const belowNinetyCandidates = candidates.filter(candidate =>
-    candidate.p <= 0.90
-  );
+const belowNinetyCandidates = candidates.filter(candidate => {
+  const displayedProbability = huntMode
+    ? candidate.p
+    : 1 - candidate.p;
+
+  return displayedProbability <= 0.90;
+});
 
   if (belowNinetyCandidates.length > 0) {
     candidates = belowNinetyCandidates;
@@ -7832,69 +8208,19 @@ pool.forEach(candidate => {
         appState.allBoards
       );
   }
+
+  candidate.safeBoardReduction =
+    getCandidateReduction(candidate);
+
+ candidate.safePrimaryChance =
+  getPrimaryChance(candidate);
 });
 
-let result;
-let layer = 0;
-
-for (const size of [4, 3, 2]) {
-  if (!poolHasUndiscoveredShipSize(pool, size)) {
-    continue;
-  }
-
-  result = applyTiebreakLayer(
-    pool,
-    candidate => candidate.undiscoveredShip[`size${size}`],
-    true,
-    `Higher chance to reveal undiscovered size-${size} ship within safety band`,
-    layer
-  );
-
-  if (result.winner) return result.winner;
-
-  pool = result.pool;
-  layer++;
-}
-
-result = applyTiebreakLayer(
+return applyConfiguredTiebreakers(
   pool,
-  getCandidateReduction,
-  true,
-  "Higher board reduction after equal undiscovered-ship chance",
-  layer
+  "bestSafeAggressive",
+  { huntMode }
 );
-
-if (result.winner) return result.winner;
-pool = result.pool;
-layer++;
-
-result = applyTiebreakLayer(
-  pool,
-  getPrimaryChance,
-  true,
-  huntMode
-    ? "Higher hit chance after equal undiscovered-ship chance and reduction"
-    : "Higher miss chance after equal undiscovered-ship chance and reduction",
-  layer
-);
-
-if (result.winner) return result.winner;
-pool = result.pool;
-layer++;
-
-result = applyTiebreakLayer(
-  pool,
-  candidate => getCandidateWeightedEV(candidate.i),
-  true,
-  "Higher expected value among equal safe candidates",
-  layer
-);
-
-if (result.winner) return result.winner;
-pool = result.pool;
-layer++;
-
-  return finishWithLowestIndex(pool, layer);
 }
 
 function poolHasUndiscoveredShipSize(pool, size) {
@@ -8082,149 +8408,126 @@ if (
   return score;
 }
 
+function compareConfiguredStrategicTiebreakers(
+  a,
+  b,
+  moveClass,
+  context = {}
+) {
+  const order = tieBreakerConfig[moveClass] || [];
+
+  for (const key of order) {
+    const def = TIEBREAKER_DEFINITIONS[key];
+    if (!def) continue;
+
+    const higherIsBetter =
+      typeof def.higherIsBetter === "function"
+        ? def.higherIsBetter(context)
+        : def.higherIsBetter;
+
+    const aValue = def.getValue(a, context);
+    const bValue = def.getValue(b, context);
+
+    const diff = higherIsBetter
+      ? bValue - aValue
+      : aValue - bValue;
+
+    if (Math.abs(diff) > 0.000001) {
+      return diff;
+    }
+  }
+
+  return a.i - b.i;
+}
+
+function getConfiguredStrategicTiebreakerInfo(
+  current,
+  next,
+  moveClass,
+  context = {}
+) {
+  const order = tieBreakerConfig[moveClass] || [];
+  let layer = 1;
+
+  for (const key of order) {
+    const def = TIEBREAKER_DEFINITIONS[key];
+    if (!def) continue;
+
+    const currentValue = def.getValue(current, context);
+    const nextValue = def.getValue(next, context);
+
+    if (Math.abs(currentValue - nextValue) > 0.000001) {
+      const label =
+        typeof def.label === "function"
+          ? def.label(context)
+          : def.label;
+
+      return {
+        label,
+        layer
+      };
+    }
+
+    layer++;
+  }
+
+  return {
+    label: "Lowest tile index (could not break tie)",
+    layer
+  };
+}
+
 function rankCandidates(candidates, huntMode) {
   candidates.forEach(c => {
     c.reduction = getCandidateReduction(c);
     c.score = scoreStrategicCandidate(c, huntMode);
     c.ev = getCandidateWeightedEV(c.i);
+    c.weightedEV = c.ev;
     c.undiscoveredShip =
       getUndiscoveredShipTiebreakStats(c.i, appState.allBoards);
     c.tiebreaker = null;
     c.tiebreakerPassed = null;
   });
 
+  const moveClass = huntMode
+    ? "strategicAggressive"
+    : "strategicSafe";
+
+  const context = { huntMode };
+
   candidates.sort((a, b) => {
     const scoreDiff = b.score - a.score;
     if (Math.abs(scoreDiff) > 0.000001) return scoreDiff;
 
-    if (huntMode) {
-      const undiscoveredDiff =
-        compareUndiscoveredShipTiebreak(a, b);
-
-      if (undiscoveredDiff !== 0) {
-        return undiscoveredDiff;
-      }
-
-      const reductionDiff = b.reduction - a.reduction;
-      if (Math.abs(reductionDiff) > 0.000001) return reductionDiff;
-    } else {
-      const reductionDiff = b.reduction - a.reduction;
-      if (Math.abs(reductionDiff) > 0.000001) return reductionDiff;
-
-      const undiscoveredDiff =
-        compareUndiscoveredShipTiebreak(a, b);
-
-      if (undiscoveredDiff !== 0) {
-        return undiscoveredDiff;
-      }
-    }
-
-    const pDiff = b.p - a.p;
-    if (Math.abs(pDiff) > 0.000001) return pDiff;
-
-    const evDiff = b.ev - a.ev;
-    if (Math.abs(evDiff) > 0.000001) return evDiff;
-
-    return a.i - b.i;
+    return compareConfiguredStrategicTiebreakers(
+      a,
+      b,
+      moveClass,
+      context
+    );
   });
 
   for (let i = 0; i < candidates.length - 1; i++) {
     const current = candidates[i];
     const next = candidates[i + 1];
 
-    if (Math.abs(current.score - next.score) > 0.000001) continue;
-
-    if (huntMode) {
-      const undiscoveredLabel =
-        getUndiscoveredShipTiebreakLabel(current, next);
-
-      if (undiscoveredLabel) {
-current.tiebreaker = withCandidateCount(
-  `${undiscoveredLabel} after equal strategic score`,
-  candidates.length
-);
-        current.tiebreakerPassed = 1;
-        continue;
-      }
-
-      if (Math.abs(current.reduction - next.reduction) > 0.000001) {
-       current.tiebreaker = withCandidateCount(
-  "Higher board reduction after equal strategic score and undiscovered-ship chance",
-  candidates.length
-);
-        current.tiebreakerPassed = 2;
-        continue;
-      }
-
-      if (Math.abs(current.p - next.p) > 0.000001) {
-        current.tiebreaker = withCandidateCount(
-  "Higher hit chance among candidates",
-  candidates.length
-);
-        current.tiebreakerPassed = 3;
-        continue;
-      }
-
-      if (Math.abs(current.ev - next.ev) > 0.000001) {
-        current.tiebreaker = withCandidateCount(
-  "Higher expected value among candidates",
-  candidates.length
-);
-        current.tiebreakerPassed = 4;
-      } else {
-        current.tiebreaker = withCandidateCount(
-  "Lowest tile index (could not break tie)",
-  candidates.length
-);
-        current.tiebreakerPassed = 5;
-      }
-
+    if (Math.abs(current.score - next.score) > 0.000001) {
       continue;
     }
 
-    if (Math.abs(current.reduction - next.reduction) > 0.000001) {
-      current.tiebreaker = withCandidateCount(
-  "Higher board reduction after equal strategic score",
-  candidates.length
-);
-      current.tiebreakerPassed = 1;
-      continue;
-    }
+    const info = getConfiguredStrategicTiebreakerInfo(
+      current,
+      next,
+      moveClass,
+      context
+    );
 
-    const undiscoveredLabel =
-      getUndiscoveredShipTiebreakLabel(current, next);
+    current.tiebreaker = withCandidateCount(
+      info.label,
+      candidates.length
+    );
 
-    if (undiscoveredLabel) {
-current.tiebreaker = withCandidateCount(
-  `${undiscoveredLabel} after equal strategic score and board reduction`,
-  candidates.length
-);
-      current.tiebreakerPassed = 2;
-      continue;
-    }
-
-    if (Math.abs(current.p - next.p) > 0.000001) {
-      current.tiebreaker = withCandidateCount(
-  "Higher hit chance among candidates",
-  candidates.length
-);
-      current.tiebreakerPassed = 3;
-      continue;
-    }
-
-    if (Math.abs(current.ev - next.ev) > 0.000001) {
-      current.tiebreaker = withCandidateCount(
-  "Higher expected value among candidates",
-  candidates.length
-);
-      current.tiebreakerPassed = 4;
-    } else {
-      current.tiebreaker = withCandidateCount(
-  "Lowest tile index (could not break tie)",
-  candidates.length
-);
-      current.tiebreakerPassed = 5;
-    }
+    current.tiebreakerPassed = info.layer;
   }
 }
 
@@ -8267,6 +8570,180 @@ function getRecommendationContext() {
 // ===============================
 // T.12 UI
 // ===============================
+
+function renderAdvancedSettings() {
+  const root = document.getElementById("advancedSettingsContent");
+  if (!root) return;
+
+  root.innerHTML = `
+    <div class="advanced-settings-share-row">
+      <button onclick="copyAdvancedSettingsCode()">
+        Copy Settings Code
+      </button>
+
+      <button onclick="loadAdvancedSettingsCode()">
+        Load Settings Code
+      </button>
+    </div>
+  ` + [
+  renderTieBreakerClass(
+    "rareShipTargeting",
+    "Rare Ship Targeting"
+  ),
+
+  renderTieBreakerClass(
+    "forcedResolution",
+    "Forced Resolution"
+  ),
+
+  renderTieBreakerClass(
+    "finalDecisionSetup",
+    "Final Decision Setup"
+  ),
+
+  renderTieBreakerClass(
+    "resolutionOpportunity",
+    "Resolution Opportunity"
+  ),
+
+  renderTieBreakerClass(
+    "futureCollapse",
+    "Future / 2-Step Collapse"
+  ),
+
+  renderTieBreakerClass(
+    "progressMove",
+    "Safe Mode Clarity / Progress Move"
+  ),
+
+  renderTieBreakerClass(
+    "bestSafeAggressive",
+    "Best Safe Move"
+  ),
+
+  renderTieBreakerClass(
+    "strategicAggressive",
+    "Best Strategic Move — Aggressive"
+  ),
+
+  renderTieBreakerClass(
+    "strategicSafe",
+    "Best Strategic Move — Safe"
+  )
+].join("");
+}
+
+function getTieBreakerDisplayLabel(key) {
+  const def = TIEBREAKER_DEFINITIONS[key];
+
+  if (!def) return key;
+
+  if (typeof def.label !== "function") {
+    return def.label;
+  }
+
+  if (key === "modeHitChance") {
+    return "Mode-based hit chance";
+  }
+
+  if (key === "safePrimaryChance") {
+    return "Mode objective (hit chance in Aggressive, miss chance in Safe)";
+  }
+
+  return key;
+}
+
+function renderTieBreakerClass(moveClass, title) {
+  const order = tieBreakerConfig[moveClass] || [];
+const expanded =
+  expandedTieBreakerSections[moveClass] ?? false;
+
+return `
+  <div class="tie-breaker-class">
+
+    <div
+      class="tie-breaker-class-title"
+      style="cursor:pointer;"
+      onclick="toggleTieBreakerSection('${moveClass}')"
+    >
+      ${expanded ? "▼" : "▶"} ${title}
+    </div>
+
+    ${
+      !expanded
+        ? ""
+        : `
+          ${order.map((key, index) => {
+            const def = TIEBREAKER_DEFINITIONS[key];
+
+            return `
+              <div class="tie-breaker-row">
+                <span>${getTieBreakerDisplayLabel(key)}</span>
+
+                <span class="tie-breaker-controls">
+
+                  <button
+                    onclick="moveTieBreaker('${moveClass}','${key}',-1)"
+                    ${index === 0 ? "disabled" : ""}
+                  >
+                    ↑
+                  </button>
+
+                  <button
+                    onclick="moveTieBreaker('${moveClass}','${key}',1)"
+                    ${index === order.length - 1 ? "disabled" : ""}
+                  >
+                    ↓
+                  </button>
+
+                </span>
+              </div>
+            `;
+          }).join("")}
+
+          <div class="tie-breaker-row">
+            <span>Lowest tile index</span>
+            <span class="tie-breaker-locked">
+              🔒 locked fallback
+            </span>
+          </div>
+
+          <div style="margin-top:8px;">
+            <button
+              onclick="resetTieBreakers('${moveClass}')"
+            >
+              Reset ${title}
+            </button>
+          </div>
+        `
+    }
+
+  </div>
+`;
+}
+
+function applyDefaultSafetySettingsForRareCount(n) {
+  const defaultOn = n >= 4; 
+
+  safeAvoidAdjacentKnown = defaultOn;
+  safeAggressiveAvoidHighProb = defaultOn;
+
+  safeRiskBand = n === 2 ? 0.02 : 0.05;
+
+  const riskBandSelect = document.getElementById('safeRiskBandSelect');
+
+  if (riskBandSelect) {
+    riskBandSelect.value = n === 2 ? "2" : "5";
+  }
+
+  document
+    .getElementById('safeAvoidAdjacentKnownToggle')
+    ?.classList.toggle('active-btn', safeAvoidAdjacentKnown);
+
+  document
+    .getElementById('safeAggressiveAvoidHighProbToggle')
+    ?.classList.toggle('active-btn', safeAggressiveAvoidHighProb);
+}
 
 function updateSafetySettingButtons() {
   const context = getInfoContext();
@@ -8904,12 +9381,12 @@ if (appendFinalDecisionSetupCard(messages)) {
   return;
 }
 
-  appendStrategyMessages(messages, context);
+appendResolutionOpportunityCard(messages, context);
+appendStrategyMessages(messages, context);
 }
 }
 
 appendRainbowCandidateCard(messages, context);
-appendResolutionOpportunityCard(messages, context);
 appendUncertaintyMoveCard(messages, context);
 appendFallback(messages);
 
@@ -12230,6 +12707,64 @@ function buildPlacementsMap(ships) {
 // T.15 HASH CREATION / LOADING
 // ===============================
 
+function loadTieBreakerConfig() {
+  const defaults = structuredClone(DEFAULT_TIEBREAKER_CONFIG);
+
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem("otTieBreakerConfig") || "{}"
+    );
+
+    for (const moveClass in defaults) {
+      if (!Array.isArray(saved[moveClass])) continue;
+
+      const allowed = new Set(defaults[moveClass]);
+
+      const cleaned = saved[moveClass].filter(key =>
+        allowed.has(key)
+      );
+
+      for (const key of defaults[moveClass]) {
+        if (!cleaned.includes(key)) {
+          cleaned.push(key);
+        }
+      }
+
+      defaults[moveClass] = cleaned;
+    }
+  } catch {
+  }
+
+  return defaults;
+}
+
+function saveTieBreakerConfig() {
+  localStorage.setItem(
+    "otTieBreakerConfig",
+    JSON.stringify(tieBreakerConfig)
+  );
+}
+
+function toBase64Url(text) {
+  return btoa(text)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function fromBase64Url(text) {
+  const base64 = text
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+
+  const padded = base64.padEnd(
+    Math.ceil(base64.length / 4) * 4,
+    "="
+  );
+
+  return atob(padded);
+}
+
 function createBitWriter(){
   let bits = [];
 
@@ -12407,12 +12942,65 @@ function getMovesForCurrentGrid(){
 // T.16 EVENT BINDS
 // ===============================
 
+window.copyAdvancedSettingsCode = async function() {
+  const code = encodeTieBreakerSettings();
+
+  try {
+    await navigator.clipboard.writeText(code);
+    alert("Settings code copied to clipboard.");
+  } catch {
+    prompt("Copy this advanced settings code:", code);
+  }
+};
+
+window.loadAdvancedSettingsCode = function() {
+  const code = prompt("Paste advanced settings code:");
+
+  if (!code) return;
+
+  const success = loadTieBreakerSettingsCode(code.trim());
+
+  alert(
+    success
+      ? "Advanced settings loaded."
+      : "Invalid advanced settings code."
+  );
+};
+
+window.toggleTieBreakerSection = function(moveClass) {
+  expandedTieBreakerSections[moveClass] =
+    !expandedTieBreakerSections[moveClass];
+
+  renderAdvancedSettings();
+};
+
+window.toggleAdvancedSettings = function() {
+  const panel = document.getElementById("advancedSettingsPanel");
+  const toggle = document.getElementById("advancedSettingsToggle");
+
+  if (!panel || !toggle) return;
+
+  const isHidden = panel.classList.toggle("hidden");
+
+  toggle.textContent = isHidden
+    ? "▼ Advanced Settings"
+    : "▲ Advanced Settings";
+
+  if (!isHidden) {
+    renderAdvancedSettings();
+  }
+};
+
 window.toggleSafeAggressiveAvoidHighProb = function(btn) {
   safeAggressiveAvoidHighProb = !safeAggressiveAvoidHighProb;
 
   btn.classList.toggle('active-btn', safeAggressiveAvoidHighProb);
 
-  runSimulation();
+    if (appState.probs) {
+    highlightRecommendations(appState.probs);
+  } else {
+    runSimulation();
+  }
   renderUI();
   updateColorAvailability();
 };
@@ -12422,8 +13010,8 @@ window.toggleSafeAvoidAdjacentKnown = function(btn) {
 
   btn.classList.toggle('active-btn', safeAvoidAdjacentKnown);
 
-  if (lastProbs) {
-    finalizeSimulation(lastProbs);
+  if (appState.probs) {
+    highlightRecommendations(appState.probs);
   } else {
     runSimulation();
   }
@@ -12435,7 +13023,12 @@ window.toggleSafeAvoidAdjacentKnown = function(btn) {
 window.setSafeRiskBand = function(value) {
   safeRiskBand = value / 100;
 
-  runSimulation();
+  if (appState.probs) {
+    highlightRecommendations(appState.probs);
+  } else {
+    runSimulation();
+  }
+
   renderUI();
   updateColorAvailability();
 };
@@ -12553,6 +13146,7 @@ rareCount = n;
 updateTopInfoVisibility();
 
 forcedStartMode = getDefaultModeForRareCount(n);
+applyDefaultSafetySettingsForRareCount(n);
 
 updateModeButtons();
 
@@ -12751,6 +13345,8 @@ DOM.modeLabel = document.getElementById('modeLabel');
 cacheDomLists();
 
 bindColorblindTooltips();
+
+renderAdvancedSettings();
 
 createBoards();
 document.addEventListener('click', closeTileColorPicker);
