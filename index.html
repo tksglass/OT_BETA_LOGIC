@@ -67,12 +67,20 @@
   .reset-container { background: #d1d5db; padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
   .label { font-weight: bold; margin-right: 10px; }
   
-  .advanced-settings-container {
+.advanced-settings-container {
+  max-width: 720px;
+  width: 100%;
+  box-sizing: border-box;
+
+  margin-top: 15px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 20px;
+
   background: #d1d5db;
   padding: 12px 15px;
   border-radius: 12px;
   box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-  margin-bottom: 20px;
 }
 
 .advanced-settings-panel.hidden {
@@ -139,6 +147,26 @@
 .tie-breaker-locked {
   opacity: 0.65;
   font-size: 12px;
+}
+
+.non-default-tiebreaker-notice {
+  margin-top: 2px;
+  margin-bottom: 6px;
+
+  font-size: 11px;
+  font-weight: 700;
+
+  color: #b91c1c;
+
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+
+  animation: noticePulse 1.8s infinite;
+}
+
+@keyframes noticePulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
   .color-btn {
@@ -364,6 +392,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 6px;
 }
 
 .heatmap-mode-buttons {
@@ -1278,6 +1307,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 6px;
 }
 
 .heatmap-toggle {
@@ -1445,23 +1475,6 @@ button {
 
 </div>
 
-<div class="advanced-settings-container">
-  <button
-    id="advancedSettingsToggle"
-    onclick="toggleAdvancedSettings()"
-  >
-    ▼ Advanced Settings
-  </button>
-
-  <div id="advancedSettingsPanel" class="advanced-settings-panel hidden">
-    <div class="advanced-settings-note">
-      You can change the order tie breakers are applied here. This will fundamentally change how the solver works, so do not change this unless you know what you are doing.
-    </div>
-
-    <div id="advancedSettingsContent"></div>
-  </div>
-</div>
-
 <div class="layout">
 
   <div class="left-column">
@@ -1471,9 +1484,18 @@ button {
  <div class="board-container">
   <div class="playboard-header">
   <h3>Play Board</h3>
+
   <button id="autoHitsBtn" class="auto-hits-btn" onclick="autoPlaceGuaranteedHits()">
     Fill Hits
   </button>
+</div>
+
+<div
+  id="nonDefaultTieBreakerNotice"
+  class="non-default-tiebreaker-notice"
+  style="display:none;"
+>
+  Non-default tie breakers are active.
 </div>
 
 <div class="board-wrapper">
@@ -8572,19 +8594,25 @@ function getRecommendationContext() {
 // ===============================
 
 function renderAdvancedSettings() {
+  updateTieBreakerNotice();
+
   const root = document.getElementById("advancedSettingsContent");
   if (!root) return;
 
   root.innerHTML = `
-    <div class="advanced-settings-share-row">
-      <button onclick="copyAdvancedSettingsCode()">
-        Copy Settings Code
-      </button>
+<div class="advanced-settings-share-row">
+  <button onclick="copyAdvancedSettingsCode()">
+    Copy Settings Code
+  </button>
 
-      <button onclick="loadAdvancedSettingsCode()">
-        Load Settings Code
-      </button>
-    </div>
+  <button onclick="loadAdvancedSettingsCode()">
+    Load Settings Code
+  </button>
+
+  <button onclick="resetAllTieBreakers()">
+    Reset All to Default
+  </button>
+</div>
   ` + [
   renderTieBreakerClass(
     "rareShipTargeting",
@@ -12745,6 +12773,38 @@ function saveTieBreakerConfig() {
   );
 }
 
+function hasNonDefaultTieBreakers() {
+  for (const moveClass in DEFAULT_TIEBREAKER_CONFIG) {
+    const current = tieBreakerConfig[moveClass] || [];
+    const defaults = DEFAULT_TIEBREAKER_CONFIG[moveClass] || [];
+
+    if (current.length !== defaults.length) {
+      return true;
+    }
+
+    for (let i = 0; i < defaults.length; i++) {
+      if (current[i] !== defaults[i]) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function updateTieBreakerNotice() {
+  const notice = document.getElementById(
+    "nonDefaultTieBreakerNotice"
+  );
+
+  if (!notice) return;
+
+  notice.style.display =
+    hasNonDefaultTieBreakers()
+      ? "block"
+      : "none";
+}
+
 function toBase64Url(text) {
   return btoa(text)
     .replace(/\+/g, "-")
@@ -12941,6 +13001,27 @@ function getMovesForCurrentGrid(){
 // ===============================
 // T.16 EVENT BINDS
 // ===============================
+
+window.resetAllTieBreakers = function() {
+  const confirmed = confirm(
+    "Reset all Advanced Settings tie breakers to default?"
+  );
+
+  if (!confirmed) return;
+
+  tieBreakerConfig = JSON.parse(
+    JSON.stringify(DEFAULT_TIEBREAKER_CONFIG)
+  );
+
+  saveTieBreakerConfig();
+  renderAdvancedSettings();
+
+  if (lastProbs) {
+    runSimulation();
+    renderUI();
+    updateColorAvailability();
+  }
+};
 
 window.copyAdvancedSettingsCode = async function() {
   const code = encodeTieBreakerSettings();
@@ -13349,6 +13430,7 @@ bindColorblindTooltips();
 renderAdvancedSettings();
 
 createBoards();
+updateTieBreakerNotice();
 document.addEventListener('click', closeTileColorPicker);
 updateBoardLock();
 updateInfoBox();
@@ -13366,6 +13448,23 @@ updateLastUpdatedBadge();
 
     <button class="active-btn" onclick="generateHash()">Generate</button>
     <button onclick="loadHash()">Load</button>
+  </div>
+</div>
+
+<div class="advanced-settings-container">
+  <button
+    id="advancedSettingsToggle"
+    onclick="toggleAdvancedSettings()"
+  >
+    ▼ Advanced Settings
+  </button>
+
+  <div id="advancedSettingsPanel" class="advanced-settings-panel hidden">
+    <div class="advanced-settings-note">
+      You can change the order tie breakers are applied here. This will fundamentally change how the solver works, so do not change this unless you know what you are doing.
+    </div>
+
+    <div id="advancedSettingsContent"></div>
   </div>
 </div>
 
