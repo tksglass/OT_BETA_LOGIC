@@ -2008,6 +2008,8 @@ const TIEBREAKER_EXPORT_IDS = {
   safeWeightedEV: 20
 };
 
+const FULL_EXACT_BOARD_STORE_LIMIT = 140000;
+
 // ===============================
 // T.01A CONSTANT BUILDERS
 // ===============================
@@ -3914,6 +3916,7 @@ function computeStaticModeForcedTiles() {
   return computeForcedTiles(allBoards);
 }
 
+/*
 function shouldRunExactSolver(ctx) {
   const { hits, placedTiles } = ctx;
   
@@ -3947,6 +3950,18 @@ return (
   )) ||
   (placedTiles === 4 && hits >= 1)
 );
+}
+*/
+
+function shouldRunExactSolver(ctx) {
+  const placedTiles = grid.filter(Boolean).length;
+
+  if (rareCount === 2) return true;              
+  if (rareCount === 3) return placedTiles >= 1;
+  if (rareCount === 4) return placedTiles >= 2;  
+  if (rareCount === 5) return placedTiles >= 3; 
+
+  return false;
 }
 
 // ===============================
@@ -4278,11 +4293,36 @@ function finalizeMCMCUndiscoveredShipStats(stats, valid) {
 // T.10 EXACT SOLVER
 // ===============================
 
-function enumerateAllBoardsMaskNative(ships, placementsMap) {
+function enumerateAllBoardsMaskNative(
+  ships,
+  placementsMap,
+  storeBoards = false
+) {
   const counts = Array(25).fill(0);
   const allBoards = [];
-  const seen = new Set();
+  const seen = storeBoards ? new Set() : null;
   const knownMissMask = getKnownMissMask();
+
+  let valid = 0;
+
+  function acceptBoard(shipMasks, hitMask) {
+    if (storeBoards) {
+      const snapshot = makeMaskBoard(shipMasks, hitMask);
+      const key = maskBoardKey(snapshot);
+
+      if (seen.has(key)) return;
+      seen.add(key);
+
+      allBoards.push(snapshot);
+    }
+
+    valid++;
+
+    for (let mask = hitMask; mask; mask &= mask - 1) {
+      const bit = mask & -mask;
+      counts[BIT_INDEX[bit]]++;
+    }
+  }
 
   function dfs(
     index,
@@ -4292,64 +4332,50 @@ function enumerateAllBoardsMaskNative(ships, placementsMap) {
     lastRarePlacementKey = 0
   ) {
     if (index === ships.length) {
-      const snapshot = makeMaskBoard(shipMasks, hitMask);
-      const key = maskBoardKey(snapshot);
-
-      if (seen.has(key)) return;
-      seen.add(key);
-
-      allBoards.push(snapshot);
-
-for (let mask = hitMask; mask; mask &= mask - 1) {
-  const bit = mask & -mask;
-  const i = BIT_INDEX[bit];
-
-  counts[i]++;
-}
-
+      acceptBoard(shipMasks, hitMask);
       return;
     }
 
     const ship = ships[index];
     const placements = placementsMap[ship];
-	
-const legal = getLegalPlacementsForShip(
-  ship,
-  placements,
-  null,
-  occupiedMask,
-  knownMissMask,
-  lastRarePlacementKey,
-  ships,
-  shipMasks,
-  index
-);
+
+    const legal = getLegalPlacementsForShip(
+      ship,
+      placements,
+      null,
+      occupiedMask,
+      knownMissMask,
+      lastRarePlacementKey,
+      ships,
+      shipMasks,
+      index
+    );
 
     if (!legal) return;
 
     for (const placement of legal) {
-const placementMask = placement.mask;
-const prevShipMask = shipMasks[ship] || 0;
+      const placementMask = placement.mask;
+      const prevShipMask = shipMasks[ship] || 0;
 
-shipMasks[ship] = prevShipMask | placementMask;
+      shipMasks[ship] = prevShipMask | placementMask;
 
-const nextLastRareKey = isAnonymousRareShip(ship)
-  ? placementKey(placement)
-  : lastRarePlacementKey;
+      const nextLastRareKey = isAnonymousRareShip(ship)
+        ? placementKey(placement)
+        : lastRarePlacementKey;
 
-dfs(
-  index + 1,
-  occupiedMask | placementMask,
-  hitMask | placementMask,
-  shipMasks,
-  nextLastRareKey
-);
+      dfs(
+        index + 1,
+        occupiedMask | placementMask,
+        hitMask | placementMask,
+        shipMasks,
+        nextLastRareKey
+      );
 
-if(prevShipMask !== 0){
-  shipMasks[ship] = prevShipMask;
-} else {
-  delete shipMasks[ship];
-}
+      if (prevShipMask !== 0) {
+        shipMasks[ship] = prevShipMask;
+      } else {
+        delete shipMasks[ship];
+      }
     }
   }
 
@@ -4357,8 +4383,9 @@ if(prevShipMask !== 0){
 
   return {
     counts,
-    valid: allBoards.length,
-    allBoards
+    valid,
+    allBoards: storeBoards ? allBoards : null,
+    fullExactAvailable: storeBoards
   };
 }
 
@@ -4386,15 +4413,30 @@ const solverKey = getSolverStateKey();
 let cached = exactResultCache.get(solverKey);
 
 if (!cached) {
-  const { counts, valid, allBoards } =
-    enumerateAllBoardsMaskNative(ships, placementsMap);
+  const countOnly =
+    enumerateAllBoardsMaskNative(ships, placementsMap, false);
 
-  const probs = computeProbabilities(counts, valid);
+  const probs = computeProbabilities(
+    countOnly.counts,
+    countOnly.valid
+  );
+
+  let allBoards = null;
+  let fullExactAvailable = false;
+
+  if (countOnly.valid <= FULL_EXACT_BOARD_STORE_LIMIT) {
+    const full =
+      enumerateAllBoardsMaskNative(ships, placementsMap, true);
+
+    allBoards = full.allBoards;
+    fullExactAvailable = true;
+  }
 
   cached = {
-    counts,
-    valid,
+    counts: countOnly.counts,
+    valid: countOnly.valid,
     allBoards,
+    fullExactAvailable,
     probs,
     exactCaches: null
   };
@@ -4405,6 +4447,7 @@ if (!cached) {
 const {
   valid,
   allBoards,
+  fullExactAvailable,
   probs
 } = cached;
 
@@ -4421,8 +4464,21 @@ appState.probs = probs;
 
 appState.solverInfo = {
   type: "exact",
-  boards: valid
+  boards: valid,
+  countOnly: !fullExactAvailable || !allBoards
 };
+
+if (!fullExactAvailable || !allBoards) {
+  appState.forcedTiles = null;
+  appState.topMoves = null;
+
+  renderSelectedHeatmap();
+
+  DOM.confidence.textContent =
+    `Exact boards: ${valid} (count-only)`;
+
+  return;
+}
 
 appState.forcedTiles = computeForcedTiles(allBoards);
 
@@ -10427,6 +10483,7 @@ function appendPreGameMessages(messages, ctx) {
 		• On 7 colors, consider manually changing to Aggressive mode if your first 3-4 moves are all hits.<br><br>
         • Unclicked guaranteed tiles get stripes in their color (or question mark if color not known). Clicking them before the solver tells you to could lead to worse outcomes. (incl. fill hit button)<br><br>
 		BELOW IS EXACT SOLVING MODE ONLY<br><br>
+		• While "count only" is displayed, complex solving data (incl. most heatmaps) is not available. Only probabilities. This is a performance decision.<br><br>
 	    • After clicking a tile, you can hover a color in the selector ring to recalculate the selected heatmap based on the tile being that color.<br><br>
 		• Toggling rare ship targeting only works for the current move. This prevents accidentally forgetting to turn it off.
 		`,
@@ -12619,9 +12676,13 @@ function buildSolverBadge() {
   }
 
   if (info.type === "exact") {
+    const countOnlyText = info.countOnly
+      ? " (count-only)"
+      : "";
+
     return `
       <div class="solver-badge exact">
-        Solver mode: Exact Enumeration
+        Solver mode: Exact Enumeration${countOnlyText}
         <br>Boards: ${info.boards}
         ${deterministicText}
       </div>
