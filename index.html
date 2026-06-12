@@ -109,6 +109,32 @@
   padding: 5px 9px;
 }
 
+.advanced-setting-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 10px;
+  align-items: center;
+
+  padding: 7px 0;
+  border-top: 1px solid rgba(156,163,175,0.45);
+}
+
+.advanced-setting-row:first-of-type {
+  border-top: none;
+}
+
+.advanced-setting-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.advanced-setting-description {
+  font-size: 12px;
+  opacity: 0.75;
+  line-height: 1.25;
+}
+
 .tie-breaker-class {
   background: #f3f4f6;
   border: 1px solid #9ca3af;
@@ -1424,35 +1450,6 @@ button {
     </button>
   </div>
 
-  <div class="utility-group-right">
-    <span class="label">Safety Settings:</span>
-
-<select
-  id="safeRiskBandSelect"
-  onchange="setSafeRiskBand(Number(this.value))"
->
-<option value="1">Risk Band: 1%</option>
-<option value="2">Risk Band: 2%</option>
-<option value="3">Risk Band: 3%</option>
-<option value="4">Risk Band: 4%</option>
-<option value="5" selected>Risk Band: 5%</option>
-</select>
-
-<button
-  id="safeAvoidAdjacentKnownToggle"
-  onclick="toggleSafeAvoidAdjacentKnown(this)"
->
-  Avoid adjacency
-</button>
-
-<button
-  id="safeAggressiveAvoidHighProbToggle"
-  onclick="toggleSafeAggressiveAvoidHighProb(this)"
->
-  Avoid &gt;90% Prob
-</button>
-  </div>
-
 </div>
 
   </div>
@@ -1495,7 +1492,7 @@ button {
   class="non-default-tiebreaker-notice"
   style="display:none;"
 >
-  Non-default tie breakers are active.
+  Custom advanced settings are active.
 </div>
 
 <div class="board-wrapper">
@@ -1690,6 +1687,84 @@ const FUTURE_COLLAPSE_DEEP_BOARD_LIMIT = 50;
 const FUTURE_COLLAPSE_SHORTLIST = 5;
 
 const LOCKED_FALLBACK_TIEBREAKER = "tileIndex";
+
+const STRATEGIC_SCORE_PRESETS = {
+  default: {
+    aggressiveReduction: 1.35,
+    aggressiveHitChance: 0.65,
+    aggressiveUnfound: 0.85,
+    aggressiveMissPenalty: 0.20,
+    earlyUnfoundBonus: 0.65,
+    earlyReductionBonus: 0.25,
+    lateHitBonus: 0.35,
+    lateMissPenalty: 0.15,
+    safeReduction: 1.20,
+    safeUnfound: 0.35,
+    safeHitPenalty: 0.45,
+    partialPenalty: 0.08,
+    earlyAdjacencyPenalty: 100
+  },
+
+  reductionHeavy: {
+    aggressiveReduction: 1.75,
+    aggressiveHitChance: 0.45,
+    aggressiveUnfound: 0.65,
+    aggressiveMissPenalty: 0.20,
+    earlyUnfoundBonus: 0.45,
+    earlyReductionBonus: 0.45,
+    lateHitBonus: 0.20,
+    lateMissPenalty: 0.15,
+    safeReduction: 1.60,
+    safeUnfound: 0.25,
+    safeHitPenalty: 0.45,
+    partialPenalty: 0.08,
+    earlyAdjacencyPenalty: 100
+  },
+
+  shipDiscovery: {
+    aggressiveReduction: 1.10,
+    aggressiveHitChance: 0.55,
+    aggressiveUnfound: 1.25,
+    aggressiveMissPenalty: 0.20,
+    earlyUnfoundBonus: 0.95,
+    earlyReductionBonus: 0.15,
+    lateHitBonus: 0.25,
+    lateMissPenalty: 0.15,
+    safeReduction: 1.00,
+    safeUnfound: 0.70,
+    safeHitPenalty: 0.45,
+    partialPenalty: 0.08,
+    earlyAdjacencyPenalty: 100
+  },
+
+  hitFocused: {
+    aggressiveReduction: 1.10,
+    aggressiveHitChance: 1.05,
+    aggressiveUnfound: 0.65,
+    aggressiveMissPenalty: 0.10,
+    earlyUnfoundBonus: 0.45,
+    earlyReductionBonus: 0.15,
+    lateHitBonus: 0.55,
+    lateMissPenalty: 0.10,
+    safeReduction: 1.10,
+    safeUnfound: 0.25,
+    safeHitPenalty: 0.30,
+    partialPenalty: 0.08,
+    earlyAdjacencyPenalty: 100
+  }
+};
+
+const RARE_TARGETING_PRESETS = {
+  conservative: 0.0025,
+  default: 0.005,
+  aggressive: 0.01
+};
+
+const OVERLAP_PREFERENCE_PRESETS = {
+  default: 0,
+  moderate: 0.08,
+  strong: 0.18
+};
 
 const DEFAULT_TIEBREAKER_CONFIG = {
   finalDecisionSetup: [
@@ -2082,6 +2157,11 @@ let activeColorPickerTile = null;
 
 let showGambaHighlight = false;
 let safeRiskBand = 0.05;
+let resolutionOpportunityThreshold = 0.10;
+let equivalenceModeStrictness = "default";
+let strategicScorePreset = "default";
+let rareTargetingAggressiveness = "default";
+let overlapPreference = "default";
 let safeAvoidAdjacentKnown = false;
 let safeAggressiveAvoidHighProb = false;
 
@@ -2097,6 +2177,9 @@ const DOM_LISTS = {
 
 let rareRulesCache = null;
 let tilePickerLegalityCache = new Map();
+
+let advancedSafetySettingsExpanded = false;
+let advancedTieBreakersExpanded = false;
 
 let expandedTieBreakerSections = {
   finalDecisionSetup: false,
@@ -4414,9 +4497,9 @@ if (
     getBestResolutionOpportunityMove(allBoards, probs);
 
   appState.resolutionOpportunityMove =
-    resolutionOpportunityMove?.opportunityChance >= 0.10
-      ? resolutionOpportunityMove
-      : null;
+  resolutionOpportunityMove?.opportunityChance >= resolutionOpportunityThreshold
+    ? resolutionOpportunityMove
+    : null;
 }
 
 /* SEE YA UNAVOIDABLE GUESS MOVE
@@ -6728,11 +6811,84 @@ function getTileShipSizes(allBoards){
   return buildTileShipSizes(allBoards);
 }
 
+function hasUniqueBestValue(items, getValue, higherIsBetter = true) {
+  const EPSILON = 0.000001;
+
+  let bestValue = higherIsBetter ? -Infinity : Infinity;
+  let count = 0;
+
+  for (const item of items) {
+    const value = getValue(item);
+
+    const isBetter = higherIsBetter
+      ? value > bestValue + EPSILON
+      : value < bestValue - EPSILON;
+
+    const isEqual =
+      Math.abs(value - bestValue) <= EPSILON;
+
+    if (isBetter) {
+      bestValue = value;
+      count = 1;
+    } else if (isEqual) {
+      count++;
+    }
+  }
+
+  return count === 1;
+}
+
+function shouldSuppressEquivalenceMode(data) {
+  if (equivalenceModeStrictness === "default") {
+    return false;
+  }
+
+  const tiles = data.bestGroup || [];
+
+  if (tiles.length < 2) {
+    return false;
+  }
+
+  if (
+    equivalenceModeStrictness === "strictEV" ||
+    equivalenceModeStrictness === "strictEVAndCollapse"
+  ) {
+    const hasUniqueBestEV = hasUniqueBestValue(
+      tiles,
+      tile => data.evMap?.[tile]?.weightedEV || 0,
+      true
+    );
+
+    if (hasUniqueBestEV) {
+      return true;
+    }
+  }
+
+  if (equivalenceModeStrictness === "strictEVAndCollapse") {
+    const getCollapseScore =
+      makeCollapseScoreGetter(data.allBoards, data.probs);
+
+    const hasUniqueBestCollapse = hasUniqueBestValue(
+      tiles,
+      tile => getCollapseScore(tile).expectedRemaining,
+      false
+    );
+
+    if (hasUniqueBestCollapse) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function applyEquivalenceResult(data, probs) {
   const { huntMode } = getGameContext();
 
   const isSymmetric =
-    huntMode && data.bestGroup.length >= 2;
+  huntMode &&
+  data.bestGroup.length >= 2 &&
+  !shouldSuppressEquivalenceMode(data);
 
   appState.probs = probs;
   appState.topMoves = null;
@@ -6770,6 +6926,31 @@ function makeCollapseScoreGetter(allBoards, probs) {
 // ===============================
 // T.11 MOVE STRATEGY
 // ===============================
+
+function collapseFinalMoveCandidatesByOutcome(candidates, b1, b2){
+  const groups = {};
+
+  for(const i of candidates){
+    const key = `${getBoardColorAt(b1, i) || 0}|${getBoardColorAt(b2, i) || 0}`;
+
+    if(!groups[key]){
+      groups[key] = [];
+    }
+
+    groups[key].push(i);
+  }
+
+  return Object.values(groups).map(group => group[0]);
+}
+
+function getTileColorProbability(tileIndex, color){
+  const buckets = outcomeBucketsCache?.[tileIndex];
+  const total = appState.allBoards?.length || 0;
+
+  if(!buckets || total === 0) return 0;
+
+  return (buckets[color] || 0) / total;
+}
 
 function shouldHideBestStrategicMove(ctx = getInfoContext()) {
   return (
@@ -7483,7 +7664,7 @@ function getTargetRareShipMove(allBoards, probs) {
     ...candidates.map(c => c.rareP)
   );
 
-  const rareNearTieWindow = 0.005;
+  const rareNearTieWindow = getRareTargetingWindow();
 
   const nearBestRare = candidates.filter(c =>
     c.rareP >= maxRareP - rareNearTieWindow
@@ -8081,6 +8262,25 @@ function findGuaranteedMove(candidates, huntMode) {
   return guaranteedHit;
 }
 
+function getRareTargetingWindow() {
+  return RARE_TARGETING_PRESETS[rareTargetingAggressiveness] ??
+    RARE_TARGETING_PRESETS.default;
+}
+
+function getCandidateShipOverlapCount(tile) {
+  if (!appState.allBoards || !appState.allBoards.length) {
+    return 0;
+  }
+
+  const shipSizes = getTileShipSizes(appState.allBoards);
+  return shipSizes[tile]?.length || 0;
+}
+
+function getOverlapPreferenceWeight() {
+  return OVERLAP_PREFERENCE_PRESETS[overlapPreference] ??
+    OVERLAP_PREFERENCE_PRESETS.default;
+}
+
 function getCandidateWeightedEV(tile) {
   if (!appState.allBoards || !appState.allBoards.length) {
     return 0;
@@ -8371,6 +8571,10 @@ function scoreStrategicCandidate(c, huntMode) {
 
   const reduction = getCandidateReduction(c);
 
+const overlapScore =
+  getCandidateShipOverlapCount(c.i) *
+  getOverlapPreferenceWeight();
+
   const canUseUnfoundBonus =
     appState.allBoards &&
     appState.allBoards.length > 0;
@@ -8381,33 +8585,37 @@ function scoreStrategicCandidate(c, huntMode) {
 
   const partialTiles = getPartialShipTiles();
   const phase = getGamePhase();
+  
+  const weights =
+  STRATEGIC_SCORE_PRESETS[strategicScorePreset] ||
+  STRATEGIC_SCORE_PRESETS.default;
 
-  let score = 0;
+  let score = overlapScore;
 
-  if (huntMode) {
-    score += reduction * 1.35;
-    score += hitChance * 0.65;
-    score += unfoundColorBonus * 0.85;
-    score -= missChance * 0.20;
+if (huntMode) {
+  score += reduction * weights.aggressiveReduction;
+  score += hitChance * weights.aggressiveHitChance;
+  score += unfoundColorBonus * weights.aggressiveUnfound;
+  score -= missChance * weights.aggressiveMissPenalty;
 
-    if (phase === "early") {
-      score += unfoundColorBonus * 0.65;
-      score += reduction * 0.25;
-    }
-
-    if (phase === "late") {
-      score += hitChance * 0.35;
-      score -= missChance * 0.15;
-    }
-  } else {
-    score += reduction * 1.20;
-    score += unfoundColorBonus * 0.35;
-    score -= hitChance * 0.45;
+  if (phase === "early") {
+    score += unfoundColorBonus * weights.earlyUnfoundBonus;
+    score += reduction * weights.earlyReductionBonus;
   }
 
-  if (partialTiles.has(c.i) && phase !== "late") {
-    score -= 0.08;
+  if (phase === "late") {
+    score += hitChance * weights.lateHitBonus;
+    score -= missChance * weights.lateMissPenalty;
   }
+} else {
+  score += reduction * weights.safeReduction;
+  score += unfoundColorBonus * weights.safeUnfound;
+  score -= hitChance * weights.safeHitPenalty;
+}
+
+if (partialTiles.has(c.i) && phase !== "late") {
+  score -= weights.partialPenalty;
+}
 
 if (
     huntMode &&
@@ -8423,7 +8631,7 @@ if (
       );
 
     if (hasNonAdjacentCandidate) {
-      score -= 100;
+      score -= weights.earlyAdjacencyPenalty;
     }
   }
 
@@ -8593,6 +8801,210 @@ function getRecommendationContext() {
 // T.12 UI
 // ===============================
 
+function getAutoFillForcedHits() {
+  if (!appState.forcedTiles) return [];
+
+  const hits = [];
+
+  for (const index in appState.forcedTiles) {
+    const color = appState.forcedTiles[index];
+    const i = Number(index);
+
+    if (
+      grid[i] === null &&
+      color &&
+      color !== 'miss' &&
+      !isAnonymousRareShip(color)
+    ) {
+      hits.push({ index: i, color });
+    }
+  }
+
+  return hits;
+}
+
+function renderAdvancedRareTargetingSettings() {
+  return `
+    <div class="tie-breaker-class">
+      <div class="tie-breaker-class-title">
+        Rare Ship Targeting
+      </div>
+
+      <div class="advanced-setting-row">
+        <div class="advanced-setting-control">
+          <select
+            id="rareTargetingAggressivenessSelect"
+            onchange="setRareTargetingAggressiveness(this.value)"
+          >
+            <option value="conservative" ${rareTargetingAggressiveness === "conservative" ? "selected" : ""}>0.25%</option>
+            <option value="default" ${rareTargetingAggressiveness === "default" ? "selected" : ""}>0.5%</option>
+            <option value="aggressive" ${rareTargetingAggressiveness === "aggressive" ? "selected" : ""}>1%</option>
+          </select>
+        </div>
+
+        <div class="advanced-setting-description">
+          Controls how close a tile must be to the best rare-ship chance before rare-targeting tie breakers compare it.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdvancedStrategicSettings() {
+  return `
+    <div class="tie-breaker-class">
+      <div class="tie-breaker-class-title">
+        Strategic Scoring
+      </div>
+
+      <div class="advanced-setting-row">
+        <div class="advanced-setting-control">
+          <select
+            id="strategicScorePresetSelect"
+            onchange="setStrategicScorePreset(this.value)"
+          >
+            <option value="default" ${strategicScorePreset === "default" ? "selected" : ""}>Default</option>
+            <option value="reductionHeavy" ${strategicScorePreset === "reductionHeavy" ? "selected" : ""}>Board Reduction</option>
+            <option value="shipDiscovery" ${strategicScorePreset === "shipDiscovery" ? "selected" : ""}>Ship Discovery</option>
+            <option value="hitFocused" ${strategicScorePreset === "hitFocused" ? "selected" : ""}>Hit Focused</option>
+          </select>
+        </div>
+
+        <div class="advanced-setting-description">
+          Changes the weighted score used before Best Strategic Move tie breakers.
+        </div>
+      </div>
+	        <div class="advanced-setting-row">
+        <div class="advanced-setting-control">
+          <select
+            id="overlapPreferenceSelect"
+            onchange="setOverlapPreference(this.value)"
+          >
+            <option value="default" ${overlapPreference === "default" ? "selected" : ""}>Overlap: Default</option>
+            <option value="moderate" ${overlapPreference === "moderate" ? "selected" : ""}>Overlap: Moderate</option>
+            <option value="strong" ${overlapPreference === "strong" ? "selected" : ""}>Overlap: Strong</option>
+          </select>
+        </div>
+
+        <div class="advanced-setting-description">
+          Adds preference for tiles that overlap more possible ship placements. Default adds no extra weight.
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdvancedSafetySettings() {
+  const riskValue = String(Math.round(safeRiskBand * 100));
+  const resolutionValue = String(
+    Math.round(resolutionOpportunityThreshold * 100)
+  );
+
+  return `
+    <div class="tie-breaker-class">
+      <div
+        class="tie-breaker-class-title"
+        style="cursor:pointer;"
+        onclick="toggleAdvancedSafetySettings()"
+      >
+        ${advancedSafetySettingsExpanded ? "▼" : "▶"} Safety Settings
+      </div>
+
+      ${
+        !advancedSafetySettingsExpanded
+          ? ""
+          : `
+            <div class="advanced-setting-row">
+              <div class="advanced-setting-control">
+                <select
+                  id="resolutionOpportunityThresholdSelect"
+                  onchange="setResolutionOpportunityThreshold(Number(this.value))"
+                >
+                  <option value="5" ${resolutionValue === "5" ? "selected" : ""}>Resolution Opportunity: 5%</option>
+                  <option value="10" ${resolutionValue === "10" ? "selected" : ""}>Resolution Opportunity: 10%</option>
+                  <option value="15" ${resolutionValue === "15" ? "selected" : ""}>Resolution Opportunity: 15%</option>
+                  <option value="20" ${resolutionValue === "20" ? "selected" : ""}>Resolution Opportunity: 20%</option>
+                </select>
+              </div>
+
+              <div class="advanced-setting-description">
+                Minimum chance required before the Resolution Opportunity card appears.
+              </div>
+            </div>
+
+            <div class="advanced-setting-row">
+              <div class="advanced-setting-control">
+                <select
+                  id="equivalenceModeStrictnessSelect"
+                  onchange="setEquivalenceModeStrictness(this.value)"
+                >
+                  <option value="default" ${equivalenceModeStrictness === "default" ? "selected" : ""}>Identical Probabilities</option>
+                  <option value="strictEV" ${equivalenceModeStrictness === "strictEV" ? "selected" : ""}>Same EV</option>
+                  <option value="strictEVAndCollapse" ${equivalenceModeStrictness === "strictEVAndCollapse" ? "selected" : ""}>Same reduction AND same EV</option>
+                </select>
+              </div>
+
+              <div class="advanced-setting-description">
+                Controls when Equivalence Mode is allowed to override normal recommendations.
+              </div>
+            </div>
+
+            <div class="advanced-setting-row">
+              <div class="advanced-setting-control">
+                <select
+                  id="safeRiskBandSelect"
+                  onchange="setSafeRiskBand(Number(this.value))"
+                >
+                  <option value="1" ${riskValue === "1" ? "selected" : ""}>Risk Band: 1%</option>
+                  <option value="2" ${riskValue === "2" ? "selected" : ""}>Risk Band: 2%</option>
+                  <option value="3" ${riskValue === "3" ? "selected" : ""}>Risk Band: 3%</option>
+                  <option value="4" ${riskValue === "4" ? "selected" : ""}>Risk Band: 4%</option>
+                  <option value="5" ${riskValue === "5" ? "selected" : ""}>Risk Band: 5%</option>
+                </select>
+              </div>
+
+              <div class="advanced-setting-description">
+                Controls how many near-equivalent safe candidates stay eligible before tie breakers are applied.
+              </div>
+            </div>
+
+            <div class="advanced-setting-row">
+              <div class="advanced-setting-control">
+                <button
+                  id="safeAvoidAdjacentKnownToggle"
+                  class="${safeAvoidAdjacentKnown ? "active-btn" : ""}"
+                  onclick="toggleSafeAvoidAdjacentKnown(this)"
+                >
+                  Avoid adjacency
+                </button>
+              </div>
+
+              <div class="advanced-setting-description">
+                Avoids candidates that could connect to an already-known ship when another valid option exists.
+              </div>
+            </div>
+
+            <div class="advanced-setting-row">
+              <div class="advanced-setting-control">
+                <button
+                  id="safeAggressiveAvoidHighProbToggle"
+                  class="${safeAggressiveAvoidHighProb ? "active-btn" : ""}"
+                  onclick="toggleSafeAggressiveAvoidHighProb(this)"
+                >
+                  Avoid &gt;90% Prob
+                </button>
+              </div>
+
+              <div class="advanced-setting-description">
+                In Aggressive mode, avoids very high-probability hit tiles when a miss does not end the game.
+              </div>
+            </div>
+          `
+      }
+    </div>
+  `;
+}
+
 function renderAdvancedSettings() {
   updateTieBreakerNotice();
 
@@ -8600,65 +9012,88 @@ function renderAdvancedSettings() {
   if (!root) return;
 
   root.innerHTML = `
-<div class="advanced-settings-share-row">
-  <button onclick="copyAdvancedSettingsCode()">
-    Copy Settings Code
-  </button>
+${renderAdvancedSafetySettings()}
+${renderAdvancedStrategicSettings()}
+${renderAdvancedRareTargetingSettings()}
 
-  <button onclick="loadAdvancedSettingsCode()">
-    Load Settings Code
-  </button>
+    <div class="tie-breaker-class">
+      <div
+        class="tie-breaker-class-title"
+        style="cursor:pointer;"
+        onclick="toggleAdvancedTieBreakers()"
+      >
+        ${advancedTieBreakersExpanded ? "▼" : "▶"} Tie Breaker Order
+      </div>
 
-  <button onclick="resetAllTieBreakers()">
-    Reset All to Default
-  </button>
-</div>
-  ` + [
-  renderTieBreakerClass(
-    "rareShipTargeting",
-    "Rare Ship Targeting"
-  ),
+      ${
+  !advancedTieBreakersExpanded
+    ? ""
+    : `
+        <div class="advanced-settings-share-row">
+          <button onclick="copyAdvancedSettingsCode()">
+            Copy Settings Code
+          </button>
 
-  renderTieBreakerClass(
-    "forcedResolution",
-    "Forced Resolution"
-  ),
+          <button onclick="loadAdvancedSettingsCode()">
+            Load Settings Code
+          </button>
 
-  renderTieBreakerClass(
-    "finalDecisionSetup",
-    "Final Decision Setup"
-  ),
+          <button onclick="resetAllTieBreakers()">
+            Reset All to Default
+          </button>
+        </div>
+      ` +
+      [
+        renderTieBreakerClass(
+          "rareShipTargeting",
+          "Rare Ship Targeting"
+        ),
 
-  renderTieBreakerClass(
-    "resolutionOpportunity",
-    "Resolution Opportunity"
-  ),
+              renderTieBreakerClass(
+                "forcedResolution",
+                "Forced Resolution"
+              ),
 
-  renderTieBreakerClass(
-    "futureCollapse",
-    "Future / 2-Step Collapse"
-  ),
+              renderTieBreakerClass(
+                "finalDecisionSetup",
+                "Final Decision Setup"
+              ),
 
-  renderTieBreakerClass(
-    "progressMove",
-    "Safe Mode Clarity / Progress Move"
-  ),
+              renderTieBreakerClass(
+                "resolutionOpportunity",
+                "Resolution Opportunity"
+              ),
 
-  renderTieBreakerClass(
-    "bestSafeAggressive",
-    "Best Safe Move"
-  ),
+              renderTieBreakerClass(
+                "futureCollapse",
+                "Future / 2-Step Collapse"
+              ),
 
-  renderTieBreakerClass(
-    "strategicAggressive",
-    "Best Strategic Move — Aggressive"
-  ),
+              renderTieBreakerClass(
+                "progressMove",
+                "Safe Mode Clarity / Progress Move"
+              ),
 
-  renderTieBreakerClass(
-    "strategicSafe",
-    "Best Strategic Move — Safe"
-  )
-].join("");
+              renderTieBreakerClass(
+                "bestSafeAggressive",
+                "Best Safe Move"
+              ),
+
+              renderTieBreakerClass(
+                "strategicAggressive",
+                "Best Strategic Move — Aggressive"
+              ),
+
+              renderTieBreakerClass(
+                "strategicSafe",
+                "Best Strategic Move — Safe"
+              )
+            ].join("")
+      }
+    </div>
+  `;
+
+  updateSafetySettingButtons();
 }
 
 function getTieBreakerDisplayLabel(key) {
@@ -8917,28 +9352,6 @@ function getTiebreakerText(move) {
       : "";
 
   return `<br><br><b>Tiebreaker Used:</b> ${move.tiebreaker}${passedText}`;
-}
-
-function getAutoFillForcedHits() {
-  if (!appState.forcedTiles) return [];
-
-  const hits = [];
-
-  for (const index in appState.forcedTiles) {
-    const color = appState.forcedTiles[index];
-    const i = Number(index);
-
-    if (
-      grid[i] === null &&
-      color &&
-      color !== 'miss' &&
-      !isAnonymousRareShip(color)
-    ) {
-      hits.push({ index: i, color });
-    }
-  }
-
-  return hits;
 }
 
 function updateAutoHitsButton() {
@@ -9751,15 +10164,6 @@ function buildRainbowCandidateCard(probs, context) {
   );
 }
 
-function getTileColorProbability(tileIndex, color){
-  const buckets = outcomeBucketsCache?.[tileIndex];
-  const total = appState.allBoards?.length || 0;
-
-  if(!buckets || total === 0) return 0;
-
-  return (buckets[color] || 0) / total;
-}
-
 function getRainbowCandidateTiles(probs) {
   const knownRainbowTiles = [];
 
@@ -10022,9 +10426,6 @@ function appendPreGameMessages(messages, ctx) {
         • 8 and 9 colors default to aggressive mode (finding non-blues.)<br><br>
 		• On 7 colors, consider manually changing to Aggressive mode if your first 3-4 moves are all hits.<br><br>
         • Unclicked guaranteed tiles get stripes in their color (or question mark if color not known). Clicking them before the solver tells you to could lead to worse outcomes. (incl. fill hit button)<br><br>
-		• "Risk band" is how much hit chance can be traded for a potentially better move.<br><br>
-		• "Avoid adjacency" avoids clustering around existing ship information when possible. Auto-disabled when appropriate.<br><br>
-		• "Avoid >90% Prob" delays near-certain hits in favor of gathering additional information. Auto-disabled when appropriate.<br><br>
 		BELOW IS EXACT SOLVING MODE ONLY<br><br>
 	    • After clicking a tile, you can hover a color in the selector ring to recalculate the selected heatmap based on the tile being that color.<br><br>
 		• Toggling rare ship targeting only works for the current move. This prevents accidentally forgetting to turn it off.
@@ -10134,22 +10535,6 @@ const displayCandidates =
 
 renderInfoMessages(messages);
 return true;
-}
-
-function collapseFinalMoveCandidatesByOutcome(candidates, b1, b2){
-  const groups = {};
-
-  for(const i of candidates){
-    const key = `${getBoardColorAt(b1, i) || 0}|${getBoardColorAt(b2, i) || 0}`;
-
-    if(!groups[key]){
-      groups[key] = [];
-    }
-
-    groups[key].push(i);
-  }
-
-  return Object.values(groups).map(group => group[0]);
 }
 
 function appendStrategyMessages(messages, ctx) {
@@ -12773,23 +13158,25 @@ function saveTieBreakerConfig() {
   );
 }
 
-function hasNonDefaultTieBreakers() {
+function hasNonDefaultAdvancedSettings() {
   for (const moveClass in DEFAULT_TIEBREAKER_CONFIG) {
     const current = tieBreakerConfig[moveClass] || [];
     const defaults = DEFAULT_TIEBREAKER_CONFIG[moveClass] || [];
 
-    if (current.length !== defaults.length) {
-      return true;
-    }
+    if (current.length !== defaults.length) return true;
 
     for (let i = 0; i < defaults.length; i++) {
-      if (current[i] !== defaults[i]) {
-        return true;
-      }
+      if (current[i] !== defaults[i]) return true;
     }
   }
 
-  return false;
+  return (
+    resolutionOpportunityThreshold !== 0.10 ||
+    equivalenceModeStrictness !== "default" ||
+    strategicScorePreset !== "default" ||
+    rareTargetingAggressiveness !== "default" ||
+    overlapPreference !== "default"
+  );
 }
 
 function updateTieBreakerNotice() {
@@ -12800,7 +13187,7 @@ function updateTieBreakerNotice() {
   if (!notice) return;
 
   notice.style.display =
-    hasNonDefaultTieBreakers()
+    hasNonDefaultAdvancedSettings()
       ? "block"
       : "none";
 }
@@ -13002,6 +13389,62 @@ function getMovesForCurrentGrid(){
 // T.16 EVENT BINDS
 // ===============================
 
+window.setOverlapPreference = function(value) {
+  overlapPreference = value;
+  updateTieBreakerNotice();
+
+  if (appState.probs) {
+    highlightRecommendations(appState.probs);
+  } else {
+    runSimulation();
+  }
+
+  renderUI();
+  updateColorAvailability();
+};
+
+window.setRareTargetingAggressiveness = function(value) {
+  rareTargetingAggressiveness = value;
+  updateTieBreakerNotice();
+
+  if (appState.probs) {
+    highlightRecommendations(appState.probs);
+  } else {
+    runSimulation();
+  }
+
+  renderUI();
+  updateColorAvailability();
+};
+
+window.setEquivalenceModeStrictness = function(value) {
+  equivalenceModeStrictness = value;
+  updateTieBreakerNotice();
+
+  if (appState.probs) {
+    highlightRecommendations(appState.probs);
+  } else {
+    runSimulation();
+  }
+
+  renderUI();
+  updateColorAvailability();
+};
+
+window.setStrategicScorePreset = function(value) {
+  strategicScorePreset = value;
+  updateTieBreakerNotice();
+
+  if (appState.probs) {
+    highlightRecommendations(appState.probs);
+  } else {
+    runSimulation();
+  }
+
+  renderUI();
+  updateColorAvailability();
+};
+
 window.resetAllTieBreakers = function() {
   const confirmed = confirm(
     "Reset all Advanced Settings tie breakers to default?"
@@ -13046,6 +13489,20 @@ window.loadAdvancedSettingsCode = function() {
       ? "Advanced settings loaded."
       : "Invalid advanced settings code."
   );
+};
+
+window.toggleAdvancedSafetySettings = function() {
+  advancedSafetySettingsExpanded =
+    !advancedSafetySettingsExpanded;
+
+  renderAdvancedSettings();
+};
+
+window.toggleAdvancedTieBreakers = function() {
+  advancedTieBreakersExpanded =
+    !advancedTieBreakersExpanded;
+
+  renderAdvancedSettings();
 };
 
 window.toggleTieBreakerSection = function(moveClass) {
@@ -13103,6 +13560,20 @@ window.toggleSafeAvoidAdjacentKnown = function(btn) {
 
 window.setSafeRiskBand = function(value) {
   safeRiskBand = value / 100;
+
+  if (appState.probs) {
+    highlightRecommendations(appState.probs);
+  } else {
+    runSimulation();
+  }
+
+  renderUI();
+  updateColorAvailability();
+};
+
+window.setResolutionOpportunityThreshold = function(value) {
+  resolutionOpportunityThreshold = value / 100;
+  updateTieBreakerNotice();
 
   if (appState.probs) {
     highlightRecommendations(appState.probs);
@@ -13461,7 +13932,7 @@ updateLastUpdatedBadge();
 
   <div id="advancedSettingsPanel" class="advanced-settings-panel hidden">
     <div class="advanced-settings-note">
-      You can change the order tie breakers are applied here. This will fundamentally change how the solver works, so do not change this unless you know what you are doing.
+      You can change various settings here. These settings will fundamentally change how the solver works, so do not change these unless you accept the risk.
     </div>
 
     <div id="advancedSettingsContent"></div>
