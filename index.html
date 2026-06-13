@@ -1042,16 +1042,6 @@ button {
   padding: 3px 7px;
 }
 
-#safeRiskBandSelect {
-  font-size: 11px;
-  padding: 3px 8px;
-  border: 1px solid #9ca3af;
-  border-radius: 6px;
-  background: #f9fafb;
-  color: #111827;
-  cursor: pointer;
-}
-
 .safety-checkbox {
   display: flex;
   align-items: center;
@@ -3957,7 +3947,7 @@ function shouldRunExactSolver(ctx) {
   const placedTiles = grid.filter(Boolean).length;
 
   if (rareCount === 2) return true;              
-  if (rareCount === 3) return placedTiles >= 1;
+  if (rareCount === 3) return placedTiles > 1;
   if (rareCount === 4) return placedTiles >= 2;  
   if (rareCount === 5) return placedTiles >= 3; 
 
@@ -4298,12 +4288,14 @@ function enumerateAllBoardsMaskNative(
   placementsMap,
   storeBoards = false
 ) {
-  const counts = Array(25).fill(0);
-  const allBoards = [];
-  const seen = storeBoards ? new Set() : null;
-  const knownMissMask = getKnownMissMask();
+const counts = Array(25).fill(0);
+const allBoards = [];
+const seen = storeBoards ? new Set() : null;
+const knownMissMask = getKnownMissMask();
+const undiscoveredShipStats = createEmptyMCMCUndiscoveredShipStats();
+const colorCountsForTier = getGridStats().colorCounts;
 
-  let valid = 0;
+let valid = 0;
 
   function acceptBoard(shipMasks, hitMask) {
     if (storeBoards) {
@@ -4319,9 +4311,31 @@ function enumerateAllBoardsMaskNative(
     valid++;
 
     for (let mask = hitMask; mask; mask &= mask - 1) {
-      const bit = mask & -mask;
-      counts[BIT_INDEX[bit]]++;
+  const bit = mask & -mask;
+  counts[BIT_INDEX[bit]]++;
+}
+
+for (const color in shipMasks) {
+  const tier = getUndiscoveredShipTierForColor(
+    color,
+    colorCountsForTier
+  );
+
+  if (!tier) continue;
+
+  for (let mask = shipMasks[color]; mask; mask &= mask - 1) {
+    const bit = mask & -mask;
+    const tile = BIT_INDEX[bit];
+
+    if (tier === 4) {
+      undiscoveredShipStats[tile].size4++;
+    } else if (tier === 3) {
+      undiscoveredShipStats[tile].size3++;
+    } else if (tier === 2) {
+      undiscoveredShipStats[tile].size2++;
     }
+  }
+}
   }
 
   function dfs(
@@ -4382,11 +4396,16 @@ function enumerateAllBoardsMaskNative(
   dfs(0, 0, 0, {});
 
   return {
-    counts,
-    valid,
-    allBoards: storeBoards ? allBoards : null,
-    fullExactAvailable: storeBoards
-  };
+  counts,
+  valid,
+  allBoards: storeBoards ? allBoards : null,
+  fullExactAvailable: storeBoards,
+  countOnlyUndiscoveredShipStats:
+    finalizeMCMCUndiscoveredShipStats(
+      undiscoveredShipStats,
+      valid
+    )
+};
 }
 
 function installExactCaches(exactCaches) {
@@ -4433,13 +4452,15 @@ if (!cached) {
   }
 
   cached = {
-    counts: countOnly.counts,
-    valid: countOnly.valid,
-    allBoards,
-    fullExactAvailable,
-    probs,
-    exactCaches: null
-  };
+  counts: countOnly.counts,
+  valid: countOnly.valid,
+  allBoards,
+  fullExactAvailable,
+  probs,
+  countOnlyUndiscoveredShipStats:
+    countOnly.countOnlyUndiscoveredShipStats,
+  exactCaches: null
+};
 
   exactResultCache.set(solverKey, cached);
 }
@@ -4448,7 +4469,8 @@ const {
   valid,
   allBoards,
   fullExactAvailable,
-  probs
+  probs,
+  countOnlyUndiscoveredShipStats
 } = cached;
 
 function ensureExactCaches() {
@@ -4471,6 +4493,9 @@ appState.solverInfo = {
 if (!fullExactAvailable || !allBoards) {
   appState.forcedTiles = null;
   appState.topMoves = null;
+
+  mcmcUndiscoveredShipStatsCache =
+    countOnlyUndiscoveredShipStats;
 
   renderSelectedHeatmap();
 
