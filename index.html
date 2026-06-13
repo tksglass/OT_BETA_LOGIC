@@ -1680,6 +1680,7 @@ const LOCKED_FALLBACK_TIEBREAKER = "tileIndex";
 
 const STRATEGIC_SCORE_PRESETS = {
   default: {
+    evWeight: 0,
     aggressiveReduction: 1.35,
     aggressiveHitChance: 0.65,
     aggressiveUnfound: 0.85,
@@ -1696,6 +1697,7 @@ const STRATEGIC_SCORE_PRESETS = {
   },
 
   reductionHeavy: {
+    evWeight: 0,
     aggressiveReduction: 1.75,
     aggressiveHitChance: 0.45,
     aggressiveUnfound: 0.65,
@@ -1712,6 +1714,7 @@ const STRATEGIC_SCORE_PRESETS = {
   },
 
   shipDiscovery: {
+    evWeight: 0,
     aggressiveReduction: 1.10,
     aggressiveHitChance: 0.55,
     aggressiveUnfound: 1.25,
@@ -1728,6 +1731,7 @@ const STRATEGIC_SCORE_PRESETS = {
   },
 
   hitFocused: {
+    evWeight: 0,
     aggressiveReduction: 1.10,
     aggressiveHitChance: 1.05,
     aggressiveUnfound: 0.65,
@@ -1739,8 +1743,26 @@ const STRATEGIC_SCORE_PRESETS = {
     safeReduction: 1.10,
     safeUnfound: 0.25,
     safeHitPenalty: 0.30,
+        partialPenalty: 0.08,
+    earlyAdjacencyPenalty: 100,
+    evWeight: 0
+  },
+
+  evFocused: {
+    aggressiveReduction: 1.00,
+    aggressiveHitChance: 0.55,
+    aggressiveUnfound: 0.55,
+    aggressiveMissPenalty: 0.15,
+    earlyUnfoundBonus: 0.35,
+    earlyReductionBonus: 0.10,
+    lateHitBonus: 0.25,
+    lateMissPenalty: 0.10,
+    safeReduction: 1.00,
+    safeUnfound: 0.20,
+    safeHitPenalty: 0.35,
     partialPenalty: 0.08,
-    earlyAdjacencyPenalty: 100
+    earlyAdjacencyPenalty: 100,
+    evWeight: 0.25
   }
 };
 
@@ -1997,7 +2019,8 @@ const STRATEGIC_PRESET_EXPORT_ORDER = [
   "default",
   "reductionHeavy",
   "shipDiscovery",
-  "hitFocused"
+  "hitFocused",
+  "evFocused"
 ];
 
 const RARE_TARGETING_EXPORT_ORDER = [
@@ -8732,7 +8755,9 @@ const overlapScore =
   STRATEGIC_SCORE_PRESETS[strategicScorePreset] ||
   STRATEGIC_SCORE_PRESETS.default;
 
-  let score = overlapScore;
+  const evScore = getCandidateWeightedEV(c.i) / 100;
+
+let score = overlapScore + evScore * (weights.evWeight || 0);
 
 if (huntMode) {
   score += reduction * weights.aggressiveReduction;
@@ -9009,6 +9034,7 @@ function renderAdvancedStrategicSettings() {
             <option value="reductionHeavy" ${strategicScorePreset === "reductionHeavy" ? "selected" : ""}>Board Reduction</option>
             <option value="shipDiscovery" ${strategicScorePreset === "shipDiscovery" ? "selected" : ""}>Ship Discovery</option>
             <option value="hitFocused" ${strategicScorePreset === "hitFocused" ? "selected" : ""}>Hit Focused</option>
+			<option value="evFocused" ${strategicScorePreset === "evFocused" ? "selected" : ""}>EV Focused</option>
           </select>
         </div>
 
