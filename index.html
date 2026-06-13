@@ -1680,7 +1680,6 @@ const LOCKED_FALLBACK_TIEBREAKER = "tileIndex";
 
 const STRATEGIC_SCORE_PRESETS = {
   default: {
-    evWeight: 0,
     aggressiveReduction: 1.35,
     aggressiveHitChance: 0.65,
     aggressiveUnfound: 0.85,
@@ -1697,7 +1696,6 @@ const STRATEGIC_SCORE_PRESETS = {
   },
 
   reductionHeavy: {
-    evWeight: 0,
     aggressiveReduction: 1.75,
     aggressiveHitChance: 0.45,
     aggressiveUnfound: 0.65,
@@ -1714,7 +1712,6 @@ const STRATEGIC_SCORE_PRESETS = {
   },
 
   shipDiscovery: {
-    evWeight: 0,
     aggressiveReduction: 1.10,
     aggressiveHitChance: 0.55,
     aggressiveUnfound: 1.25,
@@ -1731,7 +1728,6 @@ const STRATEGIC_SCORE_PRESETS = {
   },
 
   hitFocused: {
-    evWeight: 0,
     aggressiveReduction: 1.10,
     aggressiveHitChance: 1.05,
     aggressiveUnfound: 0.65,
@@ -1743,26 +1739,8 @@ const STRATEGIC_SCORE_PRESETS = {
     safeReduction: 1.10,
     safeUnfound: 0.25,
     safeHitPenalty: 0.30,
-        partialPenalty: 0.08,
-    earlyAdjacencyPenalty: 100,
-    evWeight: 0
-  },
-
-  evFocused: {
-    aggressiveReduction: 1.00,
-    aggressiveHitChance: 0.55,
-    aggressiveUnfound: 0.55,
-    aggressiveMissPenalty: 0.15,
-    earlyUnfoundBonus: 0.35,
-    earlyReductionBonus: 0.10,
-    lateHitBonus: 0.25,
-    lateMissPenalty: 0.10,
-    safeReduction: 1.00,
-    safeUnfound: 0.20,
-    safeHitPenalty: 0.35,
     partialPenalty: 0.08,
-    earlyAdjacencyPenalty: 100,
-    evWeight: 0.25
+    earlyAdjacencyPenalty: 100
   }
 };
 
@@ -1776,6 +1754,12 @@ const OVERLAP_PREFERENCE_PRESETS = {
   default: 0,
   moderate: 0.08,
   strong: 0.18
+};
+
+const EV_PREFERENCE_PRESETS = {
+  default: 0,
+  moderate: 0.25,
+  strong: 0.50
 };
 
 const DEFAULT_TIEBREAKER_CONFIG = {
@@ -2019,8 +2003,7 @@ const STRATEGIC_PRESET_EXPORT_ORDER = [
   "default",
   "reductionHeavy",
   "shipDiscovery",
-  "hitFocused",
-  "evFocused"
+  "hitFocused"
 ];
 
 const RARE_TARGETING_EXPORT_ORDER = [
@@ -2030,6 +2013,12 @@ const RARE_TARGETING_EXPORT_ORDER = [
 ];
 
 const OVERLAP_PREFERENCE_EXPORT_ORDER = [
+  "default",
+  "moderate",
+  "strong"
+];
+
+const EV_PREFERENCE_EXPORT_ORDER = [
   "default",
   "moderate",
   "strong"
@@ -2215,6 +2204,7 @@ let equivalenceModeStrictness = "default";
 let strategicScorePreset = "default";
 let rareTargetingAggressiveness = "default";
 let overlapPreference = "default";
+let evPreference = "default";
 let safeAvoidAdjacentKnown = false;
 let safeAggressiveAvoidHighProb = false;
 
@@ -2232,6 +2222,7 @@ let rareRulesCache = null;
 let tilePickerLegalityCache = new Map();
 
 let advancedSafetySettingsExpanded = false;
+let advancedStrategicSettingsExpanded = false;
 let advancedTieBreakersExpanded = false;
 
 let expandedTieBreakerSections = {
@@ -7316,7 +7307,7 @@ function encodeAdvancedSettings() {
     safeAggressiveAvoidHighProb ? 1 : 0
   ].join(",");
 
-  const presetPart = [
+const presetPart = [
   EQUIVALENCE_EXPORT_ORDER
     .indexOf(equivalenceModeStrictness),
 
@@ -7327,7 +7318,10 @@ function encodeAdvancedSettings() {
     .indexOf(rareTargetingAggressiveness),
 
   OVERLAP_PREFERENCE_EXPORT_ORDER
-    .indexOf(overlapPreference)
+    .indexOf(overlapPreference),
+
+  EV_PREFERENCE_EXPORT_ORDER
+    .indexOf(evPreference)
 ].join(",");
 
   return [
@@ -7393,6 +7387,9 @@ rareTargetingAggressiveness =
 
 overlapPreference =
   OVERLAP_PREFERENCE_EXPORT_ORDER[presets[3]] || "default";
+  
+evPreference =
+  EV_PREFERENCE_EXPORT_ORDER[presets[4]] || "default";
 
     renderAdvancedSettings();
     updateTieBreakerNotice();
@@ -8446,6 +8443,11 @@ function getOverlapPreferenceWeight() {
     OVERLAP_PREFERENCE_PRESETS.default;
 }
 
+function getEVPreferenceWeight() {
+  return EV_PREFERENCE_PRESETS[evPreference] ??
+    EV_PREFERENCE_PRESETS.default;
+}
+
 function getCandidateWeightedEV(tile) {
   if (!appState.allBoards || !appState.allBoards.length) {
     return 0;
@@ -8740,6 +8742,10 @@ const overlapScore =
   getCandidateShipOverlapCount(c.i) *
   getOverlapPreferenceWeight();
 
+const evScore =
+  (getCandidateWeightedEV(c.i) / 100) *
+  getEVPreferenceWeight();
+
   const canUseUnfoundBonus =
     appState.allBoards &&
     appState.allBoards.length > 0;
@@ -8755,9 +8761,7 @@ const overlapScore =
   STRATEGIC_SCORE_PRESETS[strategicScorePreset] ||
   STRATEGIC_SCORE_PRESETS.default;
 
-  const evScore = getCandidateWeightedEV(c.i) / 100;
-
-let score = overlapScore + evScore * (weights.evWeight || 0);
+  let score = overlapScore + evScore;
 
 if (huntMode) {
   score += reduction * weights.aggressiveReduction;
@@ -9020,44 +9024,71 @@ function renderAdvancedRareTargetingSettings() {
 function renderAdvancedStrategicSettings() {
   return `
     <div class="tie-breaker-class">
-      <div class="tie-breaker-class-title">
-        Strategic Scoring
+      <div
+        class="tie-breaker-class-title"
+        style="cursor:pointer;"
+        onclick="toggleAdvancedStrategicSettings()"
+      >
+        ${advancedStrategicSettingsExpanded ? "▼" : "▶"} Strategic Scoring
       </div>
 
-      <div class="advanced-setting-row">
-        <div class="advanced-setting-control">
-          <select
-            id="strategicScorePresetSelect"
-            onchange="setStrategicScorePreset(this.value)"
-          >
-            <option value="default" ${strategicScorePreset === "default" ? "selected" : ""}>Default</option>
-            <option value="reductionHeavy" ${strategicScorePreset === "reductionHeavy" ? "selected" : ""}>Board Reduction</option>
-            <option value="shipDiscovery" ${strategicScorePreset === "shipDiscovery" ? "selected" : ""}>Ship Discovery</option>
-            <option value="hitFocused" ${strategicScorePreset === "hitFocused" ? "selected" : ""}>Hit Focused</option>
-			<option value="evFocused" ${strategicScorePreset === "evFocused" ? "selected" : ""}>EV Focused</option>
-          </select>
-        </div>
+      ${
+        !advancedStrategicSettingsExpanded
+          ? ""
+          : `
+            <div class="advanced-setting-row">
+              <div class="advanced-setting-control">
+                <select
+                  id="strategicScorePresetSelect"
+                  onchange="setStrategicScorePreset(this.value)"
+                >
+                  <option value="default" ${strategicScorePreset === "default" ? "selected" : ""}>Default</option>
+                  <option value="reductionHeavy" ${strategicScorePreset === "reductionHeavy" ? "selected" : ""}>Board Reduction</option>
+                  <option value="shipDiscovery" ${strategicScorePreset === "shipDiscovery" ? "selected" : ""}>Ship Discovery</option>
+                  <option value="hitFocused" ${strategicScorePreset === "hitFocused" ? "selected" : ""}>Hit Focused</option>
+                </select>
+              </div>
 
-        <div class="advanced-setting-description">
-          Changes the weighted score used before Best Strategic Move tie breakers.
-        </div>
-      </div>
-	        <div class="advanced-setting-row">
-        <div class="advanced-setting-control">
-          <select
-            id="overlapPreferenceSelect"
-            onchange="setOverlapPreference(this.value)"
-          >
-            <option value="default" ${overlapPreference === "default" ? "selected" : ""}>Overlap: Default</option>
-            <option value="moderate" ${overlapPreference === "moderate" ? "selected" : ""}>Overlap: Moderate</option>
-            <option value="strong" ${overlapPreference === "strong" ? "selected" : ""}>Overlap: Strong</option>
-          </select>
-        </div>
+              <div class="advanced-setting-description">
+                Changes the weighted score used before Best Strategic Move tie breakers.
+              </div>
+            </div>
 
-        <div class="advanced-setting-description">
-          Adds preference for tiles that overlap more possible ship placements. Default adds no extra weight.
-        </div>
-      </div>
+            <div class="advanced-setting-row">
+              <div class="advanced-setting-control">
+                <select
+                  id="overlapPreferenceSelect"
+                  onchange="setOverlapPreference(this.value)"
+                >
+                  <option value="default" ${overlapPreference === "default" ? "selected" : ""}>Overlap: Default</option>
+                  <option value="moderate" ${overlapPreference === "moderate" ? "selected" : ""}>Overlap: Moderate</option>
+                  <option value="strong" ${overlapPreference === "strong" ? "selected" : ""}>Overlap: Strong</option>
+                </select>
+              </div>
+
+              <div class="advanced-setting-description">
+                Adds preference for tiles that overlap more possible ship placements. Default adds no extra weight.
+              </div>
+            </div>
+
+            <div class="advanced-setting-row">
+              <div class="advanced-setting-control">
+                <select
+                  id="evPreferenceSelect"
+                  onchange="setEVPreference(this.value)"
+                >
+                  <option value="default" ${evPreference === "default" ? "selected" : ""}>EV: Default</option>
+                  <option value="moderate" ${evPreference === "moderate" ? "selected" : ""}>EV: Moderate</option>
+                  <option value="strong" ${evPreference === "strong" ? "selected" : ""}>EV: Strong</option>
+                </select>
+              </div>
+
+              <div class="advanced-setting-description">
+                Adds preference for higher expected value during strategic scoring. Default adds no extra weight.
+              </div>
+            </div>
+          `
+      }
     </div>
   `;
 }
@@ -13344,7 +13375,8 @@ function hasNonDefaultAdvancedSettings() {
     equivalenceModeStrictness !== "default" ||
     strategicScorePreset !== "default" ||
     rareTargetingAggressiveness !== "default" ||
-    overlapPreference !== "default"
+    overlapPreference !== "default" ||
+    evPreference !== "default"
   );
 }
 
@@ -13576,6 +13608,13 @@ window.setOverlapPreference = function(value) {
   refreshRecommendationsForAdvancedSettingChange();
 };
 
+window.setEVPreference = function(value) {
+  evPreference = value;
+  updateTieBreakerNotice();
+
+  refreshRecommendationsForAdvancedSettingChange();
+};
+
 window.setRareTargetingAggressiveness = function(value) {
   rareTargetingAggressiveness = value;
   updateTieBreakerNotice();
@@ -13616,6 +13655,7 @@ window.resetAllAdvancedSettings = function() {
   strategicScorePreset = "default";
   rareTargetingAggressiveness = "default";
   overlapPreference = "default";
+  evPreference = "default";
 
   if (rareCount !== null) {
     applyDefaultSafetySettingsForRareCount(
@@ -13663,6 +13703,13 @@ window.loadAdvancedSettingsCode = function() {
 window.toggleAdvancedSafetySettings = function() {
   advancedSafetySettingsExpanded =
     !advancedSafetySettingsExpanded;
+
+  renderAdvancedSettings();
+};
+
+window.toggleAdvancedStrategicSettings = function() {
+  advancedStrategicSettingsExpanded =
+    !advancedStrategicSettingsExpanded;
 
   renderAdvancedSettings();
 };
