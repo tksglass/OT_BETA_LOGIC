@@ -1974,6 +1974,43 @@ const MOVE_CLASS_EXPORT_KEYS = {
   strategicSafe: "sts"
 };
 
+const SETTINGS_EXPORT_ORDER = [
+  "finalDecisionSetup",
+  "forcedResolution",
+  "resolutionOpportunity",
+  "futureCollapse",
+  "rareShipTargeting",
+  "progressMove",
+  "bestSafeAggressive",
+  "strategicAggressive",
+  "strategicSafe"
+];
+
+const EQUIVALENCE_EXPORT_ORDER = [
+  "default",
+  "strictEV",
+  "strictEVAndCollapse"
+];
+
+const STRATEGIC_PRESET_EXPORT_ORDER = [
+  "default",
+  "reductionHeavy",
+  "shipDiscovery",
+  "hitFocused"
+];
+
+const RARE_TARGETING_EXPORT_ORDER = [
+  "conservative",
+  "default",
+  "aggressive"
+];
+
+const OVERLAP_PREFERENCE_EXPORT_ORDER = [
+  "default",
+  "moderate",
+  "strong"
+];
+
 const TIEBREAKER_EXPORT_IDS = {
   riskAdjustedRemaining: 0,
   expectedRemaining: 1,
@@ -7239,72 +7276,103 @@ function invertObject(obj) {
   );
 }
 
-function encodeTieBreakerSettings() {
-  const packed = {};
+function encodeAdvancedSettings() {
+  const tieBreakerPart = SETTINGS_EXPORT_ORDER
+    .map(moveClass =>
+      tieBreakerConfig[moveClass]
+        .map(key => TIEBREAKER_EXPORT_IDS[key])
+        .join(",")
+    )
+    .join(".");
 
-  for (const moveClass in tieBreakerConfig) {
-    const shortKey = MOVE_CLASS_EXPORT_KEYS[moveClass];
-    if (!shortKey) continue;
+  const safetyPart = [
+    Math.round(safeRiskBand * 100),
+    Math.round(resolutionOpportunityThreshold * 100),
+    safeAvoidAdjacentKnown ? 1 : 0,
+    safeAggressiveAvoidHighProb ? 1 : 0
+  ].join(",");
 
-    packed[shortKey] = tieBreakerConfig[moveClass]
-      .map(key => TIEBREAKER_EXPORT_IDS[key])
-      .filter(id => id !== undefined);
-  }
+  const presetPart = [
+  EQUIVALENCE_EXPORT_ORDER
+    .indexOf(equivalenceModeStrictness),
 
-  return `OTV1:${toBase64Url(JSON.stringify(packed))}`;
+  STRATEGIC_PRESET_EXPORT_ORDER
+    .indexOf(strategicScorePreset),
+
+  RARE_TARGETING_EXPORT_ORDER
+    .indexOf(rareTargetingAggressiveness),
+
+  OVERLAP_PREFERENCE_EXPORT_ORDER
+    .indexOf(overlapPreference)
+].join(",");
+
+  return [
+    "SV1",
+    tieBreakerPart,
+    safetyPart,
+    presetPart
+  ].join("|");
 }
 
-function decodeTieBreakerSettings(code) {
-  const trimmed = code.trim();
+function loadAdvancedSettingsCodePayload(code) {
+  try {
+    const [
+      version,
+      tieBreakerPart,
+      safetyPart,
+      presetPart
+    ] = code.trim().split("|");
 
-  if (trimmed.startsWith("OTV1:")) {
-    const packed = JSON.parse(
-      fromBase64Url(trimmed.slice(5))
-    );
-
-    const moveClassByShortKey =
-      invertObject(MOVE_CLASS_EXPORT_KEYS);
-
-    const tieBreakerById =
-      invertObject(TIEBREAKER_EXPORT_IDS);
-
-    const unpacked = {};
-
-    for (const shortKey in packed) {
-      const moveClass = moveClassByShortKey[shortKey];
-      if (!moveClass || !Array.isArray(packed[shortKey])) continue;
-
-      unpacked[moveClass] = packed[shortKey]
-        .map(id => tieBreakerById[id])
-        .filter(Boolean);
+    if (version !== "SV1") {
+      return false;
     }
 
-    return unpacked;
-  }
+    const moveClasses = SETTINGS_EXPORT_ORDER;
+    const tieBreakerById = invertObject(TIEBREAKER_EXPORT_IDS);
 
-  const parsed = JSON.parse(atob(trimmed));
-  return parsed.tieBreakers || parsed;
-}
+    const tieBreakerChunks = tieBreakerPart.split(".");
+    const importedTieBreakers = {};
 
-function loadTieBreakerSettingsCode(code) {
-  try {
-    const imported = decodeTieBreakerSettings(code);
+    moveClasses.forEach((moveClass, index) => {
+      const chunk = tieBreakerChunks[index];
+      if (!chunk) return;
 
-    localStorage.setItem(
-      "otTieBreakerConfig",
-      JSON.stringify(imported)
+      importedTieBreakers[moveClass] = chunk
+        .split(",")
+        .map(id => tieBreakerById[Number(id)])
+        .filter(Boolean);
+    });
+
+    tieBreakerConfig = JSON.parse(
+      JSON.stringify(importedTieBreakers)
     );
 
-    tieBreakerConfig = loadTieBreakerConfig();
     saveTieBreakerConfig();
 
-    renderAdvancedSettings();
+    const safety = safetyPart.split(",").map(Number);
 
-    if (lastProbs) {
-      runSimulation();
-      renderUI();
-      updateColorAvailability();
-    }
+    safeRiskBand = safety[0] / 100;
+    resolutionOpportunityThreshold = safety[1] / 100;
+    safeAvoidAdjacentKnown = safety[2] === 1;
+    safeAggressiveAvoidHighProb = safety[3] === 1;
+
+    const presets = presetPart.split(",").map(Number);
+
+    equivalenceModeStrictness =
+  EQUIVALENCE_EXPORT_ORDER[presets[0]] || "default";
+
+strategicScorePreset =
+  STRATEGIC_PRESET_EXPORT_ORDER[presets[1]] || "default";
+
+rareTargetingAggressiveness =
+  RARE_TARGETING_EXPORT_ORDER[presets[2]] || "default";
+
+overlapPreference =
+  OVERLAP_PREFERENCE_EXPORT_ORDER[presets[3]] || "default";
+
+    renderAdvancedSettings();
+    updateTieBreakerNotice();
+    refreshRecommendationsForAdvancedSettingChange();
 
     return true;
   } catch {
@@ -7372,11 +7440,7 @@ window.moveTieBreaker = function(moveClass, key, direction) {
   saveTieBreakerConfig();
   renderAdvancedSettings();
 
-  if (lastProbs) {
-    runSimulation();
-    renderUI();
-    updateColorAvailability();
-  }
+  refreshRecommendationsForAdvancedSettingChange();
 };
 
 window.resetTieBreakers = function(moveClass) {
@@ -7387,11 +7451,7 @@ window.resetTieBreakers = function(moveClass) {
   saveTieBreakerConfig();
   renderAdvancedSettings();
 
-  if (lastProbs) {
-    runSimulation();
-    renderUI();
-    updateColorAvailability();
-  }
+  refreshRecommendationsForAdvancedSettingChange();
 };
 
 function getFinalDecisionSetupMove(allBoards, probs) {
@@ -9093,6 +9153,20 @@ function renderAdvancedSettings() {
   if (!root) return;
 
   root.innerHTML = `
+    <div class="advanced-settings-share-row">
+      <button onclick="copyAdvancedSettingsCode()">
+        Copy Settings Code
+      </button>
+
+      <button onclick="loadAdvancedSettingsCode()">
+        Load Settings Code
+      </button>
+
+      <button onclick="resetAllAdvancedSettings()">
+        Reset All to Default
+      </button>
+    </div>
+
 ${renderAdvancedSafetySettings()}
 ${renderAdvancedStrategicSettings()}
 ${renderAdvancedRareTargetingSettings()}
@@ -9107,28 +9181,13 @@ ${renderAdvancedRareTargetingSettings()}
       </div>
 
       ${
-  !advancedTieBreakersExpanded
-    ? ""
-    : `
-        <div class="advanced-settings-share-row">
-          <button onclick="copyAdvancedSettingsCode()">
-            Copy Settings Code
-          </button>
-
-          <button onclick="loadAdvancedSettingsCode()">
-            Load Settings Code
-          </button>
-
-          <button onclick="resetAllTieBreakers()">
-            Reset All to Default
-          </button>
-        </div>
-      ` +
-      [
-        renderTieBreakerClass(
-          "rareShipTargeting",
-          "Rare Ship Targeting"
-        ),
+        !advancedTieBreakersExpanded
+          ? ""
+          : [
+              renderTieBreakerClass(
+                "rareShipTargeting",
+                "Rare Ship Targeting"
+              ),
 
               renderTieBreakerClass(
                 "forcedResolution",
@@ -13475,10 +13534,7 @@ function getMovesForCurrentGrid(){
 // T.16 EVENT BINDS
 // ===============================
 
-window.setOverlapPreference = function(value) {
-  overlapPreference = value;
-  updateTieBreakerNotice();
-
+function refreshRecommendationsForAdvancedSettingChange() {
   if (appState.probs) {
     highlightRecommendations(appState.probs);
   } else {
@@ -13487,53 +13543,39 @@ window.setOverlapPreference = function(value) {
 
   renderUI();
   updateColorAvailability();
+}
+
+window.setOverlapPreference = function(value) {
+  overlapPreference = value;
+  updateTieBreakerNotice();
+
+  refreshRecommendationsForAdvancedSettingChange();
 };
 
 window.setRareTargetingAggressiveness = function(value) {
   rareTargetingAggressiveness = value;
   updateTieBreakerNotice();
 
-  if (appState.probs) {
-    highlightRecommendations(appState.probs);
-  } else {
-    runSimulation();
-  }
-
-  renderUI();
-  updateColorAvailability();
+  refreshRecommendationsForAdvancedSettingChange();
 };
 
 window.setEquivalenceModeStrictness = function(value) {
   equivalenceModeStrictness = value;
   updateTieBreakerNotice();
 
-  if (appState.probs) {
-    highlightRecommendations(appState.probs);
-  } else {
-    runSimulation();
-  }
-
-  renderUI();
-  updateColorAvailability();
+  refreshRecommendationsForAdvancedSettingChange();
 };
 
 window.setStrategicScorePreset = function(value) {
   strategicScorePreset = value;
   updateTieBreakerNotice();
 
-  if (appState.probs) {
-    highlightRecommendations(appState.probs);
-  } else {
-    runSimulation();
-  }
-
-  renderUI();
-  updateColorAvailability();
+  refreshRecommendationsForAdvancedSettingChange();
 };
 
-window.resetAllTieBreakers = function() {
+window.resetAllAdvancedSettings = function() {
   const confirmed = confirm(
-    "Reset all Advanced Settings tie breakers to default?"
+    "Reset all Advanced Settings to default?"
   );
 
   if (!confirmed) return;
@@ -13542,18 +13584,32 @@ window.resetAllTieBreakers = function() {
     JSON.stringify(DEFAULT_TIEBREAKER_CONFIG)
   );
 
-  saveTieBreakerConfig();
-  renderAdvancedSettings();
+  resolutionOpportunityThreshold = 0.10;
 
-  if (lastProbs) {
-    runSimulation();
-    renderUI();
-    updateColorAvailability();
+  equivalenceModeStrictness = "default";
+  strategicScorePreset = "default";
+  rareTargetingAggressiveness = "default";
+  overlapPreference = "default";
+
+  if (rareCount !== null) {
+    applyDefaultSafetySettingsForRareCount(
+      rareCount
+    );
+  } else {
+    safeRiskBand = 0.05;
+    safeAvoidAdjacentKnown = false;
+    safeAggressiveAvoidHighProb = false;
   }
+
+  saveTieBreakerConfig();
+
+  renderAdvancedSettings();
+  updateTieBreakerNotice();
+  refreshRecommendationsForAdvancedSettingChange();
 };
 
 window.copyAdvancedSettingsCode = async function() {
-  const code = encodeTieBreakerSettings();
+  const code = encodeAdvancedSettings();
 
   try {
     await navigator.clipboard.writeText(code);
@@ -13568,7 +13624,8 @@ window.loadAdvancedSettingsCode = function() {
 
   if (!code) return;
 
-  const success = loadTieBreakerSettingsCode(code.trim());
+  const success =
+  loadAdvancedSettingsCodePayload(code.trim());
 
   alert(
     success
