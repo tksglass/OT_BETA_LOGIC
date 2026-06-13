@@ -10614,8 +10614,7 @@ const forcedHits = getAutoFillForcedHits();
 
 if (
   hasFreeKnownBlue ||
-  (forcedHits.length > 0 && context?.missEndsGame) ||
-  hasGuaranteedUnknownHits()
+  (forcedHits.length > 0 && context?.missEndsGame)
 ) {
   return false;
 }
@@ -10656,9 +10655,7 @@ const displayCandidates =
     play[i].classList.add('recommended-final');
   });
 
-  if (appState.forcedTiles) {
-    renderForcedOverlays();
-  }
+  renderForcedTilesIfPresent();
 
   const coords = displayCandidates.map(i => {
     const r = (i / 5) | 0;
