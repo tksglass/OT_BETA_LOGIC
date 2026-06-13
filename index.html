@@ -1793,13 +1793,13 @@ const DEFAULT_TIEBREAKER_CONFIG = {
   ],
 
     bestSafeAggressive: [
-    "undiscoveredSize4",
-    "undiscoveredSize3",
-    "undiscoveredSize2",
-    "safeBoardReduction",
-    "safePrimaryChance",
-    "safeWeightedEV"
-  ],
+  "undiscoveredSize4",
+  "undiscoveredSize3",
+  "undiscoveredSize2",
+  "safeWeightedEV",
+  "safeBoardReduction",
+  "safePrimaryChance"
+],
 
   strategicAggressive: [
     "strategicUndiscoveredSize4",
@@ -13560,7 +13560,9 @@ window.setEquivalenceModeStrictness = function(value) {
   equivalenceModeStrictness = value;
   updateTieBreakerNotice();
 
-  refreshRecommendationsForAdvancedSettingChange();
+  runSimulation();
+  renderUI();
+  updateColorAvailability();
 };
 
 window.setStrategicScorePreset = function(value) {
