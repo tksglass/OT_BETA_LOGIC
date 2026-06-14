@@ -1799,14 +1799,15 @@ const DEFAULT_TIEBREAKER_CONFIG = {
   ],
 
     bestSafeAggressive: [
-    "undiscoveredSize4",
-    "undiscoveredSize3",
-    "undiscoveredSize2",
-    "safeBoardReduction",
-	"safeWeightedEV",
-    "safePrimaryChance"
-    
-  ],
+  "missEndsGameForcedTiles",
+  "undiscoveredSize4",
+  "undiscoveredSize3",
+  "undiscoveredSize2",
+  "safeBoardReduction",
+  "safeWeightedEV",
+  "safePrimaryChance"
+  
+],
 
   strategicAggressive: [
     "strategicUndiscoveredSize4",
@@ -1888,6 +1889,21 @@ modeHitChance: {
       : "Lower hit risk after equal board reduction",
   getValue: c => c.p,
   higherIsBetter: c => c.huntMode
+},
+
+missEndsGameForcedTiles: {
+  label: "More guaranteed tiles on worst outcome branch if miss-ends-game would activate",
+  getValue: c => c.missEndsGameForcedTiles || 0,
+  higherIsBetter: true,
+  shouldSkip: pool => {
+    const context = getInfoContext();
+
+    return (
+      !safeMissEndsGameTiebreaker ||
+      context.missEndsGame ||
+      !pool.some(c => c.entersMissEndsGame)
+    );
+  }
 },
 
 undiscoveredSize4: {
@@ -2045,7 +2061,8 @@ const TIEBREAKER_EXPORT_IDS = {
   strategicUndiscoveredSize2: 17,
   strategicBoardReduction: 18,
   strategicHitChance: 19,
-  safeWeightedEV: 20
+  safeWeightedEV: 20,
+  missEndsGameForcedTiles: 21
 };
 
 const FULL_EXACT_BOARD_STORE_LIMIT = 140000;
@@ -2145,6 +2162,8 @@ const RAW_PLACEMENTS = {
 // ===============================
 // T.02 GLOBAL STATE
 // ===============================
+
+let safeMissEndsGameTiebreaker = true;
 
 let staggerBoardMode = 0;
 
@@ -7304,7 +7323,8 @@ function encodeAdvancedSettings() {
     Math.round(safeRiskBand * 100),
     Math.round(resolutionOpportunityThreshold * 100),
     safeAvoidAdjacentKnown ? 1 : 0,
-    safeAggressiveAvoidHighProb ? 1 : 0
+    safeAggressiveAvoidHighProb ? 1 : 0,
+safeMissEndsGameTiebreaker ? 1 : 0
   ].join(",");
 
 const presetPart = [
@@ -7373,6 +7393,8 @@ function loadAdvancedSettingsCodePayload(code) {
     resolutionOpportunityThreshold = safety[1] / 100;
     safeAvoidAdjacentKnown = safety[2] === 1;
     safeAggressiveAvoidHighProb = safety[3] === 1;
+	safeMissEndsGameTiebreaker =
+  safety.length < 5 ? true : safety[4] === 1;
 
     const presets = presetPart.split(",").map(Number);
 
@@ -8457,6 +8479,91 @@ function getCandidateWeightedEV(tile) {
   return evStats[tile]?.weightedEV || 0;
 }
 
+function countForcedTilesInBoards(boards, revealedTile) {
+  if (!boards || boards.length === 0) return 0;
+
+  let forcedCount = 0;
+
+  for (let i = 0; i < 25; i++) {
+    if (i === revealedTile) continue;
+    if (grid[i] !== null) continue;
+
+    const first = getBoardColorAt(boards[0], i);
+
+    const allSame = boards.every(board =>
+      getBoardColorAt(board, i) === first
+    );
+
+    if (!allSame) continue;
+
+    if (first !== null && first !== undefined) {
+  forcedCount++;
+}
+  }
+
+  return forcedCount;
+}
+
+function getMissEndsGameForcedTileScore(candidate) {
+  const context = getInfoContext();
+
+  if (context.missEndsGame) {
+    return {
+      entersMissEndsGame: false,
+      forcedTiles: 0
+    };
+  }
+
+  if (!appState.allBoards || appState.allBoards.length === 0) {
+    return {
+      entersMissEndsGame: false,
+      forcedTiles: 0
+    };
+  }
+
+  const buckets = bucketBoardsByOutcome(
+    appState.allBoards,
+    candidate.i
+  );
+
+let worstForcedTiles = Infinity;
+let entersMissEndsGame = false;
+
+for (const outcome in buckets) {
+  const nextCounts = getNextPathCounts(
+    context.hits,
+    context.misses,
+    outcome
+  );
+
+  const nextMissEndsGame =
+    nextCounts.hits >= 5 &&
+    nextCounts.misses >= 3;
+
+  if (!nextMissEndsGame) continue;
+
+  entersMissEndsGame = true;
+
+  const forcedTiles =
+    countForcedTilesInBoards(
+      buckets[outcome],
+      candidate.i
+    );
+
+  worstForcedTiles = Math.min(
+    worstForcedTiles,
+    forcedTiles
+  );
+}
+
+return {
+  entersMissEndsGame,
+  forcedTiles: entersMissEndsGame
+    ? worstForcedTiles
+    : 0
+};
+}
+
 function getCandidateReduction(c) {
   const totalBoards = appState.allBoards?.length || 0;
 
@@ -8598,11 +8705,20 @@ pool.forEach(candidate => {
       );
   }
 
+  const missEndsGameScore =
+    getMissEndsGameForcedTileScore(candidate);
+
+  candidate.entersMissEndsGame =
+    missEndsGameScore.entersMissEndsGame;
+
+  candidate.missEndsGameForcedTiles =
+    missEndsGameScore.forcedTiles;
+
   candidate.safeBoardReduction =
     getCandidateReduction(candidate);
 
- candidate.safePrimaryChance =
-  getPrimaryChance(candidate);
+  candidate.safePrimaryChance =
+    getPrimaryChance(candidate);
 });
 
 return applyConfiguredTiebreakers(
@@ -9166,6 +9282,22 @@ function renderAdvancedSafetySettings() {
                 Controls how many near-equivalent safe candidates stay eligible before tie breakers are applied.
               </div>
             </div>
+			
+			<div class="advanced-setting-row">
+  <div class="advanced-setting-control">
+    <button
+      id="safeMissEndsGameTiebreakerToggle"
+      class="${safeMissEndsGameTiebreaker ? "active-btn" : ""}"
+      onclick="toggleSafeMissEndsGameTiebreaker(this)"
+    >
+      Miss-Ends-Game Tiebreaker
+    </button>
+  </div>
+
+  <div class="advanced-setting-description">
+    When a candidate can enter miss-ends-game, prefer the move whose worst branch leaves more guaranteed tiles.
+  </div>
+</div>
 
             <div class="advanced-setting-row">
               <div class="advanced-setting-control">
@@ -10668,11 +10800,13 @@ const hasFreeKnownBlue = Object.entries(forcedTiles).some(([index, color]) =>
   !context?.missEndsGame
 );
 
-const forcedHits = getAutoFillForcedHits();
+const hasForcedHit =
+  getAutoFillForcedHits().length > 0 ||
+  hasGuaranteedUnknownHits();
 
 if (
   hasFreeKnownBlue ||
-  (forcedHits.length > 0 && context?.missEndsGame)
+  (hasForcedHit && context?.missEndsGame)
 ) {
   return false;
 }
@@ -13371,13 +13505,14 @@ function hasNonDefaultAdvancedSettings() {
   }
 
   return (
-    resolutionOpportunityThreshold !== 0.10 ||
-    equivalenceModeStrictness !== "default" ||
-    strategicScorePreset !== "default" ||
-    rareTargetingAggressiveness !== "default" ||
-    overlapPreference !== "default" ||
-    evPreference !== "default"
-  );
+  resolutionOpportunityThreshold !== 0.10 ||
+  equivalenceModeStrictness !== "default" ||
+  strategicScorePreset !== "default" ||
+  rareTargetingAggressiveness !== "default" ||
+  overlapPreference !== "default" ||
+  evPreference !== "default" ||
+  safeMissEndsGameTiebreaker !== true
+);
 }
 
 function updateTieBreakerNotice() {
@@ -13590,6 +13725,18 @@ function getMovesForCurrentGrid(){
 // T.16 EVENT BINDS
 // ===============================
 
+window.toggleSafeMissEndsGameTiebreaker = function(btn) {
+  safeMissEndsGameTiebreaker =
+    !safeMissEndsGameTiebreaker;
+
+  btn.classList.toggle(
+    'active-btn',
+    safeMissEndsGameTiebreaker
+  );
+  updateTieBreakerNotice();
+  refreshRecommendationsForAdvancedSettingChange();
+};
+
 function refreshRecommendationsForAdvancedSettingChange() {
   if (appState.probs) {
     highlightRecommendations(appState.probs);
@@ -13656,6 +13803,7 @@ window.resetAllAdvancedSettings = function() {
   rareTargetingAggressiveness = "default";
   overlapPreference = "default";
   evPreference = "default";
+  safeMissEndsGameTiebreaker = true;
 
   if (rareCount !== null) {
     applyDefaultSafetySettingsForRareCount(
