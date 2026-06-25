@@ -1840,11 +1840,15 @@ strong: 3.00
 
 	const DEFAULT_TIEBREAKER_CONFIG = {
 finalDecisionSetup: [
-		"riskAdjustedRemaining",
-		"expectedRemaining",
-		"hitChance",
-		"worstUnresolvedTiles"
-		],
+	"immediateSolveChance",
+	"preservedFinalDecisionSetupChance",
+	"riskAdjustedRemaining",
+	"expectedRemaining",
+	"hitChance",
+	"worstUnresolvedTiles",
+	"finalDecisionSetupWorstOutcomeForcedEV",
+	"finalDecisionSetupWorstOutcomeForcedTiles"
+],
 
 forcedResolution: [
 		"hitChance",
@@ -1926,6 +1930,24 @@ preMeg: [
 	let tieBreakerEnabled = loadTieBreakerEnabled();
 
 	const TIEBREAKER_DEFINITIONS = {
+	
+	preservedFinalDecisionSetupChance: {
+	label: "Higher chance to preserve Final Decision Setup on failed branch",
+	getValue: c => c.preservedFinalDecisionSetupChance || 0,
+	higherIsBetter: true
+},
+	
+	finalDecisionSetupWorstOutcomeForcedEV: {
+	label: "More guaranteed EV on worst outcome",
+	getValue: c => c.finalDecisionSetupWorstOutcomeForcedEV || 0,
+	higherIsBetter: true
+},
+
+finalDecisionSetupWorstOutcomeForcedTiles: {
+	label: "More guaranteed tiles on worst outcome",
+	getValue: c => c.finalDecisionSetupWorstOutcomeForcedTiles || 0,
+	higherIsBetter: true
+},
 		
 strategicWorstOutcomeForcedEV: {
 label: "More guaranteed EV on worst outcome",
@@ -1956,6 +1978,12 @@ label: "Lowest expected boards if opportunity fails",
 getValue: c => c.failedBranchExpectedRemaining,
 higherIsBetter: false
 		},
+		
+		immediateSolveChance: {
+	label: "Higher chance to solve immediately",
+	getValue: c => c.immediateSolveChance || 0,
+	higherIsBetter: true
+},
 
 riskAdjustedRemaining: {
 label: "Lowest risk-adjusted boards after reveal",
@@ -2261,7 +2289,11 @@ futureWorstOutcomeForcedTiles: 29,
 bestSafeWorstOutcomeForcedEV: 30,
 bestSafeWorstOutcomeForcedTiles: 31,
 strategicWorstOutcomeForcedEV: 32,
-strategicWorstOutcomeForcedTiles: 33
+strategicWorstOutcomeForcedTiles: 33,
+immediateSolveChance: 34,
+finalDecisionSetupWorstOutcomeForcedEV: 35,
+finalDecisionSetupWorstOutcomeForcedTiles: 36,
+preservedFinalDecisionSetupChance: 37
 
 	};
 
@@ -7782,12 +7814,13 @@ bestOutcome: null
 			if (appState.forcedTiles?.[tile]) continue;
 
 			const score = scoreFinalDecisionSetupTile(
-			tile,
-			boardSet,
-			boardCount,
-			ctx,
-			probs
-			);
+tile,
+boardSet,
+boardCount,
+knownMask,
+ctx,
+probs
+);
 
 			if (score) candidates.push(score);
 		}
@@ -7800,53 +7833,133 @@ bestOutcome: null
 		);
 	}
 
-	function scoreFinalDecisionSetupTile(tile, boardSet, boardCount, ctx, probs) {
-		const outcomeSets = ctx.outcomeBoardSetsByTile[tile];
+function scoreFinalDecisionSetupTile(
+tile,
+boardSet,
+boardCount,
+knownMask,
+ctx,
+probs
+) {
+	const outcomeSets = ctx.outcomeBoardSetsByTile[tile];
 
-		let expectedRemaining = 0;
-		let worstRemaining = 0;
-		let outcomeCount = 0;
+	let expectedRemaining = 0;
+	let worstRemaining = 0;
+	let outcomeCount = 0;
+	let worstUnresolvedTiles = 0;
 
-		const nextKnownMask = getCurrentKnownMask() | CELL_MASKS[tile];
-		let worstUnresolvedTiles = 0;
+	let immediateSolveChance = 0;
+	let immediateEndgameChance = 0;
+	let preservedFinalDecisionSetupChance = 0;
+	let finalDecisionSetupWorstOutcomeForcedEV = 0;
+let finalDecisionSetupWorstOutcomeForcedTiles = 0;
 
-		for (const outcome in outcomeSets) {
-			const outcomeBoardSet = boardSet & outcomeSets[outcome];
+	const context = getInfoContext();
+	const nextKnownMask = knownMask | CELL_MASKS[tile];
 
-			if (outcomeBoardSet === 0n) continue;
+	for (const outcome in outcomeSets) {
+		const outcomeBoardSet = boardSet & outcomeSets[outcome];
 
-			const count = getBoardSetCount(outcomeBoardSet, ctx);
+		if (outcomeBoardSet === 0n) continue;
 
-			if (count > 2) return null;
+		const count = getBoardSetCount(outcomeBoardSet, ctx);
+		const pOutcome = count / boardCount;
+		
+		const outcomeBoards = getBoardsFromBoardSet(outcomeBoardSet);
+const outcomeForcedEV =
+countForcedEVInBoards(outcomeBoards, tile);
 
-			const pOutcome = count / boardCount;
+const outcomeForcedTiles =
+countForcedTilesInBoards(outcomeBoards, tile);
 
-			expectedRemaining += pOutcome * count;
-			worstRemaining = Math.max(worstRemaining, count);
-			outcomeCount++;
-			worstUnresolvedTiles = Math.max(
-			worstUnresolvedTiles,
-			countUnresolvedTilesInBoardSet(
-			outcomeBoardSet,
-			nextKnownMask,
-			ctx
-			)
+if (count > worstRemaining) {
+	finalDecisionSetupWorstOutcomeForcedEV = outcomeForcedEV;
+	finalDecisionSetupWorstOutcomeForcedTiles = outcomeForcedTiles;
+} else if (count === worstRemaining) {
+	finalDecisionSetupWorstOutcomeForcedEV = Math.max(
+	finalDecisionSetupWorstOutcomeForcedEV,
+	outcomeForcedEV
+	);
+
+	finalDecisionSetupWorstOutcomeForcedTiles = Math.max(
+	finalDecisionSetupWorstOutcomeForcedTiles,
+	outcomeForcedTiles
+	);
+}
+		
+		const solved = isSolvedBoardSet(
+		outcomeBoardSet,
+		nextKnownMask,
+		ctx
+		);
+
+		const immediateEndgame =
+		count <= 2 || solved;
+
+		if (!immediateEndgame) {
+			const nextCounts = getNextPathCounts(
+			context.hits,
+			context.misses,
+			outcome
 			);
+
+			const entersMissEndsGame =
+			nextCounts.hits >= 5 &&
+			nextCounts.misses >= 3;
+
+			if (
+				!isBlueOutcome(outcome) ||
+				entersMissEndsGame ||
+				!doesBoardSetHaveFinalDecisionSetup(
+				outcomeBoardSet,
+				nextKnownMask,
+				ctx
+				)
+			) {
+				return null;
+			}
+
+			preservedFinalDecisionSetupChance += pOutcome;
+		} else {
+			immediateEndgameChance += pOutcome;
+
+			if (solved) {
+				immediateSolveChance += pOutcome;
+			}
 		}
 
-		if (outcomeCount === 0) return null;
+		expectedRemaining += pOutcome * count;
+		worstRemaining = Math.max(worstRemaining, count);
+		outcomeCount++;
 
-		return {
-i: tile,
-p: probs[tile],
-			expectedRemaining,
-			worstRemaining,
-			worstUnresolvedTiles,
-riskAdjustedRemaining:
-			expectedRemaining + worstRemaining * 0.35,
-type: "safe"
-		};
+		worstUnresolvedTiles = Math.max(
+		worstUnresolvedTiles,
+		countUnresolvedTilesInBoardSet(
+		outcomeBoardSet,
+		nextKnownMask,
+		ctx
+		)
+		);
 	}
+
+	if (outcomeCount === 0) return null;
+
+	return {
+		i: tile,
+		p: probs[tile],
+		expectedRemaining,
+		worstRemaining,
+		worstUnresolvedTiles,
+		immediateSolveChance,
+		immediateEndgameChance,
+		preservedFinalDecisionSetupChance,
+		finalDecisionSetupWorstOutcomeForcedEV,
+finalDecisionSetupWorstOutcomeForcedTiles,
+		riskAdjustedRemaining:
+		expectedRemaining + worstRemaining * 0.35,
+		type: "safe"
+	};
+}
 
 	function applyFinalDecisionSetupMove(move, probs) {
 		appState.probs = probs;
@@ -14606,6 +14719,9 @@ colorMasks: { ...shipMasks }
 
 		enabled.strategicSafe.strategicWorstOutcomeForcedEV = false;
 		enabled.strategicSafe.strategicWorstOutcomeForcedTiles = false;
+		
+		enabled.finalDecisionSetup.finalDecisionSetupWorstOutcomeForcedEV = false;
+enabled.finalDecisionSetup.finalDecisionSetupWorstOutcomeForcedTiles = false;
 
 		return enabled;
 	}
