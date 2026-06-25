@@ -7908,7 +7908,9 @@ if (count > worstRemaining) {
 			nextCounts.misses >= 3;
 
 			if (
-				!isBlueOutcome(outcome) ||
+			/* reactivate if behavior weird
+				!isBlueOutcome(outcome) || 
+			*/
 				entersMissEndsGame ||
 				!doesBoardSetHaveFinalDecisionSetup(
 				outcomeBoardSet,
