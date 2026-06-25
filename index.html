@@ -2011,7 +2011,7 @@ higherIsBetter: false
 
 opportunityChance: {
 label: "Higher chance to create resolution opportunity",
-getValue: c => c.opportunityChance,
+getValue: c => c.totalOpportunityChance ?? c.opportunityChance,
 higherIsBetter: true
 		},
 
@@ -9641,6 +9641,10 @@ size2: 0
 		const order = tieBreakerConfig[moveClass] || [];
 
 		for (const key of order) {
+		if (tieBreakerEnabled?.[moveClass]?.[key] === false) {
+	continue;
+}
+
 			const def = TIEBREAKER_DEFINITIONS[key];
 			if (!def) continue;
 
@@ -9674,6 +9678,11 @@ size2: 0
 		let layer = 1;
 
 		for (const key of order) {
+		
+		if (tieBreakerEnabled?.[moveClass]?.[key] === false) {
+	continue;
+}
+
 			const def = TIEBREAKER_DEFINITIONS[key];
 			if (!def) continue;
 
