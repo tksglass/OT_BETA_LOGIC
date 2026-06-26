@@ -7605,19 +7605,23 @@ failedBranchForcedTiles: 0
 
 			let bucket = null;
 
-			if (isSolvedBoardSet(outcomeBoardSet, nextKnownMask, ctx)) {
-				bucket = details.forcedResolution;
-			} else if (count <= 2) {
-				bucket = details.finalDecision;
-			} else if (
-					doesBoardSetHaveFinalDecisionSetup(
-						outcomeBoardSet,
-						nextKnownMask,
-						ctx
-						)
-					) {
-				bucket = details.finalDecisionSetup;
-			}
+const entersMissEndsGame =
+doesOutcomeEnterMissEndsGame(getInfoContext(), outcome);
+
+if (isSolvedBoardSet(outcomeBoardSet, nextKnownMask, ctx)) {
+	bucket = details.forcedResolution;
+} else if (count <= 2) {
+	bucket = details.finalDecision;
+} else if (
+	!entersMissEndsGame &&
+	doesBoardSetHaveFinalDecisionSetup(
+		outcomeBoardSet,
+		nextKnownMask,
+		ctx
+	)
+) {
+	bucket = details.finalDecisionSetup;
+}
 
 			if (bucket) {
 				addOutcomeToOpportunityDetail(bucket, outcome, pOutcome, count);
@@ -9131,12 +9135,14 @@ function getNonMegEndgameChanceScore(candidate) {
 	function applyPreMegTiebreaker(pool, moveClass) {
 		const context = getInfoContext();
 
-		if (
-				!preMegTiebreakersEnabled ||
-				!preMegMoveClassEnabled?.[moveClass] ||
-				context.missEndsGame ||
-				pool.length <= 1
-				) {
+if (
+	!preMegTiebreakersEnabled ||
+	!preMegMoveClassEnabled?.[moveClass] ||
+	context.missEndsGame ||
+	context.hits < 4 ||
+	context.misses < 3 ||
+	pool.length <= 1
+) {
 			return {
 winner: null,
 				pool,
