@@ -1917,11 +1917,12 @@ strategicSafe: [
 		],
 
 preMeg: [
-		"avoidMissEndsGame",
-		"missEndsGameForcedEV",
-		"missEndsGameForcedTiles",
-		"worstOutcomeBoards"
-		]
+	"avoidMissEndsGame",
+	"missEndsGameForcedEV",
+	"missEndsGameForcedTiles",
+	"worstOutcomeBoards",
+	"nonMegEndgameChance"
+]
 
 
 	};
@@ -2064,6 +2065,12 @@ getValue: c => c.entersMissEndsGame
 			: -Infinity,
 higherIsBetter: true
 		},
+		
+		nonMegEndgameChance: {
+	label: "Higher chance non-MEG branch reaches an endgame state",
+	getValue: c => c.nonMegEndgameChance || 0,
+	higherIsBetter: true
+},
 
 worstOutcomeBoards: {
 label: "Lowest board count on worst miss-ends-game branch",
@@ -2293,7 +2300,8 @@ strategicWorstOutcomeForcedTiles: 33,
 immediateSolveChance: 34,
 finalDecisionSetupWorstOutcomeForcedEV: 35,
 finalDecisionSetupWorstOutcomeForcedTiles: 36,
-preservedFinalDecisionSetupChance: 37
+preservedFinalDecisionSetupChance: 37,
+nonMegEndgameChance: 38
 
 	};
 
@@ -9021,6 +9029,54 @@ forcedEV: entersMissEndsGame
 		};
 	}
 	
+	function doesBoardSetReachPreMegEndgameState(boardSet, knownMask, ctx) {
+	const count = getBoardSetCount(boardSet, ctx);
+
+	return (
+		count <= 2 ||
+		isSolvedBoardSet(boardSet, knownMask, ctx) ||
+		doesBoardSetHaveFinalDecisionSetup(boardSet, knownMask, ctx)
+	);
+}
+
+function getNonMegEndgameChanceScore(candidate) {
+	const context = getInfoContext();
+
+	if (
+		context.missEndsGame ||
+		!appState.allBoards ||
+		appState.allBoards.length === 0
+	) {
+		return 0;
+	}
+
+	const buckets = bucketBoardsByOutcome(appState.allBoards, candidate.i);
+	const knownMask = getCurrentKnownMask() | CELL_MASKS[candidate.i];
+
+	let endgameBoards = 0;
+
+	for (const outcome in buckets) {
+		if (doesOutcomeEnterMissEndsGame(context, outcome)) {
+			continue;
+		}
+
+		const branchBoards = buckets[outcome];
+		const branchCtx = getPrecalcContext(branchBoards);
+
+		if (
+			doesBoardSetReachPreMegEndgameState(
+				branchCtx.allBoardSet,
+				knownMask,
+				branchCtx
+			)
+		) {
+			endgameBoards += branchBoards.length;
+		}
+	}
+
+	return endgameBoards / appState.allBoards.length;
+}
+	
 	function ensurePreMegCandidateScores(pool) {
 		for (const candidate of pool) {
 			if (candidate.missEndsGameChance === undefined) {
@@ -9056,6 +9112,11 @@ forcedEV: entersMissEndsGame
 				candidate.worstOutcomeBoardCount =
 				getWorstOutcomeBoardCountScore(candidate);
 			}
+			
+			if (candidate.nonMegEndgameChance === undefined) {
+	candidate.nonMegEndgameChance =
+	getNonMegEndgameChanceScore(candidate);
+}
 
 			candidate.entersMissEndsGame =
 			candidate.entersMissEndsGame ||
