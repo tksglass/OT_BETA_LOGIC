@@ -1887,8 +1887,8 @@ bestSafeAggressive: [
 		"undiscoveredSize4",
 		"undiscoveredSize3",
 		"undiscoveredSize2",
-		"safeBoardReduction",
 		"safeWeightedEV",
+		"safeBoardReduction",
 		"safePrimaryChance",
 		"bestSafeWorstOutcomeForcedEV",
 		"bestSafeWorstOutcomeForcedTiles"
@@ -1917,12 +1917,12 @@ strategicSafe: [
 		],
 
 preMeg: [
-	"avoidMissEndsGame",
-	"missEndsGameForcedEV",
-	"missEndsGameForcedTiles",
-	"worstOutcomeBoards",
-	"nonMegEndgameChance"
-]
+		"avoidMissEndsGame",
+		"missEndsGameForcedEV",
+		"missEndsGameForcedTiles",
+		"worstOutcomeBoards",
+		"nonMegEndgameChance"
+		]
 
 
 	};
@@ -1931,6 +1931,95 @@ preMeg: [
 	let tieBreakerEnabled = loadTieBreakerEnabled();
 
 	const TIEBREAKER_DEFINITIONS = {
+		
+strategicWorstOutcomeForcedEV: {
+label: "More guaranteed EV on worst outcome",
+getValue: c => {
+				ensureStrategicWorstOutcomeForced(c);
+				return c.strategicWorstOutcomeForcedEV || 0;
+			},
+higherIsBetter: true
+		},
+
+strategicWorstOutcomeForcedTiles: {
+label: "More guaranteed tiles on worst outcome",
+getValue: c => {
+				ensureStrategicWorstOutcomeForced(c);
+				return c.strategicWorstOutcomeForcedTiles || 0;
+			},
+higherIsBetter: true
+		},
+
+bestSafeWorstOutcomeForcedEV: {
+label: "More guaranteed EV on worst outcome",
+getValue: c => {
+				ensureBestSafeWorstOutcomeForced(c);
+				return c.bestSafeWorstOutcomeForcedEV || 0;
+			},
+higherIsBetter: true
+		},
+
+bestSafeWorstOutcomeForcedTiles: {
+label: "More guaranteed tiles on worst outcome",
+getValue: c => {
+				ensureBestSafeWorstOutcomeForced(c);
+				return c.bestSafeWorstOutcomeForcedTiles || 0;
+			},
+higherIsBetter: true
+		},
+
+avoidMissEndsGame: {
+label: "Lowest chance to enter miss-ends-game",
+getValue: c => {
+				if (c.missEndsGameChance === undefined) {
+					c.missEndsGameChance = getMissEndsGameChanceScore(c);
+				}
+				return c.missEndsGameChance;
+			},
+higherIsBetter: false
+		},
+
+missEndsGameForcedEV: {
+label: "More guaranteed EV on worst miss-ends-game branch",
+getValue: c => {
+				ensureMissEndsGameForcedEV(c);
+				return c.entersMissEndsGame
+				? c.missEndsGameForcedEV || 0
+				: -Infinity;
+			},
+higherIsBetter: true
+		},
+
+missEndsGameForcedTiles: {
+label: "More guaranteed tiles on worst miss-ends-game branch",
+getValue: c => {
+				ensureMissEndsGameForcedTiles(c);
+				return c.entersMissEndsGame
+				? c.missEndsGameForcedTiles || 0
+				: -Infinity;
+			},
+higherIsBetter: true
+		},
+
+nonMegEndgameChance: {
+label: "Higher chance non-MEG branch reaches an endgame state",
+getValue: c => {
+				ensureNonMegEndgameChance(c);
+				return c.nonMegEndgameChance || 0;
+			},
+higherIsBetter: true
+		},
+
+worstOutcomeBoards: {
+label: "Lowest board count on worst miss-ends-game branch",
+getValue: c => {
+				ensureWorstOutcomeBoardCount(c);
+				return c.entersMissEndsGame
+				? c.worstOutcomeBoardCount
+				: Infinity;
+			},
+higherIsBetter: false
+		},
 		
 preservedFinalDecisionSetupChance: {
 label: "Higher chance to preserve Final Decision Setup on failed branch",
@@ -1947,30 +2036,6 @@ higherIsBetter: true
 finalDecisionSetupWorstOutcomeForcedTiles: {
 label: "More guaranteed tiles on worst outcome",
 getValue: c => c.finalDecisionSetupWorstOutcomeForcedTiles || 0,
-higherIsBetter: true
-		},
-		
-strategicWorstOutcomeForcedEV: {
-label: "More guaranteed EV on worst outcome",
-getValue: c => c.strategicWorstOutcomeForcedEV || 0,
-higherIsBetter: true
-		},
-
-strategicWorstOutcomeForcedTiles: {
-label: "More guaranteed tiles on worst outcome",
-getValue: c => c.strategicWorstOutcomeForcedTiles || 0,
-higherIsBetter: true
-		},
-		
-bestSafeWorstOutcomeForcedEV: {
-label: "More guaranteed EV on worst outcome",
-getValue: c => c.bestSafeWorstOutcomeForcedEV || 0,
-higherIsBetter: true
-		},
-
-bestSafeWorstOutcomeForcedTiles: {
-label: "More guaranteed tiles on worst outcome",
-getValue: c => c.bestSafeWorstOutcomeForcedTiles || 0,
 higherIsBetter: true
 		},
 
@@ -2042,42 +2107,6 @@ label: c =>
 			: "Lower hit risk after equal board reduction",
 getValue: c => c.p,
 higherIsBetter: c => c.huntMode
-		},
-
-avoidMissEndsGame: {
-label: "Lowest chance to enter miss-ends-game",
-getValue: c => c.missEndsGameChance,
-higherIsBetter: false
-		},
-
-missEndsGameForcedEV: {
-label: "More guaranteed EV on worst miss-ends-game branch",
-getValue: c => c.entersMissEndsGame
-			? c.missEndsGameForcedEV || 0
-			: -Infinity,
-higherIsBetter: true
-		},
-
-missEndsGameForcedTiles: {
-label: "More guaranteed tiles on worst miss-ends-game branch",
-getValue: c => c.entersMissEndsGame
-			? c.missEndsGameForcedTiles || 0
-			: -Infinity,
-higherIsBetter: true
-		},
-		
-		nonMegEndgameChance: {
-	label: "Higher chance non-MEG branch reaches an endgame state",
-	getValue: c => c.nonMegEndgameChance || 0,
-	higherIsBetter: true
-},
-
-worstOutcomeBoards: {
-label: "Lowest board count on worst miss-ends-game branch",
-getValue: c => c.entersMissEndsGame
-			? c.worstOutcomeBoardCount
-			: Infinity,
-higherIsBetter: false
 		},
 
 undiscoveredSize4: {
@@ -2223,6 +2252,11 @@ rareShipTargeting: false,
 progressMove: false,
 bestSafeAggressive: true,
 	};
+	
+	const SEVEN_COLOR_OPENING_SCRIPT_EXPORT_ORDER = [
+	"core",
+	"anyHit"
+];
 
 	const EQUIVALENCE_EXPORT_ORDER = [
 	"default",
@@ -2486,6 +2520,7 @@ key: cells[0],
 	let safeAggressiveAvoidHighProb = false;
 	let safeAggressiveAvoidHighProbThreshold = 0.90;
 	let advancedSettingsLoadedFromStorage = false;
+	let sevenColorOpeningScript = "anyHit";
 
 	let simulationMode = false;
 	let simulationBoard = null;
@@ -3638,13 +3673,189 @@ solverInfo: null
 	function isNormalMode() {
 		return currentMode === MODE.NORMAL;
 	}
+	
+	function isSevenColorCoreHit(color) {
+		return (
+		color === "teal" ||
+		color === "green" ||
+		color === "yellow"
+		);
+	}
+
+	function isHitColor(color) {
+		return color && color !== "miss";
+	}
+
+	function getAcceptedPlacements() {
+		return moves.filter(move =>
+		move.prevColor === null &&
+		move.newColor !== null
+		);
+	}
+	
+	function getSevenColorOpeningOverride() {
+	if (sevenColorOpeningScript === "anyHit") {
+		return getSevenColorAnyHitOpeningOverride();
+	}
+
+	return getSevenColorCoreOpeningOverride();
+}
+
+	function getSevenColorCoreOpeningOverride() {
+		if (rareCount !== 3) return null;
+
+		const placements = getAcceptedPlacements();
+
+		if (placements.length === 0) {
+			return "aggressive";
+		}
+
+		if (placements.length > 3) {
+			const firstWasCoreHit =
+			isSevenColorCoreHit(placements[0].newColor);
+
+			const followups = placements.slice(1, 3);
+			const followupHits = followups.filter(move =>
+			isHitColor(move.newColor)
+			);
+			const followupMisses = followups.filter(move =>
+			move.newColor === "miss"
+			);
+
+			if (firstWasCoreHit) {
+				return followupMisses.length === 2 ? "safe" : "aggressive";
+			}
+
+			if (followupHits.length === 2) return "aggressive";
+
+			if (
+					followupHits.length === 1 &&
+					isSevenColorCoreHit(followupHits[0].newColor)
+					) {
+				return "aggressive";
+			}
+
+			return null;
+		}
+
+		const firstColor = placements[0].newColor;
+		const firstWasCoreHit = isSevenColorCoreHit(firstColor);
+
+		if (placements.length === 1) {
+			return firstWasCoreHit ? "aggressive" : "safe";
+		}
+
+		if (placements.length < 3) {
+			if (firstWasCoreHit) return "aggressive";
+
+			const followups = placements.slice(1);
+
+			return followups.some(move =>
+			isSevenColorCoreHit(move.newColor)
+			)
+			? "aggressive"
+			: "safe";
+		}
+
+		const followups = placements.slice(1, 3);
+		const followupHits = followups.filter(move => isHitColor(move.newColor));
+		const followupMisses = followups.filter(move => move.newColor === "miss");
+
+		if (firstWasCoreHit) {
+			return followupMisses.length === 2 ? "safe" : "aggressive";
+		}
+
+		if (followupHits.length === 2) {
+			return "aggressive";
+		}
+
+		if (
+				followupHits.length === 1 &&
+				isSevenColorCoreHit(followupHits[0].newColor)
+				) {
+			return "aggressive";
+		}
+
+		return null;
+	}
+	
+	function getSevenColorAnyHitOpeningOverride() {
+	if (rareCount !== 3) return null;
+
+	const placements = getAcceptedPlacements();
+
+	if (placements.length === 0) {
+		return "aggressive";
+	}
+
+	if (placements.length > 3) {
+		const firstWasHit =
+		isHitColor(placements[0].newColor);
+
+		const followups = placements.slice(1, 3);
+		const followupHits = followups.filter(move =>
+			isHitColor(move.newColor)
+		);
+		const followupMisses = followups.filter(move =>
+			move.newColor === "miss"
+		);
+
+		if (firstWasHit) {
+			return followupMisses.length === 2 ? "safe" : "aggressive";
+		}
+
+		if (followupHits.length >= 1) {
+			return "aggressive";
+		}
+
+		return null;
+	}
+
+	const firstWasHit =
+	isHitColor(placements[0].newColor);
+
+	if (placements.length === 1) {
+		return firstWasHit ? "aggressive" : "safe";
+	}
+
+	if (placements.length < 3) {
+		if (firstWasHit) return "aggressive";
+
+		const followups = placements.slice(1);
+
+		return followups.some(move =>
+			isHitColor(move.newColor)
+		)
+		? "aggressive"
+		: "safe";
+	}
+
+	const followups = placements.slice(1, 3);
+	const followupHits = followups.filter(move =>
+		isHitColor(move.newColor)
+	);
+	const followupMisses = followups.filter(move =>
+		move.newColor === "miss"
+	);
+
+	if (firstWasHit) {
+		return followupMisses.length === 2 ? "safe" : "aggressive";
+	}
+
+	if (followupHits.length >= 1) {
+		return "aggressive";
+	}
+
+	return null;
+}
 
 	function getGameContext() {
 		const { hits, misses } = getHitMissCounts();
 
 		const naturalAggressive = hits >= 5;
+		const sevenColorOverride = getSevenColorOpeningOverride();
 		const defaultMode = getDefaultModeForRareCount(rareCount);
-		const mode = forcedStartMode || defaultMode;
+		const mode = sevenColorOverride || forcedStartMode || defaultMode;
 
 		const huntMode =
 		mode === "aggressive" ||
@@ -6932,111 +7143,6 @@ p: probs[firstTile],
 		return true;
 	}
 
-	function handleTargetRareShipMove(probs, allBoards) {
-		if (!targetRareShipsMode) return false;
-
-		const rareMove = getTargetRareShipMove(allBoards, probs);
-		if (!rareMove) return false;
-
-		appState.probs = probs;
-		appState.topMoves = [rareMove];
-		appState.isTrueEndgame = false;
-		appState.isGuaranteed = false;
-		appState.specialGroup = null;
-		appState.collapseMove = null;
-		appState.safeOverride = true;
-		appState.safeOverrideSource = "targetRareShips";
-
-		clearRecommendations();
-
-		DOM.playBoard[rareMove.i].classList.add('recommended-progress');
-
-		lastProbs = probs;
-		lastTopMoves = [rareMove];
-		lastGuaranteed = false;
-
-		renderForcedOverlays();
-
-		return true;
-	}
-
-	function shouldPreferClarityOverGuaranteedBlue() {
-		const { misses } = getHitMissCounts();
-
-		if (misses < 3) return true;
-
-		return false;
-	}
-
-	function handleGuaranteedMove(probs, allBoards) {
-		const { huntMode } = getGameContext();
-
-		appState.safeOverride = false;
-		appState.safeOverrideSource = null;
-
-		const candidates = probs
-		.map((p, i) => ({ p, i }))
-		.filter(x => !grid[x.i]);
-
-		const guaranteed = candidates.find(c =>
-		huntMode ? c.p === 1 : c.p === 0
-		);
-
-		if (!guaranteed) {
-			appState.isGuaranteed = false;
-			return false;
-		}
-
-		if (
-				safeOverrideEnabled &&
-				!huntMode &&
-				guaranteed.p === 0 &&
-				shouldPreferClarityOverGuaranteedBlue()
-				) {
-			const safeMove = getSafeModeProgressMove(allBoards, probs, {
-requireGuaranteedBlue: false,
-minBlueChance: 0,
-maxBluePenalty: 1,
-minClarityGain: 1.0
-			});
-
-			if (safeMove) {
-				appState.probs = probs;
-				appState.topMoves = [safeMove];
-				appState.isTrueEndgame = false;
-				appState.isGuaranteed = false;
-				appState.specialGroup = null;
-				appState.collapseMove = null;
-				appState.safeOverride = true;
-				appState.safeOverrideSource = "guaranteedBlue";
-
-				clearRecommendations();
-
-				DOM.playBoard[safeMove.i].classList.add('recommended-best');
-
-				lastProbs = probs;
-				lastTopMoves = [safeMove];
-				lastGuaranteed = false;
-
-				renderForcedOverlays();
-
-				return true;
-			}
-		}
-
-		appState.probs = probs;
-		appState.topMoves = [guaranteed];
-		appState.isTrueEndgame = false;
-		appState.isGuaranteed = true;
-		appState.specialGroup = null;
-		appState.collapseMove = null;
-
-		highlightRecommendations(probs);
-		renderForcedOverlays();
-
-		return true;
-	}
-
 	function getGambaOption(data, shownRareTiles = null) {
 		if (!data || !data.allBoards || !data.probs) return null;
 
@@ -7265,6 +7371,111 @@ collapseMove: data.collapseMove || null
 	// ===============================
 	// T.11 MOVE STRATEGY
 	// ===============================
+	
+	function handleGuaranteedMove(probs, allBoards) {
+		const { huntMode } = getGameContext();
+
+		appState.safeOverride = false;
+		appState.safeOverrideSource = null;
+
+		const candidates = probs
+		.map((p, i) => ({ p, i }))
+		.filter(x => !grid[x.i]);
+
+		const guaranteed = candidates.find(c =>
+		huntMode ? c.p === 1 : c.p === 0
+		);
+
+		if (!guaranteed) {
+			appState.isGuaranteed = false;
+			return false;
+		}
+
+		if (
+				safeOverrideEnabled &&
+				!huntMode &&
+				guaranteed.p === 0 &&
+				shouldPreferClarityOverGuaranteedBlue()
+				) {
+			const safeMove = getSafeModeProgressMove(allBoards, probs, {
+requireGuaranteedBlue: false,
+minBlueChance: 0,
+maxBluePenalty: 1,
+minClarityGain: 1.0
+			});
+
+			if (safeMove) {
+				appState.probs = probs;
+				appState.topMoves = [safeMove];
+				appState.isTrueEndgame = false;
+				appState.isGuaranteed = false;
+				appState.specialGroup = null;
+				appState.collapseMove = null;
+				appState.safeOverride = true;
+				appState.safeOverrideSource = "guaranteedBlue";
+
+				clearRecommendations();
+
+				DOM.playBoard[safeMove.i].classList.add('recommended-best');
+
+				lastProbs = probs;
+				lastTopMoves = [safeMove];
+				lastGuaranteed = false;
+
+				renderForcedOverlays();
+
+				return true;
+			}
+		}
+
+		appState.probs = probs;
+		appState.topMoves = [guaranteed];
+		appState.isTrueEndgame = false;
+		appState.isGuaranteed = true;
+		appState.specialGroup = null;
+		appState.collapseMove = null;
+
+		highlightRecommendations(probs);
+		renderForcedOverlays();
+
+		return true;
+	}
+	
+	function shouldPreferClarityOverGuaranteedBlue() {
+		const { misses } = getHitMissCounts();
+
+		if (misses < 3) return true;
+
+		return false;
+	}
+	
+	function handleTargetRareShipMove(probs, allBoards) {
+		if (!targetRareShipsMode) return false;
+
+		const rareMove = getTargetRareShipMove(allBoards, probs);
+		if (!rareMove) return false;
+
+		appState.probs = probs;
+		appState.topMoves = [rareMove];
+		appState.isTrueEndgame = false;
+		appState.isGuaranteed = false;
+		appState.specialGroup = null;
+		appState.collapseMove = null;
+		appState.safeOverride = true;
+		appState.safeOverrideSource = "targetRareShips";
+
+		clearRecommendations();
+
+		DOM.playBoard[rareMove.i].classList.add('recommended-progress');
+
+		lastProbs = probs;
+		lastTopMoves = [rareMove];
+		lastGuaranteed = false;
+
+		renderForcedOverlays();
+
+		return true;
+	}
 	
 	function getUnplacedKnownForcedEntries() {
 		const forcedTiles = appState.forcedTiles;
@@ -7605,23 +7816,23 @@ failedBranchForcedTiles: 0
 
 			let bucket = null;
 
-const entersMissEndsGame =
-doesOutcomeEnterMissEndsGame(getInfoContext(), outcome);
+			const entersMissEndsGame =
+			doesOutcomeEnterMissEndsGame(getInfoContext(), outcome);
 
-if (isSolvedBoardSet(outcomeBoardSet, nextKnownMask, ctx)) {
-	bucket = details.forcedResolution;
-} else if (count <= 2) {
-	bucket = details.finalDecision;
-} else if (
-	!entersMissEndsGame &&
-	doesBoardSetHaveFinalDecisionSetup(
-		outcomeBoardSet,
-		nextKnownMask,
-		ctx
-	)
-) {
-	bucket = details.finalDecisionSetup;
-}
+			if (isSolvedBoardSet(outcomeBoardSet, nextKnownMask, ctx)) {
+				bucket = details.forcedResolution;
+			} else if (count <= 2) {
+				bucket = details.finalDecision;
+			} else if (
+					!entersMissEndsGame &&
+					doesBoardSetHaveFinalDecisionSetup(
+						outcomeBoardSet,
+						nextKnownMask,
+						ctx
+						)
+					) {
+				bucket = details.finalDecisionSetup;
+			}
 
 			if (bucket) {
 				addOutcomeToOpportunityDetail(bucket, outcome, pOutcome, count);
@@ -8838,6 +9049,7 @@ weightedEV: getCandidateWeightedEV(tile)
 	}
 	
 	function getWorstOutcomeForcedScores(candidate) {
+	const context = getInfoContext();
 		if (
 				!appState.allBoards ||
 				appState.allBoards.length === 0
@@ -8862,7 +9074,9 @@ forcedTiles: 0
 			const boards = buckets[outcome];
 
 			if (!boards?.length) continue;
-
+			
+			if (doesOutcomeEnterMissEndsGame(context, outcome)) continue;
+			
 			if (boards.length > worstBoardCount) {
 				worstBoardCount = boards.length;
 
@@ -9034,52 +9248,52 @@ forcedEV: entersMissEndsGame
 	}
 	
 	function doesBoardSetReachPreMegEndgameState(boardSet, knownMask, ctx) {
-	const count = getBoardSetCount(boardSet, ctx);
+		const count = getBoardSetCount(boardSet, ctx);
 
-	return (
+		return (
 		count <= 2 ||
 		isSolvedBoardSet(boardSet, knownMask, ctx) ||
 		doesBoardSetHaveFinalDecisionSetup(boardSet, knownMask, ctx)
-	);
-}
-
-function getNonMegEndgameChanceScore(candidate) {
-	const context = getInfoContext();
-
-	if (
-		context.missEndsGame ||
-		!appState.allBoards ||
-		appState.allBoards.length === 0
-	) {
-		return 0;
+		);
 	}
 
-	const buckets = bucketBoardsByOutcome(appState.allBoards, candidate.i);
-	const knownMask = getCurrentKnownMask() | CELL_MASKS[candidate.i];
-
-	let endgameBoards = 0;
-
-	for (const outcome in buckets) {
-		if (doesOutcomeEnterMissEndsGame(context, outcome)) {
-			continue;
-		}
-
-		const branchBoards = buckets[outcome];
-		const branchCtx = getPrecalcContext(branchBoards);
+	function getNonMegEndgameChanceScore(candidate) {
+		const context = getInfoContext();
 
 		if (
-			doesBoardSetReachPreMegEndgameState(
-				branchCtx.allBoardSet,
-				knownMask,
-				branchCtx
-			)
-		) {
-			endgameBoards += branchBoards.length;
+				context.missEndsGame ||
+				!appState.allBoards ||
+				appState.allBoards.length === 0
+				) {
+			return 0;
 		}
-	}
 
-	return endgameBoards / appState.allBoards.length;
-}
+		const buckets = bucketBoardsByOutcome(appState.allBoards, candidate.i);
+		const knownMask = getCurrentKnownMask() | CELL_MASKS[candidate.i];
+
+		let endgameBoards = 0;
+
+		for (const outcome in buckets) {
+			if (doesOutcomeEnterMissEndsGame(context, outcome)) {
+				continue;
+			}
+
+			const branchBoards = buckets[outcome];
+			const branchCtx = getPrecalcContext(branchBoards);
+
+			if (
+					doesBoardSetReachPreMegEndgameState(
+						branchCtx.allBoardSet,
+						knownMask,
+						branchCtx
+						)
+					) {
+				endgameBoards += branchBoards.length;
+			}
+		}
+
+		return endgameBoards / appState.allBoards.length;
+	}
 	
 	function ensurePreMegCandidateScores(pool) {
 		for (const candidate of pool) {
@@ -9088,61 +9302,85 @@ function getNonMegEndgameChanceScore(candidate) {
 				getMissEndsGameChanceScore(candidate);
 			}
 
-			if (candidate.missEndsGameForcedTiles === undefined) {
-				const forcedTileScore =
-				getMissEndsGameForcedTileScore(candidate);
-
-				candidate.missEndsGameForcedTiles =
-				forcedTileScore.forcedTiles;
-
-				candidate.entersMissEndsGame =
-				candidate.entersMissEndsGame ||
-				forcedTileScore.entersMissEndsGame;
-			}
-
-			if (candidate.missEndsGameForcedEV === undefined) {
-				const forcedEVScore =
-				getMissEndsGameForcedEVScore(candidate);
-
-				candidate.missEndsGameForcedEV =
-				forcedEVScore.forcedEV;
-
-				candidate.entersMissEndsGame =
-				candidate.entersMissEndsGame ||
-				forcedEVScore.entersMissEndsGame;
-			}
-
-			if (candidate.worstOutcomeBoardCount === undefined) {
-				candidate.worstOutcomeBoardCount =
-				getWorstOutcomeBoardCountScore(candidate);
-			}
-			
-			if (candidate.nonMegEndgameChance === undefined) {
-	candidate.nonMegEndgameChance =
-	getNonMegEndgameChanceScore(candidate);
-}
-
 			candidate.entersMissEndsGame =
-			candidate.entersMissEndsGame ||
-			(
 			Number.isFinite(candidate.missEndsGameChance) &&
-			candidate.missEndsGameChance > 0
-			) ||
-			Number.isFinite(candidate.worstOutcomeBoardCount);
+			candidate.missEndsGameChance > 0;
 		}
+	}
+
+	function ensureMissEndsGameForcedTiles(candidate) {
+		if (candidate.missEndsGameForcedTiles !== undefined) return;
+
+		const score = getMissEndsGameForcedTileScore(candidate);
+
+		candidate.missEndsGameForcedTiles = score.forcedTiles;
+		candidate.entersMissEndsGame =
+		candidate.entersMissEndsGame || score.entersMissEndsGame;
+	}
+
+	function ensureMissEndsGameForcedEV(candidate) {
+		if (candidate.missEndsGameForcedEV !== undefined) return;
+
+		const score = getMissEndsGameForcedEVScore(candidate);
+
+		candidate.missEndsGameForcedEV = score.forcedEV;
+		candidate.entersMissEndsGame =
+		candidate.entersMissEndsGame || score.entersMissEndsGame;
+	}
+
+	function ensureWorstOutcomeBoardCount(candidate) {
+		if (candidate.worstOutcomeBoardCount !== undefined) return;
+
+		candidate.worstOutcomeBoardCount =
+		getWorstOutcomeBoardCountScore(candidate);
+
+		candidate.entersMissEndsGame =
+		candidate.entersMissEndsGame ||
+		Number.isFinite(candidate.worstOutcomeBoardCount);
+	}
+
+	function ensureNonMegEndgameChance(candidate) {
+		if (candidate.nonMegEndgameChance !== undefined) return;
+
+		candidate.nonMegEndgameChance =
+		getNonMegEndgameChanceScore(candidate);
+	}
+
+	function ensureBestSafeWorstOutcomeForced(candidate) {
+		if (
+				candidate.bestSafeWorstOutcomeForcedEV !== undefined &&
+				candidate.bestSafeWorstOutcomeForcedTiles !== undefined
+				) return;
+
+		const score = getWorstOutcomeForcedScores(candidate);
+
+		candidate.bestSafeWorstOutcomeForcedEV = score.forcedEV;
+		candidate.bestSafeWorstOutcomeForcedTiles = score.forcedTiles;
+	}
+
+	function ensureStrategicWorstOutcomeForced(candidate) {
+		if (
+				candidate.strategicWorstOutcomeForcedEV !== undefined &&
+				candidate.strategicWorstOutcomeForcedTiles !== undefined
+				) return;
+
+		const score = getWorstOutcomeForcedScores(candidate);
+
+		candidate.strategicWorstOutcomeForcedEV = score.forcedEV;
+		candidate.strategicWorstOutcomeForcedTiles = score.forcedTiles;
 	}
 
 	function applyPreMegTiebreaker(pool, moveClass) {
 		const context = getInfoContext();
 
-if (
-	!preMegTiebreakersEnabled ||
-	!preMegMoveClassEnabled?.[moveClass] ||
-	context.missEndsGame ||
-	context.hits < 4 ||
-	context.misses < 3 ||
-	pool.length <= 1
-) {
+		if (
+				!preMegTiebreakersEnabled ||
+				!preMegMoveClassEnabled?.[moveClass] ||
+				context.missEndsGame ||
+				context.hits < 4 ||
+				context.misses < 3 ||
+				pool.length <= 1
+				) {
 			return {
 winner: null,
 				pool,
@@ -9269,6 +9507,60 @@ forcedTiles: entersMissEndsGame
 
 		return 2 * c.p * (1 - c.p);
 	}
+	
+	function getKnownShipAvoidanceTiles() {
+		const ships = getShipList();
+		const avoidTiles = new Set();
+		const exemptTiles = new Set();
+
+		for (const color of ['red', 'rainbow']) {
+			if (!ships.includes(color)) continue;
+
+			for (const placement of getPlacementsCached(color)) {
+				for (const cell of placement.cells) {
+					exemptTiles.add(cell);
+				}
+			}
+		}
+
+		const hasFullExactColorSupport =
+		appState.solverInfo?.type === "exact" &&
+		appState.solverInfo?.countOnly !== true &&
+		!!appState.allBoards;
+
+		for (const color of Object.keys(SHIPS)) {
+			if (color === 'red' || color === 'rainbow') continue;
+
+			const knownCells = [];
+
+			for (let i = 0; i < 25; i++) {
+				if (grid[i] === color) knownCells.push(i);
+			}
+
+			if (!knownCells.length) continue;
+
+			for (const placement of getPlacementsCached(color)) {
+				if (!knownCells.every(i => placement.cells.includes(i))) continue;
+
+				for (const cell of placement.cells) {
+					if (
+							hasFullExactColorSupport &&
+							getTileColorProbability(cell, color) <= 0
+							) {
+						continue;
+					}
+
+					avoidTiles.add(cell);
+				}
+			}
+		}
+
+		for (const cell of exemptTiles) {
+			avoidTiles.delete(cell);
+		}
+
+		return avoidTiles;
+	}
 
 	function shouldApplySafeAdjacentAvoidance() {
 		if (!safeAvoidAdjacentKnown) return false;
@@ -9371,8 +9663,10 @@ highProbFallback: false
 		if (shouldApplySafeAdjacentAvoidance()) {
 			const beforeCount = candidates.length;
 
+			const knownShipAvoidanceTiles = getKnownShipAvoidanceTiles();
+
 			const nonAdjacentCandidates = candidates.filter(candidate =>
-			!couldBelongToKnownShip(candidate.i)
+			!knownShipAvoidanceTiles.has(candidate.i)
 			);
 
 			if (nonAdjacentCandidates.length > 0) {
@@ -9439,54 +9733,11 @@ highProbFallback: false
 				);
 			}
 
-			const missEndsGameScore =
-			getMissEndsGameForcedTileScore(candidate);
-
-			candidate.entersMissEndsGame =
-			missEndsGameScore.entersMissEndsGame;
-
-			candidate.missEndsGameForcedTiles =
-			missEndsGameScore.forcedTiles;
-			
-			candidate.missEndsGameChance =
-			getMissEndsGameChanceScore(candidate);
-
-			const forcedEVScore =
-			getMissEndsGameForcedEVScore(candidate);
-
-			candidate.entersMissEndsGame =
-			candidate.entersMissEndsGame ||
-			forcedEVScore.entersMissEndsGame;
-
-			candidate.missEndsGameForcedEV =
-			forcedEVScore.forcedEV;
-
-			const worstBoardScore =
-			getWorstOutcomeBoardCountScore(candidate);
-
-			candidate.entersMissEndsGame =
-			candidate.entersMissEndsGame ||
-			Number.isFinite(worstBoardScore);
-
-			candidate.worstOutcomeBoardCount =
-			worstBoardScore;
-
 			candidate.safeBoardReduction =
 			getCandidateReduction(candidate);
 
 			candidate.safePrimaryChance =
 			getPrimaryChance(candidate);
-
-			const worstOutcomeForced =
-			getWorstOutcomeForcedScores(candidate);
-
-			candidate.bestSafeWorstOutcomeForcedEV =
-			worstOutcomeForced.forcedEV;
-
-			candidate.bestSafeWorstOutcomeForcedTiles =
-			worstOutcomeForced.forcedTiles;
-			
-			
 		});
 
 		return attachSafetyFilterAudit(
@@ -9802,14 +10053,6 @@ label: "Lowest tile index (could not break tie)",
 			c.weightedEV = c.ev;
 			c.undiscoveredShip =
 			getUndiscoveredShipTiebreakStats(c.i, appState.allBoards);
-			const worstOutcomeForced =
-			getWorstOutcomeForcedScores(c);
-
-			c.strategicWorstOutcomeForcedEV =
-			worstOutcomeForced.forcedEV;
-
-			c.strategicWorstOutcomeForcedTiles =
-			worstOutcomeForced.forcedTiles;
 
 			c.score = scoreStrategicCandidate(c, huntMode);
 			c.tiebreaker = null;
@@ -10153,6 +10396,19 @@ label: "Lowest tile index (could not break tie)",
 		`;
 
 		const recommendationBehaviorBody = `
+		
+		${renderSettingRow(
+	`
+	<select
+	id="sevenColorOpeningScriptSelect"
+	onchange="setSevenColorOpeningScript(this.value)"
+	>
+	${renderOption("core", "Size 3+", sevenColorOpeningScript)}
+	${renderOption("anyHit", "Size 2+", sevenColorOpeningScript)}
+	</select>
+	`,
+	"Controls whether the 7-color opening script switches modes only on teal/green/yellow hits, or on any hit."
+	)}
 		
 		${renderSettingRow(
 			`
@@ -12163,6 +12419,10 @@ p: rainbowChance,
 		if (use89ColorOpening) {
 			return "8/9-color aggressive opening: play all 3 highlighted tiles.";
 		}
+		
+		if (rareCount === 3 && getSevenColorOpeningOverride() === "aggressive") {
+			return "7-color aggressive opening: start aggressive, then adjust based on the first three reveals.";
+		}
 
 		return huntMode
 		? "Aggressive opening: any of the four tiles adjacent to center are equally optimal starting moves."
@@ -13191,10 +13451,10 @@ label: huntMode
 		for (let i = 0; i < 25; i++) {
 			if (grid[i] !== null) continue;
 
-			const rareP = getUnfoundRareProbability(
-			i,
-			appState.allBoards
-			);
+			const rareP =
+			rareUnfoundCountsCache && appState.allBoards?.length
+			? rareUnfoundCountsCache[i] / appState.allBoards.length
+			: getUnfoundRareProbability(i, appState.allBoards);
 
 			rareValues[i] = rareP;
 
@@ -14963,6 +15223,7 @@ colorMasks: { ...shipMasks }
 				sphereBonusMultiplierPercent,
 				tieBreakerConfig,
 				bestStrategicMoveEnabled,
+				sevenColorOpeningScript,
 				tieBreakerEnabled
 			})
 			);
@@ -15109,6 +15370,13 @@ colorMasks: { ...shipMasks }
 			if (typeof saved.bestStrategicMoveEnabled === "boolean") {
 				bestStrategicMoveEnabled = saved.bestStrategicMoveEnabled;
 			}
+			
+			if (
+	SEVEN_COLOR_OPENING_SCRIPT_EXPORT_ORDER
+	.includes(saved.sevenColorOpeningScript)
+) {
+	sevenColorOpeningScript = saved.sevenColorOpeningScript;
+}
 
 			advancedSettingsLoadedFromStorage = true;
 		} catch {
@@ -15158,6 +15426,7 @@ colorMasks: { ...shipMasks }
 		evPreference !== "default" ||
 		preMegTiebreakersEnabled !== true ||
 		bestStrategicMoveEnabled !== false ||
+		sevenColorOpeningScript !== "anyHit" ||
 		safeOverrideEnabled !== false
 		);
 	}
@@ -15451,6 +15720,11 @@ newColor: grid[i]
 			evPreference =
 			EV_PREFERENCE_EXPORT_ORDER[presets[4]] || "default";
 			
+			sevenColorOpeningScript =
+presets.length < 6
+? "anyHit"
+: SEVEN_COLOR_OPENING_SCRIPT_EXPORT_ORDER[presets[5]] || "anyHit";
+			
 			saveAdvancedSettingsToStorage();
 
 			renderAdvancedSettings();
@@ -15498,7 +15772,10 @@ newColor: grid[i]
 		.indexOf(overlapPreference),
 
 		EV_PREFERENCE_EXPORT_ORDER
-		.indexOf(evPreference)
+		.indexOf(evPreference),
+		
+		SEVEN_COLOR_OPENING_SCRIPT_EXPORT_ORDER
+.indexOf(sevenColorOpeningScript)
 		].join(",");
 
 		const enabledPart = encodeTieBreakerEnabledPart();
@@ -15523,6 +15800,21 @@ newColor: grid[i]
 	// ===============================
 	// T.16 EVENT BINDS
 	// ===============================
+	
+	window.setSevenColorOpeningScript = function(value) {
+	if (!SEVEN_COLOR_OPENING_SCRIPT_EXPORT_ORDER.includes(value)) {
+		return;
+	}
+
+	sevenColorOpeningScript = value;
+
+	saveAdvancedSettingsToStorage();
+	updateTieBreakerNotice();
+
+	runSimulation();
+	renderUI();
+	updateColorAvailability();
+};
 	
 	window.toggleBestStrategicMove = function(btn) {
 		bestStrategicMoveEnabled = !bestStrategicMoveEnabled;
@@ -15844,6 +16136,7 @@ newColor: grid[i]
 		structuredClone(DEFAULT_PRE_MEG_MOVE_CLASS_ENABLED);
 		safeOverrideEnabled = false;
 		bestStrategicMoveEnabled = false;
+		sevenColorOpeningScript = "anyHit";
 
 		if (rareCount !== null) {
 			applyDefaultSafetySettingsForRareCount(
