@@ -1732,6 +1732,8 @@ lastUpdatedBadgeText: null
 
 	const LOCKED_FALLBACK_TIEBREAKER = "tileIndex";
 	
+	const BRANCH_SOLVABILITY_TIMEOUT_MS = 4000;
+	
 	const EPSILON = 0.000001;
 	
 	const DEFAULT_BRANCH_SOLVABILITY_WEIGHTS = {
@@ -2157,22 +2159,46 @@ higherIsBetter: true
 		},
 		
 branchSolvability: {
-label: "Higher future branch solvability",
-getValue: c => {
-				if (c.branchSolvability === undefined) {
-					c.branchSolvability = getBranchSolvabilityScore(c.i);
-				}
+	label: "Higher future branch solvability",
 
-				return c.branchSolvability;
-			},
-higherIsBetter: true,
-shouldSkip: () =>
+	getValue: c =>
+		c.branchSolvability ?? 0,
+
+	higherIsBetter: true,
+
+	shouldSkip: pool => {
+		if (
 			appState.solverInfo?.type !== "exact" ||
 			appState.solverInfo?.countOnly ||
 			!appState.allBoards ||
 			appState.allBoards.length === 0 ||
 			appState.allBoards.length > 20000
-		},
+		) {
+			return true;
+		}
+
+		const work = getBranchSolvabilityWork();
+
+		if (!work) {
+			return true;
+		}
+
+		for (const candidate of pool) {
+			candidate.branchSolvability =
+				getBranchSolvabilityScore(candidate.i);
+
+			if (work.aborted) {
+				for (const c of pool) {
+					delete c.branchSolvability;
+				}
+
+				return true;
+			}
+		}
+
+		return false;
+	}
+},
 
 safePrimaryChance: {
 label: c =>
@@ -7016,9 +7042,14 @@ p: probs[firstTile],
 	}
 
 	function handleTwoBoardEndgame(valid, probs, allBoards) {
-		if (valid !== 2) return false;
+	
+	if (
+	valid !== 2 ||!Array.isArray(allBoards) || allBoards.length !== 2
+	) {
+		return false;
+	}
 
-		const [b1, b2] = allBoards;
+	const [b1, b2] = allBoards;
 
 		const firstDifference = getUnknownTiles().find(i =>
 		getBoardColorAt(b1, i) !== getBoardColorAt(b2, i)
@@ -8265,7 +8296,7 @@ type: "forcedResolution",
 				appState.solverInfo?.type !== "exact" ||
 				appState.solverInfo?.countOnly ||
 				!appState.allBoards?.length ||
-				appState.allBoards.length > 20000
+				appState.allBoards.length > 10000
 				) {
 			return null;
 		}
@@ -8292,29 +8323,52 @@ type: "forcedResolution",
 		}
 
 		const work = {
-			ctx,
-			boardSet,
-			boardCount,
-			knownMask,
-			depth,
-			safeRiskBand,
-weights: branchSolvabilityWeights,
-memo: new Map(),
-tileMemo: new Map(),
-terminalMemo: new Map()
-		};
+	ctx,
+	boardSet,
+	boardCount,
+	knownMask,
+	depth,
+	safeRiskBand,
+	weights: branchSolvabilityWeights,
+	memo: new Map(),
+	tileMemo: new Map(),
+	terminalMemo: new Map(),
+	deadline: performance.now() + BRANCH_SOLVABILITY_TIMEOUT_MS,
+	aborted: false
+};
 
 		appState.branchSolvabilityWork = work;
 
 		return work;
 	}
+	
+	function shouldAbortBranchSolvability(work) {
+	if (work.aborted) {
+		return true;
+	}
+
+	if (performance.now() >= work.deadline) {
+		work.aborted = true;
+		work.memo.clear();
+		work.tileMemo.clear();
+		work.terminalMemo.clear();
+
+		return true;
+	}
+
+	return false;
+}
 
 	function getBranchSolvabilityScore(tile) {
-		const work = getBranchSolvabilityWork();
+	const work = getBranchSolvabilityWork();
 
-		if (!work) return 0;
+	if (!work) return 0;
 
-		return scoreOneFutureTile(
+	if (shouldAbortBranchSolvability(work)) {
+		return 0;
+	}
+
+	const score = scoreOneFutureTile(
 		tile,
 		work.boardSet,
 		work.knownMask,
@@ -8322,9 +8376,16 @@ terminalMemo: new Map()
 		work.ctx,
 		work.memo,
 		work.tileMemo,
-		work.terminalMemo
-		);
+		work.terminalMemo,
+		work
+	);
+
+	if (work.aborted) {
+		return 0;
 	}
+
+	return score;
+}
 
 	function getBranchTerminalStats(boardSet, knownMask, ctx, terminalMemo) {
 		let byBoardSet = terminalMemo.get(boardSet);
@@ -8503,7 +8564,21 @@ solved: boardCount <= 1 || solved
 		);
 	}
 
-	function scoreFutureSolvabilityBranch(boardSet, knownMask, depth, ctx, memo, tileMemo, terminalMemo) {
+	function scoreFutureSolvabilityBranch(
+	boardSet,
+	knownMask,
+	depth,
+	ctx,
+	memo,
+	tileMemo,
+	terminalMemo,
+	work
+) {
+	
+	if (shouldAbortBranchSolvability(work)) {
+	return 0;
+}
+	
 		const cached = getStrategyMemo(
 		memo,
 		boardSet,
@@ -8568,19 +8643,24 @@ solved: boardCount <= 1 || solved
 		let bestScore = -Infinity;
 
 		for (let mask = unknownMask; mask; mask &= mask - 1) {
-			const bit = mask & -mask;
-			const nextTile = BIT_INDEX[bit];
+	if (shouldAbortBranchSolvability(work)) {
+		return 0;
+	}
 
-			const score = scoreOneFutureTile(
-			nextTile,
-			boardSet,
-			knownMask,
-			depth,
-			ctx,
-			memo,
-			tileMemo,
-			terminalMemo
-			);
+	const bit = mask & -mask;
+	const nextTile = BIT_INDEX[bit];
+
+	const score = scoreOneFutureTile(
+		nextTile,
+		boardSet,
+		knownMask,
+		depth,
+		ctx,
+		memo,
+		tileMemo,
+		terminalMemo,
+		work
+	);
 
 			if (score > bestScore) {
 				bestScore = score;
@@ -8602,7 +8682,22 @@ solved: boardCount <= 1 || solved
 		return result;
 	}
 
-	function scoreOneFutureTile(tile, boardSet, knownMask, depth, ctx, memo, tileMemo, terminalMemo) {
+	function scoreOneFutureTile(
+	tile,
+	boardSet,
+	knownMask,
+	depth,
+	ctx,
+	memo,
+	tileMemo,
+	terminalMemo,
+	work
+) {
+	
+	if (shouldAbortBranchSolvability(work)) {
+	return 0;
+}
+	
 		let byBoardSet = tileMemo.get(boardSet);
 
 		if (!byBoardSet) {
@@ -8623,25 +8718,30 @@ solved: boardCount <= 1 || solved
 		let totalScore = 0;
 
 		for (const outcome in outcomeSets) {
-			const outcomeBoardSet = boardSet & outcomeSets[outcome];
-			if (outcomeBoardSet === 0n) continue;
+	if (shouldAbortBranchSolvability(work)) {
+		return 0;
+	}
 
-			const outcomeCount =
-			getBoardSetCount(outcomeBoardSet, ctx);
+	const outcomeBoardSet = boardSet & outcomeSets[outcome];
+	if (outcomeBoardSet === 0n) continue;
 
-			const chance = outcomeCount / boardCount;
+	const outcomeCount =
+	getBoardSetCount(outcomeBoardSet, ctx);
 
-			totalScore += chance *
-			scoreFutureSolvabilityBranch(
-			outcomeBoardSet,
-			nextKnownMask,
-			depth - 1,
-			ctx,
-			memo,
-			tileMemo,
-			terminalMemo
-			);
-		}
+	const chance = outcomeCount / boardCount;
+
+	totalScore += chance *
+	scoreFutureSolvabilityBranch(
+		outcomeBoardSet,
+		nextKnownMask,
+		depth - 1,
+		ctx,
+		memo,
+		tileMemo,
+		terminalMemo,
+		work
+	);
+}
 
 		byBoardSet.set(tileKey, totalScore);
 
